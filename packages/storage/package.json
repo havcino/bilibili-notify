@@ -24,8 +24,8 @@
 		"build": "tsdown",
 		"typecheck": "tsc --noEmit"
 	},
-	"peerDependencies": {
-		"koishi": "^4.18.11"
+	"dependencies": {
+		"@bilibili-notify/internal": "workspace:^"
 	},
 	"engines": {
 		"node": ">=20.0.0"

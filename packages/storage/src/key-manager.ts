@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
-import type { Logger } from "koishi";
+import type { Logger } from "@bilibili-notify/internal";
 
 export class KeyManager {
 	constructor(

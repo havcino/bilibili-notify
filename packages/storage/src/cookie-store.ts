@@ -1,7 +1,7 @@
 import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
 import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
-import type { Logger } from "koishi";
+import type { Logger } from "@bilibili-notify/internal";
 import type { KeyManager } from "./key-manager";
 import type { EncryptedFile, StoredCookies } from "./types";
 

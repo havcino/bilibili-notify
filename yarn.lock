@@ -190,8 +190,8 @@ __metadata:
 "@bilibili-notify/storage@workspace:^, @bilibili-notify/storage@workspace:packages/storage":
   version: 0.0.0-use.local
   resolution: "@bilibili-notify/storage@workspace:packages/storage"
-  peerDependencies:
-    koishi: ^4.18.11
+  dependencies:
+    "@bilibili-notify/internal": "workspace:^"
   languageName: unknown
   linkType: soft
 

@@ -1,5 +1,5 @@
 import { join } from "node:path";
-import type { Context } from "koishi";
+import type { ServiceContext } from "@bilibili-notify/internal";
 import { CookieStore } from "./cookie-store";
 import { KeyManager } from "./key-manager";
 
@@ -8,15 +8,19 @@ export { CookieStore } from "./cookie-store";
 export { KeyManager } from "./key-manager";
 export type { EncryptedFile, StoredCookies } from "./types";
 
+export interface StorageManagerOptions {
+	serviceCtx: ServiceContext;
+	dataDir: string;
+}
+
 export class StorageManager {
 	readonly cookieStore: CookieStore;
 
-	constructor(dataDir: string, ctx: Context) {
-		const logger = ctx.logger("bilibili-notify-storage");
-		const keyPath = join(dataDir, "bilibili-notify", "master.key");
-		const cookiePath = join(dataDir, "bilibili-notify", "cookies.json");
-		const keyManager = new KeyManager(keyPath, logger);
-		this.cookieStore = new CookieStore(cookiePath, keyManager, logger);
+	constructor(opts: StorageManagerOptions) {
+		const keyPath = join(opts.dataDir, "bilibili-notify", "master.key");
+		const cookiePath = join(opts.dataDir, "bilibili-notify", "cookies.json");
+		const keyManager = new KeyManager(keyPath, opts.serviceCtx.logger);
+		this.cookieStore = new CookieStore(cookiePath, keyManager, opts.serviceCtx.logger);
 	}
 
 	async init(): Promise<void> {

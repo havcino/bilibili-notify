@@ -115,7 +115,10 @@ class BilibiliNotifyServerManager extends Service<BilibiliNotifyConfig> {
 	protected async start(): Promise<void> {
 		this.serverLogger.info("[start] 正在启动中...");
 
-		this.storageMgr = new StorageManager(this.ctx.baseDir, this.ctx);
+		this.storageMgr = new StorageManager({
+			serviceCtx: makeKoishiServiceContext(this.ctx, "bilibili-notify-storage"),
+			dataDir: this.ctx.baseDir,
+		});
 		await this.storageMgr.init();
 
 		this.auth = new LoginStatusController(this.selfCtx, {
