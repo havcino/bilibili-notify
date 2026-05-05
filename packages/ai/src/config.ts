@@ -1,5 +1,5 @@
+import type { PersonaKey } from "@bilibili-notify/ai-engine";
 import { Schema } from "koishi";
-import type { PersonaKey } from "./persona-presets";
 
 export interface PersonaConfig {
 	/** 基础人格预设 */

@@ -1,9 +1,12 @@
 import type { Context } from "koishi";
 import { type BilibiliNotifyDynamicConfig, BilibiliNotifyDynamicSchema } from "./config";
 import { BilibiliNotifyDynamic } from "./dynamic-service";
-import type { DynamicFilterConfig } from "./types";
 
-export type { DynamicFilterConfig };
+export type {
+	DynamicFilterConfig,
+	DynamicFilterReason,
+	DynamicFilterResult,
+} from "@bilibili-notify/dynamic-engine";
 export { BilibiliNotifyDynamic };
 
 export const name = "bilibili-notify-dynamic";

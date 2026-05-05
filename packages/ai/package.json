@@ -37,8 +37,9 @@
 		"typecheck": "tsc --noEmit"
 	},
 	"dependencies": {
-		"@bilibili-notify/internal": "workspace:^",
-		"openai": "^4.98.0"
+		"@bilibili-notify/ai-engine": "workspace:^",
+		"@bilibili-notify/api": "workspace:^",
+		"@bilibili-notify/internal": "workspace:^"
 	},
 	"devDependencies": {
 		"@koishijs/plugin-help": "^2.4.6",

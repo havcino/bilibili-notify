@@ -2,6 +2,7 @@ import type { Context } from "koishi";
 import { BilibiliNotifyLiveConfig } from "./config";
 import { BilibiliNotifyLive } from "./live-service";
 
+export type { LiveData, LiveType, MasterInfo } from "@bilibili-notify/live-engine";
 export { BilibiliNotifyLive };
 
 export const name = "bilibili-notify-live";

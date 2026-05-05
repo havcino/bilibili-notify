@@ -1,7 +1,12 @@
 import { BilibiliNotifyImageConfig } from "./config";
 import BilibiliNotifyImage from "./image-service";
 
-export type { CardColorOptions, Dynamic, LiveData, RichTextNode } from "./types";
+export type {
+	CardColorOptions,
+	Dynamic,
+	LiveData,
+	RichTextNode,
+} from "@bilibili-notify/image-engine";
 export type { BilibiliNotifyImage as BilibiliNotifyImageType };
 export { BilibiliNotifyImage };
 

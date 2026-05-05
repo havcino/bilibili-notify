@@ -1,5 +1,5 @@
+import type { DynamicFilterConfig } from "@bilibili-notify/dynamic-engine";
 import { Schema } from "koishi";
-import type { DynamicFilterConfig } from "./types";
 
 export interface BilibiliNotifyDynamicConfig {
 	logLevel: number;
