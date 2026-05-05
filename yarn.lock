@@ -147,7 +147,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@bilibili-notify/ai-engine@workspace:packages/ai-engine":
+"@bilibili-notify/ai-engine@workspace:^, @bilibili-notify/ai-engine@workspace:packages/ai-engine":
   version: 0.0.0-use.local
   resolution: "@bilibili-notify/ai-engine@workspace:packages/ai-engine"
   dependencies:
@@ -178,7 +178,21 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"@bilibili-notify/image-engine@workspace:packages/image-engine":
+"@bilibili-notify/dynamic-engine@workspace:packages/dynamic-engine":
+  version: 0.0.0-use.local
+  resolution: "@bilibili-notify/dynamic-engine@workspace:packages/dynamic-engine"
+  dependencies:
+    "@bilibili-notify/ai-engine": "workspace:^"
+    "@bilibili-notify/api": "workspace:^"
+    "@bilibili-notify/image-engine": "workspace:^"
+    "@bilibili-notify/internal": "workspace:^"
+    "@types/luxon": "npm:^3.4.2"
+    cron: "npm:^3.1.7"
+    luxon: "npm:^3.5.0"
+  languageName: unknown
+  linkType: soft
+
+"@bilibili-notify/image-engine@workspace:^, @bilibili-notify/image-engine@workspace:packages/image-engine":
   version: 0.0.0-use.local
   resolution: "@bilibili-notify/image-engine@workspace:packages/image-engine"
   dependencies:
@@ -200,6 +214,23 @@ __metadata:
   resolution: "@bilibili-notify/internal@workspace:packages/internal"
   dependencies:
     zod: "npm:^4.4.3"
+  languageName: unknown
+  linkType: soft
+
+"@bilibili-notify/live-engine@workspace:packages/live-engine":
+  version: 0.0.0-use.local
+  resolution: "@bilibili-notify/live-engine@workspace:packages/live-engine"
+  dependencies:
+    "@bilibili-notify/ai-engine": "workspace:^"
+    "@bilibili-notify/api": "workspace:^"
+    "@bilibili-notify/image-engine": "workspace:^"
+    "@bilibili-notify/internal": "workspace:^"
+    "@types/luxon": "npm:^3.4.2"
+    "@types/protobufjs": "npm:^6.0.0"
+    blive-message-listener: "npm:^0.5.4"
+    jieba-wasm: "npm:^2.4.0"
+    luxon: "npm:^3.5.0"
+    protobufjs: "npm:^7.4.0"
   languageName: unknown
   linkType: soft
 
