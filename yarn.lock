@@ -147,6 +147,16 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@bilibili-notify/ai-engine@workspace:packages/ai-engine":
+  version: 0.0.0-use.local
+  resolution: "@bilibili-notify/ai-engine@workspace:packages/ai-engine"
+  dependencies:
+    "@bilibili-notify/api": "workspace:^"
+    "@bilibili-notify/internal": "workspace:^"
+    openai: "npm:^4.98.0"
+  languageName: unknown
+  linkType: soft
+
 "@bilibili-notify/api@workspace:^, @bilibili-notify/api@workspace:packages/api":
   version: 0.0.0-use.local
   resolution: "@bilibili-notify/api@workspace:packages/api"
@@ -165,6 +175,23 @@ __metadata:
     md5: "npm:^2.3.0"
     openai: "npm:^4.98.0"
     tough-cookie: "npm:^6.0.0"
+  languageName: unknown
+  linkType: soft
+
+"@bilibili-notify/image-engine@workspace:packages/image-engine":
+  version: 0.0.0-use.local
+  resolution: "@bilibili-notify/image-engine@workspace:packages/image-engine"
+  dependencies:
+    "@bilibili-notify/internal": "workspace:^"
+    "@types/jsdom": "npm:^21.1.7"
+    "@types/luxon": "npm:^3.4.2"
+    "@unocss/core": "npm:^66.6.8"
+    "@unocss/preset-wind4": "npm:^66.6.8"
+    "@vue/server-renderer": "npm:^3.5.32"
+    blive-message-listener: "npm:^0.5.3"
+    jsdom: "npm:^26.1.0"
+    luxon: "npm:^3.5.0"
+    vue: "npm:^3.5.32"
   languageName: unknown
   linkType: soft
 

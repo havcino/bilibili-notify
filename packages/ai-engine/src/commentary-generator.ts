@@ -1,0 +1,403 @@
+import type { BilibiliAPI } from "@bilibili-notify/api";
+import type { Logger, ServiceContext } from "@bilibili-notify/internal";
+import type OpenAI from "openai";
+import type { PersonaKey } from "./persona-presets";
+import { buildSystemPrompt } from "./persona-presets";
+import {
+	executeTool,
+	type SessionContext,
+	type SubManagement,
+	type Subscriptions,
+	TOOL_DEFINITIONS,
+} from "./tools";
+
+const SESSION_TTL_MS = 2 * 60 * 60 * 1000; // 2 hours
+
+type ConversationRole = "user" | "assistant";
+interface ConversationMessage {
+	role: ConversationRole;
+	content: string;
+}
+
+interface SessionEntry {
+	messages: ConversationMessage[];
+	lastActiveAt: number;
+	/** 历史压缩摘要，注入到 system prompt 尾部 */
+	summary?: string;
+}
+
+export type AIScene = "dynamic" | "liveSummary";
+
+/** 平台中立的人格配置（与 koishi 端 PersonaConfig 字段保持一致，但不依赖 koishi Schema）。 */
+export interface PersonaConfig {
+	/** 基础人格预设 */
+	preset: PersonaKey;
+	/** AI 名字，留空则跟随预设默认值 */
+	name?: string;
+	/** 称呼用户的方式 */
+	addressUser?: string;
+	/** AI 的自称 */
+	addressSelf?: string;
+	/** 性格特点，逗号分隔 */
+	traits?: string;
+	/** 口头禅 */
+	catchphrase?: string;
+	/** preset 为 custom 时的基础描述 */
+	customBase?: string;
+	/** 追加到任何预设末尾的额外提示词（高级） */
+	extraPrompt?: string;
+}
+
+/**
+ * CommentaryGenerator 的运行时配置。
+ * 与 koishi 端 BilibiliNotifyAIConfig 字段对应，但不包含 logLevel
+ * （由 adapter 在外部配置 logger）。
+ */
+export interface CommentaryGeneratorConfig {
+	apiKey: string;
+	baseURL: string;
+	model: string;
+
+	/** 结构化人格配置 */
+	persona: PersonaConfig;
+
+	/** 动态点评时追加到人格提示词之后的场景说明 */
+	dynamicPrompt: string;
+	/** 直播总结时追加到人格提示词之后的场景说明 */
+	liveSummaryPrompt: string;
+
+	/** 开启后，chat 将记忆对话历史 */
+	enableConversation: boolean;
+	/** 多轮对话保留的最大历史轮次（每轮=一问一答） */
+	maxHistory: number;
+
+	/** 开启模型的思考模式（仅 Qwen3 等支持 enable_thinking 的模型有效） */
+	enableThinking: boolean;
+
+	/** 开启模型内置的联网搜索（仅 SiliconFlow 等支持 enable_search 的提供商有效） */
+	enableSearch: boolean;
+
+	/** 开启多模态图片理解（需模型支持视觉能力） */
+	enableVision: boolean;
+}
+
+export interface CommentaryGeneratorOptions {
+	serviceCtx: ServiceContext;
+	api: BilibiliAPI;
+	config: CommentaryGeneratorConfig;
+}
+
+/**
+ * 平台中立的 AI 点评 / 多轮对话核心。
+ * 不依赖 koishi runtime；adapter 负责配置 logger、提供 BilibiliAPI 与可选的订阅管理钩子。
+ */
+export class CommentaryGenerator {
+	private readonly logger: Logger;
+	private readonly api: BilibiliAPI;
+	private config: CommentaryGeneratorConfig;
+	private readonly sessions = new Map<string, SessionEntry>();
+
+	private subsAccessor: (() => Subscriptions | null) | null = null;
+	private subMgmt: SubManagement | null = null;
+
+	constructor(opts: CommentaryGeneratorOptions) {
+		this.api = opts.api;
+		this.config = opts.config;
+		this.logger = opts.serviceCtx.logger;
+	}
+
+	/**
+	 * 注入订阅查询 / 管理能力。Koishi adapter 在 BilibiliNotifyServerManager 启动后调用。
+	 * 不调用此方法时，chat() 内的订阅相关工具会返回"功能不可用"。
+	 */
+	setSubManagement(opts: { getSubs: () => Subscriptions | null; subMgmt?: SubManagement }): void {
+		this.subsAccessor = opts.getSubs;
+		this.subMgmt = opts.subMgmt ?? null;
+	}
+
+	/** 替换运行时配置（adapter 在 koishi config 变更时调用）。 */
+	updateConfig(config: CommentaryGeneratorConfig): void {
+		this.config = config;
+	}
+
+	/** 启动钩子（保留扩展点，目前仅打印一条日志）。 */
+	start(): void {
+		const { preset } = this.config.persona;
+		this.logger.info(
+			`[start] 人格预设：${preset}，模型：${this.config.model}，多轮对话：${this.config.enableConversation ? "开启" : "关闭"}`,
+		);
+		this.logger.debug(`[start] 系统提示词（无场景）：\n${this.getSystemPrompt()}`);
+	}
+
+	/** 停止钩子，清空会话历史。 */
+	stop(): void {
+		this.sessions.clear();
+		this.logger.info("[stop] 会话历史已清除");
+	}
+
+	private getSubs(): Subscriptions | null {
+		return this.subsAccessor ? this.subsAccessor() : null;
+	}
+
+	/**
+	 * 获取指定场景的 system prompt。
+	 * 始终以人格配置为基础，场景补充说明叠加在其后。
+	 */
+	getSystemPrompt(scene?: AIScene, summary?: string): string {
+		const personaPrompt = buildSystemPrompt(this.config.persona);
+		const sceneAddition =
+			scene === "dynamic"
+				? this.config.dynamicPrompt
+				: scene === "liveSummary"
+					? this.config.liveSummaryPrompt
+					: "";
+
+		const base = sceneAddition ? `${personaPrompt}\n${sceneAddition}` : personaPrompt;
+		return summary ? `${base}\n\n[之前对话摘要]\n${summary}` : base;
+	}
+
+	/**
+	 * 单次 AI 调用，不保存历史。
+	 * 供 dynamic/live 插件调用。
+	 */
+	async comment(content: string, scene?: AIScene, imageUrls?: string[]): Promise<string> {
+		const systemPrompt = this.getSystemPrompt(scene);
+		this.logger.debug(
+			`[comment] scene=${scene ?? "default"}, 内容长度=${content.length}, 图片数=${imageUrls?.length ?? 0}`,
+		);
+		const result = await this.callAPI(
+			systemPrompt,
+			[{ role: "user", content }],
+			undefined,
+			this.config.enableVision ? imageUrls : undefined,
+		);
+		this.logger.debug(`[comment] 响应长度=${result.length}`);
+		return result;
+	}
+
+	/**
+	 * 多轮对话，按 sessionId 保存历史，自动携带工具能力。
+	 * 历史满载时自动压缩最旧一半为摘要。
+	 * 供 bili chat 指令使用。
+	 */
+	async chat(
+		content: string,
+		sessionId: string,
+		imageUrls?: string[],
+		sessionCtx?: SessionContext,
+	): Promise<{ result: string; pendingActions: Array<() => Promise<void>> }> {
+		const now = Date.now();
+		const entry = this.sessions.get(sessionId);
+		const isExpired = !entry || now - entry.lastActiveAt >= SESSION_TTL_MS;
+		const history: ConversationMessage[] = isExpired ? [] : [...entry.messages];
+		const prevSummary = isExpired ? undefined : entry.summary;
+
+		history.push({ role: "user", content });
+
+		const systemPrompt = this.getSystemPrompt(undefined, prevSummary);
+		this.logger.debug(
+			`[chat] sessionId=${sessionId}, 历史轮次=${Math.floor(history.length / 2)}, 新消息长度=${content.length}`,
+		);
+
+		const maxMessages = this.config.maxHistory * 2;
+		const trimmedHistory = history.slice(-maxMessages);
+
+		const pendingActions: Array<() => Promise<void>> = [];
+
+		const result = await this.callAPI(
+			systemPrompt,
+			trimmedHistory,
+			{
+				tools: TOOL_DEFINITIONS,
+				onToolCall: (name, args) =>
+					executeTool(
+						name,
+						args,
+						this.api,
+						() => this.getSubs(),
+						sessionCtx,
+						this.subMgmt ?? undefined,
+						pendingActions,
+					),
+			},
+			this.config.enableVision ? imageUrls : undefined,
+		);
+
+		if (this.config.enableConversation) {
+			trimmedHistory.push({ role: "assistant", content: result });
+
+			let newMessages = trimmedHistory;
+			let newSummary = prevSummary;
+
+			// 历史满载时压缩最旧一半
+			if (trimmedHistory.length >= maxMessages) {
+				const half = Math.floor(maxMessages / 2);
+				const toCompress = trimmedHistory.slice(0, half);
+				newMessages = trimmedHistory.slice(half);
+				newSummary = await this.compressHistory(toCompress, prevSummary);
+				this.logger.debug(
+					`[chat] 历史已压缩，摘要长度=${newSummary.length}，保留消息=${newMessages.length}`,
+				);
+			}
+
+			this.sessions.set(sessionId, {
+				messages: newMessages,
+				lastActiveAt: now,
+				summary: newSummary,
+			});
+		} else {
+			this.sessions.delete(sessionId);
+		}
+
+		this.logger.debug(`[chat] 响应长度=${result.length}`);
+		return { result, pendingActions };
+	}
+
+	/** 清除指定用户的对话历史 */
+	clearSession(sessionId: string): void {
+		this.sessions.delete(sessionId);
+		this.logger.debug(`[session] 清除会话 sessionId=${sessionId}`);
+	}
+
+	/** 执行 chat() 返回的延迟订阅操作（在 AI 回复发送后调用） */
+	async flushPendingSubActions(pendingActions: Array<() => Promise<void>>): Promise<void> {
+		if (!pendingActions.length) return;
+		this.logger.debug(`[deferred] 执行 ${pendingActions.length} 个延迟操作`);
+		for (const action of pendingActions) {
+			try {
+				await action();
+			} catch (e) {
+				this.logger.error(`[deferred] 延迟操作执行失败：${(e as Error).message}`);
+			}
+		}
+	}
+
+	/** 当前活跃（未过期）会话数 */
+	get sessionCount(): number {
+		const now = Date.now();
+		let count = 0;
+		for (const entry of this.sessions.values()) {
+			if (now - entry.lastActiveAt < SESSION_TTL_MS) count++;
+		}
+		return count;
+	}
+
+	/** 将一段对话消息压缩为摘要，可合并上一轮摘要 */
+	private async compressHistory(
+		messages: ConversationMessage[],
+		prevSummary?: string,
+	): Promise<string> {
+		const prevNote = prevSummary ? `（已有摘要：${prevSummary}）\n\n以下是新增对话：\n` : "";
+		const text = messages
+			.map((m) => `${m.role === "user" ? "用户" : "AI"}：${m.content}`)
+			.join("\n");
+		const prompt = `${prevNote}${text}\n\n请将以上对话提炼为简短摘要（100字以内），只输出摘要本身。`;
+		return this.callAPI("你是对话摘要助手，只输出摘要内容，不附加任何前缀或解释。", [
+			{ role: "user", content: prompt },
+		]);
+	}
+
+	private async callAPI(
+		systemPrompt: string,
+		messages: ConversationMessage[],
+		toolOptions?: {
+			tools: OpenAI.ChatCompletionTool[];
+			onToolCall: (name: string, args: Record<string, string>) => Promise<string>;
+		},
+		imageUrls?: string[],
+	): Promise<string> {
+		const { apiKey, baseURL, model } = this.config;
+		if (!apiKey) throw new Error("AI apiKey 未配置");
+		if (!baseURL) throw new Error("AI baseURL 未配置");
+
+		this.logger.debug(
+			`[api] baseURL=${baseURL}, model=${model}, messages=${messages.length}, tools=${toolOptions ? "yes" : "no"}, images=${imageUrls?.length ?? 0}`,
+		);
+		const { default: OpenAI } = await import("openai");
+		const client = new OpenAI({ apiKey, baseURL });
+
+		const apiMessages: OpenAI.ChatCompletionMessageParam[] = [
+			{ role: "system", content: systemPrompt },
+		];
+		for (let i = 0; i < messages.length; i++) {
+			const msg = messages[i];
+			const isLastUser = i === messages.length - 1 && msg.role === "user" && imageUrls?.length;
+			if (isLastUser && imageUrls) {
+				apiMessages.push({
+					role: "user",
+					content: [
+						{ type: "text", text: msg.content },
+						...imageUrls.map((url) => ({
+							type: "image_url" as const,
+							image_url: { url },
+						})),
+					],
+				});
+			} else {
+				apiMessages.push(msg);
+			}
+		}
+
+		/** ChatCompletionCreateParams + SiliconFlow/Qwen3 扩展字段 */
+		type CreateParams = OpenAI.ChatCompletionCreateParamsNonStreaming & {
+			extra_body?: Record<string, unknown>;
+		};
+		const makeParams = (withThinking: boolean, withSearch: boolean): CreateParams => {
+			const extra_body: Record<string, unknown> = {};
+			if (withThinking) extra_body.enable_thinking = true;
+			if (withSearch) extra_body.enable_search = true;
+			return {
+				model,
+				messages: apiMessages,
+				...(toolOptions ? { tools: toolOptions.tools, tool_choice: "auto" } : {}),
+				...(Object.keys(extra_body).length > 0 ? { extra_body } : {}),
+			};
+		};
+
+		const MAX_ROUNDS = 8;
+		for (let round = 0; round < MAX_ROUNDS; round++) {
+			let res: Awaited<ReturnType<typeof client.chat.completions.create>>;
+			try {
+				res = await client.chat.completions.create(
+					makeParams(this.config.enableThinking, this.config.enableSearch),
+				);
+			} catch (e) {
+				if (this.config.enableThinking) {
+					this.logger.warn(`[api] thinking 模式不受支持，降级重试: ${(e as Error).message}`);
+					res = await client.chat.completions.create(makeParams(false, this.config.enableSearch));
+				} else {
+					throw e;
+				}
+			}
+
+			const message = res.choices[0].message;
+			apiMessages.push(message);
+
+			if (!message.tool_calls?.length) {
+				return message.content ?? "";
+			}
+
+			this.logger.debug(`[tool] 第 ${round + 1} 轮，调用 ${message.tool_calls.length} 个工具`);
+			if (!toolOptions) break;
+
+			for (const toolCall of message.tool_calls) {
+				let result: string;
+				try {
+					const args = JSON.parse(toolCall.function.arguments) as Record<string, string>;
+					this.logger.debug(`[tool] 执行 ${toolCall.function.name}(${JSON.stringify(args)})`);
+					result = await toolOptions.onToolCall(toolCall.function.name, args);
+				} catch (e) {
+					result = `工具执行失败: ${(e as Error).message}`;
+				}
+				this.logger.debug(`[tool] ${toolCall.function.name} 结果长度=${result.length}`);
+				apiMessages.push({
+					role: "tool",
+					tool_call_id: toolCall.id,
+					content: result,
+				});
+			}
+		}
+
+		return "（工具调用轮次已达上限）";
+	}
+}
