@@ -1,7 +1,9 @@
+import type { Server as HttpServer } from "node:http";
 import { type ServerType, serve } from "@hono/node-server";
 import { createApp } from "./app.js";
 import { loadBootstrapConfig } from "./config/loader.js";
 import { createAppRuntime } from "./runtime/bootstrap.js";
+import { createWsServer } from "./ws/server.js";
 
 async function main(): Promise<void> {
 	const bootstrap = loadBootstrapConfig();
@@ -33,12 +35,27 @@ async function main(): Promise<void> {
 		);
 	});
 
+	// Mount WebSocket layer on top of the same HTTP server. Chicken-and-egg
+	// resolution: the serviceCtx is built first (no log hook), the WS server's
+	// log channel is then installed back onto the serviceCtx via setLogHook so
+	// every subsequent `logger.<level>(...)` call also lands on the `log` channel.
+	const httpServer = server as unknown as HttpServer;
+	const wsServer = createWsServer({
+		httpServer,
+		bus: runtime.bus,
+		store: runtime.configStore,
+		serviceCtx: runtime.serviceCtx,
+	});
+	const previousLogHook = runtime.serviceCtx.setLogHook((entry) => wsServer.logChannel.push(entry));
+
 	let shuttingDown = false;
 	const shutdown = async (signal: NodeJS.Signals): Promise<void> => {
 		if (shuttingDown) return;
 		shuttingDown = true;
 		log.info(`received ${signal}, shutting down…`);
 		try {
+			runtime.serviceCtx.setLogHook(previousLogHook);
+			wsServer.dispose();
 			if (server) {
 				await new Promise<void>((resolve) => {
 					server?.close(() => resolve());

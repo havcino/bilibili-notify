@@ -1,5 +1,6 @@
 import type { Disposable, Logger, ServiceContext } from "@bilibili-notify/internal";
 import { pino } from "pino";
+import type { LogEntry, LogLevel } from "../ws/types.js";
 
 export interface NodeServiceContextOptions {
 	/** Component name; surfaces as `name` in pino output. */
@@ -8,6 +9,13 @@ export interface NodeServiceContextOptions {
 	level?: string;
 	/** Pretty-print to stdout in dev. Defaults to true when stdout is a TTY. */
 	pretty?: boolean;
+	/**
+	 * Optional log forwarder. Every `logger.<level>(msg, ...args)` call invokes
+	 * this AFTER the underlying pino logger. The WS `log` channel installs one
+	 * post-construction via `setLogHook` (chicken-and-egg: we need a serviceCtx
+	 * to build the WS server, but the WS server provides the hook).
+	 */
+	onLog?: (entry: LogEntry) => void;
 }
 
 /**
@@ -19,10 +27,19 @@ export interface NodeServiceContextOptions {
  * The `dispose()` method on the returned object is the standalone-side equivalent of
  * koishi's "the plugin scope was torn down" — it clears every still-pending timer and
  * runs every queued onDispose hook in LIFO order.
+ *
+ * The `setLogHook(fn)` method swaps in a log forwarder after construction. Used by the
+ * WS layer to feed `logger.<level>(...)` calls onto the `log` channel without the
+ * core `Logger` interface having to know anything about WebSockets.
  */
 export interface NodeServiceContext extends ServiceContext {
 	/** Tear down all pending timers + onDispose hooks (LIFO). Idempotent. */
 	dispose(): Promise<void>;
+	/**
+	 * Install (or clear) the log forwarder. Pass `undefined` to detach.
+	 * Returns the previous hook so callers can restore it on dispose.
+	 */
+	setLogHook(fn: ((entry: LogEntry) => void) | undefined): ((entry: LogEntry) => void) | undefined;
 }
 
 export function createNodeServiceContext(opts: NodeServiceContextOptions): NodeServiceContext {
@@ -40,17 +57,41 @@ export function createNodeServiceContext(opts: NodeServiceContextOptions): NodeS
 			: {}),
 	});
 
+	let logHook: ((entry: LogEntry) => void) | undefined = opts.onLog;
+
 	// pino's per-method overloads collide with our `(msg: string, ...args: unknown[])`
 	// shape because pino expects either `(msg, ...string[])` or `(obj, msg?, ...args)`.
-	// We funnel through a tiny adapter that forwards verbatim.
+	// We funnel through a tiny adapter that forwards verbatim, then fans out to the hook.
 	const callPino = (fn: (...a: unknown[]) => void, msg: string, args: readonly unknown[]): void => {
 		fn(msg, ...args);
 	};
+	const fanOut = (level: LogLevel, msg: string, args: readonly unknown[]): void => {
+		const hook = logHook;
+		if (!hook) return;
+		try {
+			hook({ level, msg, args: [...args], ts: new Date().toISOString() });
+		} catch {
+			// Never let a misbehaving hook break the logger path. We can't log the failure
+			// without recursing through ourselves, so swallow.
+		}
+	};
 	const logger: Logger = {
-		info: (msg, ...args) => callPino(baseLogger.info.bind(baseLogger) as never, msg, args),
-		warn: (msg, ...args) => callPino(baseLogger.warn.bind(baseLogger) as never, msg, args),
-		error: (msg, ...args) => callPino(baseLogger.error.bind(baseLogger) as never, msg, args),
-		debug: (msg, ...args) => callPino(baseLogger.debug.bind(baseLogger) as never, msg, args),
+		info: (msg, ...args) => {
+			callPino(baseLogger.info.bind(baseLogger) as never, msg, args);
+			fanOut("info", msg, args);
+		},
+		warn: (msg, ...args) => {
+			callPino(baseLogger.warn.bind(baseLogger) as never, msg, args);
+			fanOut("warn", msg, args);
+		},
+		error: (msg, ...args) => {
+			callPino(baseLogger.error.bind(baseLogger) as never, msg, args);
+			fanOut("error", msg, args);
+		},
+		debug: (msg, ...args) => {
+			callPino(baseLogger.debug.bind(baseLogger) as never, msg, args);
+			fanOut("debug", msg, args);
+		},
 	};
 
 	const intervals = new Set<NodeJS.Timeout>();
@@ -96,6 +137,11 @@ export function createNodeServiceContext(opts: NodeServiceContextOptions): NodeS
 				return;
 			}
 			disposeHooks.push(fn);
+		},
+		setLogHook(fn) {
+			const prev = logHook;
+			logHook = fn;
+			return prev;
 		},
 		async dispose() {
 			if (disposed) return;
