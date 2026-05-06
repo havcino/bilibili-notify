@@ -4,7 +4,8 @@
 	"private": true,
 	"packageManager": "yarn@4.9.2",
 	"workspaces": [
-		"packages/*"
+		"packages/*",
+		"koishi/*"
 	],
 	"scripts": {
 		"build": "tsdown -W && yarn workspace koishi-plugin-bilibili-notify run build:client",

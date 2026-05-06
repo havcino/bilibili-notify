@@ -1,4 +1,4 @@
-import type { ImageRenderer } from "@bilibili-notify/image-engine";
+import type { ImageRenderer } from "@bilibili-notify/image";
 import type { Logger } from "@bilibili-notify/internal";
 
 /**

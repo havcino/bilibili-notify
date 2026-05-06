@@ -109,7 +109,7 @@ export type SubItemTargetLike = Partial<Record<LivePushFeature, unknown[]>>;
 
 /**
  * Platform-neutral view of a single subscription, structurally compatible with
- * `@bilibili-notify/push`'s `SubItem`. live-engine only reads this shape; the
+ * `@bilibili-notify/push`'s `SubItem`. The live engine only reads this shape; the
  * adapter is responsible for providing instances (the Koishi shell hands its
  * `SubItem`s through unchanged, since their fields match by name).
  */

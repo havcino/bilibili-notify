@@ -1,19 +1,22 @@
-import { BilibiliNotifyImageConfig } from "./config";
-import BilibiliNotifyImage from "./image-service";
-
+export {
+	ImageRenderer,
+	type ImageRendererConfig,
+	type ImageRendererOptions,
+} from "./image-renderer";
+export type {
+	BoundingBox,
+	ElementHandleLike,
+	PageLike,
+	PuppeteerLike,
+	ScreenshotClip,
+	ScreenshotOptions,
+	SetContentOptions,
+	WaitForFunctionOptions,
+} from "./puppeteer";
+export { renderCard } from "./render";
 export type {
 	CardColorOptions,
 	Dynamic,
 	LiveData,
 	RichTextNode,
-} from "@bilibili-notify/image-engine";
-export type { BilibiliNotifyImage as BilibiliNotifyImageType };
-export { BilibiliNotifyImage };
-
-export const name = "bilibili-notify-image";
-export type Config = BilibiliNotifyImageConfig;
-export const Config = BilibiliNotifyImageConfig;
-
-export function apply(ctx: import("koishi").Context, config: Config) {
-	ctx.plugin(BilibiliNotifyImage, config);
-}
+} from "./types";

@@ -1,4 +1,4 @@
-import type { CommentaryGenerator } from "@bilibili-notify/ai-engine";
+import type { CommentaryGenerator } from "@bilibili-notify/ai";
 import type { Logger } from "@bilibili-notify/internal";
 import type { LiveTemplateRenderer } from "./template-renderer";
 import type { MasterInfo } from "./types";

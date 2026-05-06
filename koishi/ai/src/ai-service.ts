@@ -4,7 +4,7 @@ import {
 	type CommentaryGeneratorConfig,
 	type SessionContext,
 	type SubManagement,
-} from "@bilibili-notify/ai-engine";
+} from "@bilibili-notify/ai";
 import type { BilibiliAPI } from "@bilibili-notify/api";
 import { BILIBILI_NOTIFY_TOKEN } from "@bilibili-notify/internal";
 import { makeKoishiServiceContext } from "@bilibili-notify/koishi-runtime";

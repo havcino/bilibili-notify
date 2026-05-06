@@ -1,6 +1,6 @@
-import type { CommentaryGenerator } from "@bilibili-notify/ai-engine";
+import type { CommentaryGenerator } from "@bilibili-notify/ai";
 import type { BilibiliAPI } from "@bilibili-notify/api";
-import type { ImageRenderer } from "@bilibili-notify/image-engine";
+import type { ImageRenderer } from "@bilibili-notify/image";
 import type { Disposable, Logger, MessageBus, ServiceContext } from "@bilibili-notify/internal";
 import { withLock } from "@bilibili-notify/internal";
 import { CronJob } from "cron";

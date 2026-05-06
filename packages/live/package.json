@@ -1,6 +1,6 @@
 {
-	"name": "koishi-plugin-bilibili-notify-live",
-	"version": "1.0.3",
+	"name": "@bilibili-notify/live",
+	"version": "0.0.0",
 	"repository": {
 		"type": "git",
 		"url": "https://github.com/Akokk0/bilibili-notify"
@@ -9,12 +9,14 @@
 		"name": "Akokko",
 		"email": "admin@akokko.com"
 	},
-	"description": "Bilibili 直播通知插件（bilibili-notify 可选插件）",
+	"description": "平台中立的 Bilibili 直播监听 / 弹幕收集 / 词云 / AI 总结业务核心（@bilibili-notify/live）",
 	"type": "module",
 	"files": [
 		"lib"
 	],
+	"license": "MIT",
 	"main": "./lib/index.cjs",
+	"module": "./lib/index.mjs",
 	"types": "./lib/index.d.cts",
 	"exports": {
 		".": {
@@ -23,56 +25,25 @@
 		},
 		"./package.json": "./package.json"
 	},
-	"license": "MIT",
-	"keywords": [
-		"chatbot",
-		"koishi",
-		"plugin",
-		"bilibili",
-		"bilibili-notify"
-	],
 	"scripts": {
 		"build": "tsdown",
 		"typecheck": "tsc --noEmit"
 	},
 	"dependencies": {
-		"@bilibili-notify/ai-engine": "workspace:^",
-		"@bilibili-notify/image-engine": "workspace:^",
+		"@bilibili-notify/ai": "workspace:^",
+		"@bilibili-notify/api": "workspace:^",
+		"@bilibili-notify/image": "workspace:^",
 		"@bilibili-notify/internal": "workspace:^",
-		"@bilibili-notify/koishi-runtime": "workspace:^",
-		"@bilibili-notify/live-engine": "workspace:^",
-		"@bilibili-notify/push": "workspace:^"
+		"blive-message-listener": "^0.5.4",
+		"jieba-wasm": "^2.4.0",
+		"luxon": "^3.5.0",
+		"protobufjs": "^7.4.0"
 	},
 	"devDependencies": {
-		"koishi-plugin-bilibili-notify": "workspace:^",
-		"koishi-plugin-bilibili-notify-ai": "workspace:^",
-		"koishi-plugin-bilibili-notify-image": "workspace:^"
-	},
-	"peerDependencies": {
-		"koishi": "^4.18.11",
-		"koishi-plugin-bilibili-notify": "workspace:^"
+		"@types/luxon": "^3.4.2",
+		"@types/protobufjs": "^6.0.0"
 	},
 	"engines": {
 		"node": ">=20.0.0"
-	},
-	"koishi": {
-		"service": {
-			"required": [
-				"bilibili-notify"
-			],
-			"optional": [
-				"bilibili-notify-image",
-				"bilibili-notify-ai"
-			]
-		},
-		"description": {
-			"zh": "Bilibili 直播通知插件"
-		}
-	},
-	"inlinedDependencies": {
-		"@standard-schema/spec": "1.1.0",
-		"cosmokit": "1.8.1",
-		"schemastery": "3.18.0"
-	},
-	"module": "./lib/index.mjs"
+	}
 }

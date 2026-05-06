@@ -4,22 +4,21 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is a Yarn workspace monorepo for **koishi-plugin-bilibili-notify** — a [Koishi](https://koishi.chat/) chatbot plugin for Bilibili live stream and dynamic post notifications. It publishes multiple npm packages, each as a separate Koishi plugin.
+Yarn workspace monorepo for the Bilibili-Notify project. Two product forms share a single platform-neutral business core:
+
+- **Koishi sub-plugins** (under `koishi/`) — historical / current shipping form, npm-published as `koishi-plugin-bilibili-notify*`
+- **Standalone Hono + React dashboard** (under `apps/standalone/`, stage 2) — primary product form going forward
+
+Both ends consume the same `@bilibili-notify/*` core packages.
 
 ## Commands
 
 ```bash
-# Install dependencies
 yarn install
-
-# Build all packages (watch mode)
-yarn build          # tsdown -W
-
-# Build a single package
-yarn workspace koishi-plugin-bilibili-notify build
-
-# Type check all packages in parallel
-yarn typecheck
+yarn build                          # tsdown -W (all packages, watch)
+yarn workspace koishi-plugin-bilibili-notify build   # build a single package
+yarn typecheck                      # tsc --noEmit across the workspace
+yarn run test                       # vitest, all packages
 
 # Lint / format (Biome)
 yarn lint           # check only
@@ -28,93 +27,141 @@ yarn format         # auto-format
 yarn check          # lint + format check
 yarn check:fix      # lint + format auto-fix
 
-# Git hooks (Lefthook) are installed automatically on yarn install
+# Git hooks (Lefthook) installed automatically on yarn install
 # Pre-commit: yarn check:fix (full repo), then biome check --staged --write on *.ts, *.js, *.json
 ```
 
-No test scripts are configured in this project.
+## Top-level layout
 
-## Architecture
+```
+packages/   ← platform-neutral business core (@bilibili-notify/*)
+koishi/     ← Koishi thin-shell plugins (koishi-plugin-bilibili-notify*)
+apps/       ← deployable applications (standalone, created in stage 2)
+```
 
-### Package Structure
+Yarn workspaces glob: `["packages/*", "koishi/*"]`. `apps/standalone/` will be added in stage 2 with its own pnpm sub-workspace.
 
-| Package (workspace path) | Published Name | Role |
+**Path constraint**: never put the substring `bilibili-notify` in any directory under `koishi/` — Koishi's plugin loader gets confused. The koishi main plugin lives at `koishi/core/`, not `koishi/bilibili-notify/`. The npm name `koishi-plugin-bilibili-notify` is decoupled from the directory name (set in package.json's `name`).
+
+## Package inventory
+
+### Platform-neutral business core (`packages/`)
+
+| Path | npm name | Role |
 |---|---|---|
-| `packages/core` | `koishi-plugin-bilibili-notify` | **Main plugin** — entry point, config schema, lifecycle orchestration |
-| `packages/api` | `@bilibili-notify/api` | Bilibili HTTP API client (WBI signing, cookie auth) |
-| `packages/storage` | `@bilibili-notify/storage` | Cookie/key persistence on disk |
-| `packages/push` | `@bilibili-notify/push` | Push routing — maps subscriptions to Koishi sessions |
-| `packages/subscription` | `@bilibili-notify/subscription` | Subscription manager — loads/reloads SubItem map, builds PushArrMap |
-| `packages/internal` | `@bilibili-notify/internal` | Shared utilities (BILIBILI_NOTIFY_TOKEN, withLock, ...) |
-| `packages/dynamic` | `koishi-plugin-bilibili-notify-dynamic` | Optional: dynamic post polling via cron |
-| `packages/live` | `koishi-plugin-bilibili-notify-live` | Optional: live stream monitoring via WebSocket |
-| `packages/image` | `koishi-plugin-bilibili-notify-image` | Optional: card image rendering via Puppeteer/jsdom |
-| `packages/ai` | `koishi-plugin-bilibili-notify-ai` | Optional: AI-powered summarization / commentary via OpenAI-compatible API |
-| `packages/advanced-subscription` | `koishi-plugin-bilibili-notify-advanced-subscription` | Optional: fine-grained per-UP subscription config |
+| `packages/internal` | `@bilibili-notify/internal` | Zod schemas (Subscription / PushTarget / GlobalConfig / HistoryEntry) + platform interfaces (ServiceContext / MessageBus / NotificationSink / NotificationPayload) + utils (withLock, retry, interpolate). Zero koishi deps. |
+| `packages/api` | `@bilibili-notify/api` | `BilibiliAPI` (HTTP + WBI signing) + `LoginFlow` (QR + cookie state machine). Constructed with `{ serviceCtx, ... }`. Zero koishi deps. |
+| `packages/storage` | `@bilibili-notify/storage` | `StorageManager` — cookie/key persistence + AES encryption. Zero koishi deps. |
+| `packages/push` | `@bilibili-notify/push` | `BilibiliPush` — push routing (still has koishi peer dep; refactor pending in stage 2). |
+| `packages/subscription` | `@bilibili-notify/subscription` | `SubscriptionManager` — current koishi-tainted form; will be rewritten as `SubscriptionStore` consuming `Subscription[]` in stage 2. |
+| `packages/dynamic` | `@bilibili-notify/dynamic` | `DynamicEngine` — dynamic-poll cron + filter + render dispatch. Zero koishi deps. |
+| `packages/live` | `@bilibili-notify/live` | `LiveEngine` (split into ListenerManager / DanmakuCollector / WordcloudGenerator / TemplateRenderer / LiveSummaryRequester). Zero koishi deps. |
+| `packages/image` | `@bilibili-notify/image` | `ImageRenderer` — Vue/UnoCSS/JSDOM SSR + puppeteer wrapper via `PuppeteerLike` interface. Zero koishi deps. |
+| `packages/ai` | `@bilibili-notify/ai` | `CommentaryGenerator` — OpenAI-compatible chat / summary / commentary. Zero koishi deps. |
 
-All packages publish to npm. The `@bilibili-notify/*` namespace holds shared libraries that the `koishi-plugin-bilibili-notify(-*)` plugins depend on at runtime; consumers install them transitively. Workspace-local development uses `workspace:^` ranges, which are rewritten to concrete semver ranges at publish time.
+### Koishi thin shells (`koishi/`)
 
-### Workspace dependency hygiene
+| Path | npm name | Role |
+|---|---|---|
+| `koishi/core` | `koishi-plugin-bilibili-notify` | Main koishi plugin entry — `apply()`, ServerManager Service, console UI, login bridge, subscription loader. Wires `BilibiliAPI` + `LoginFlow` from the core. |
+| `koishi/dynamic` | `koishi-plugin-bilibili-notify-dynamic` | Wraps `DynamicEngine` with a `PushLike` adapter onto `BilibiliPush`. |
+| `koishi/live` | `koishi-plugin-bilibili-notify-live` | Wraps `LiveEngine` with `PushLike` + koishi-`h(...)` `LiveContentBuilder`. |
+| `koishi/image` | `koishi-plugin-bilibili-notify-image` | Wraps `ImageRenderer` with a `PuppeteerLike` adapter on `ctx.puppeteer`. Provides `bilibili-notify-image` koishi service. |
+| `koishi/ai` | `koishi-plugin-bilibili-notify-ai` | Wraps `CommentaryGenerator`. Provides `bilibili-notify-ai` koishi service. |
+| `koishi/advanced-subscription` | `koishi-plugin-bilibili-notify-advanced-subscription` | Advanced subscription schema. Will become a Subscription[] transformer in stage 2. |
+| `koishi/runtime` | `@bilibili-notify/koishi-runtime` | Shared `makeKoishiServiceContext` + `makeKoishiMessageBus` adapter helpers. Imported by all 6 koishi shells above. |
 
-Every workspace `src/` import that resolves to a runtime value (constants, classes, functions) **must** be declared in that package's `package.json` `dependencies`. Type-only imports (`import type`) don't appear in the cjs/mjs output, so they don't need to be declared, but a regular `import` does — even when the consumer happens to also depend on the same package transitively.
+All koishi shell packages publish under `koishi-plugin-bilibili-notify*` names; `@bilibili-notify/koishi-runtime` is the only `@bilibili-notify/*`-scoped package living under `koishi/` (it's a koishi-only adapter helper, not core business logic).
 
-Concrete example (the bug fixed in `c30ef62`): `@bilibili-notify/subscription/src` imports `LIVE_ROOM_MASTERS` (runtime value) from `@bilibili-notify/push`, so `packages/subscription/package.json` declares `@bilibili-notify/api` + `@bilibili-notify/push` under `dependencies`. Before that fix, the package only ran because consumers happened to install push at a version that still exported the constant; once a consumer's range resolved to an older push, the published artifact crashed at startup with `Cannot read properties of undefined (reading 'some')`.
+## Workspace dependency hygiene
 
-### Config pattern
+Every workspace `src/` import that resolves to a runtime value (constants, classes, functions) **must** be declared in that package's `package.json` `dependencies`. Type-only imports (`import type`) don't appear in the cjs/mjs output and don't need to be declared.
 
-Each published plugin separates config into its own file:
-- `packages/core/src/config.ts` — exports `BilibiliNotifyConfig` interface + `BilibiliNotifyConfigSchema`
-- `packages/live/src/config.ts` — exports `BilibiliNotifyLiveConfig` (interface + Schema, same name, declaration merge)
-- `packages/dynamic/src/config.ts` — exports `BilibiliNotifyDynamicConfig` interface + `BilibiliNotifyDynamicSchema`
-- `packages/advanced-subscription/src/advanced-subscription.ts` — exports `BilibiliNotifyAdvancedSubConfig` + `applyAdvancedSub`
+Concrete example (`c30ef62`): `@bilibili-notify/subscription/src` imported `LIVE_ROOM_MASTERS` (runtime value) from `@bilibili-notify/push` without declaring the dep, breaking at install time when consumer ranges resolved to a push version that no longer exported the constant.
 
-Each `index.ts` re-exports these as the Koishi-standard `Config` type + value and `apply` function.
+## Config pattern
 
-### Plugin Lifecycle (main package)
+Each koishi shell separates its koishi `Schema` into its own file:
 
-`apply()` → registers two sub-plugins:
-1. **`BilibiliNotifyDataServer`** — WebSocket bridge between Koishi console UI and the backend (handles QR login flow)
-2. **`BilibiliNotifyServerManager`** (Service) — orchestrates startup:
-   - Initializes `StorageManager` (reads cookies/keys from disk)
-   - Registers `BilibiliAPI`, `BilibiliPush`, and `SubscriptionManager` as child plugins
-   - Listens for `bilibili-notify/cookies-refreshed` to persist refreshed cookies
+- `koishi/core/src/config.ts` — `BilibiliNotifyConfig` interface + `BilibiliNotifyConfigSchema`
+- `koishi/live/src/config.ts` — `BilibiliNotifyLiveConfig`
+- `koishi/dynamic/src/config.ts` — `BilibiliNotifyDynamicConfig` + `BilibiliNotifyDynamicSchema`
+- `koishi/advanced-subscription/src/advanced-subscription.ts` — `BilibiliNotifyAdvancedSubConfig` + `applyAdvancedSub`
 
-### Service dependency graph
+Each shell's `index.ts` re-exports as the koishi-standard `Config` / `apply`.
+
+## Plugin lifecycle (koishi/core)
+
+`apply()` registers two sub-plugins:
+
+1. **`BilibiliNotifyDataServer`** — WebSocket bridge to the koishi console UI (handles QR login flow client-side)
+2. **`BilibiliNotifyServerManager`** (Service) — orchestrates startup. Internally split across:
+   - `app-bootstrap.ts` — Service shell + lifecycle + `getInternals(token)`
+   - `lifecycle.ts` — bringUp / tearDown / waitForServices
+   - `login-flow-bridge.ts` — wraps `LoginFlow` (from `@bilibili-notify/api`); listens to console `start-login` / `reset-key`; renders QR PNG via `qrcode` dep
+   - `subscription-loader.ts` — config → `SubscriptionManager` init + `addSub` / `removeSub` / `updateSub` wrappers
+   - `subscription-crud.ts` — pure CRUD on a snapshot
+   - `health-check.ts` — rate-limited master notify on auth-lost
+   - `master-notifier.ts` — `bilibili-notify/plugin-error` log
+   - `bootstrap-helpers.ts` / `sub-diff.ts` — small helpers
+
+## MessageBus ↔ koishi event semantics
+
+`@bilibili-notify/koishi-runtime` provides:
+
+- `makeKoishiServiceContext(ctx, name, logLevel?)` — wraps `Context` as a `ServiceContext` (logger / setInterval / setTimeout / onDispose)
+- `makeKoishiMessageBus(ctx)` — wraps `Context` as a `MessageBus`. Internally:
+  - `bus.emit("X", payload)` ≡ `ctx.emit("bilibili-notify/X", payload)`
+  - `bus.on("X", h)` ≡ `ctx.on("bilibili-notify/X", h)`
+
+**Critical**: bus and ctx are two views of the same event channel. Never write a "bus.on(X) → ctx.emit(bilibili-notify/X)" or "ctx.on(bilibili-notify/X) → bus.emit(X)" forwarder — that creates a self-feeding loop and stack-overflows. (Regression test: `koishi/runtime/src/__tests__/message-bus.test.ts`.) Anything that listens via `ctx.on("bilibili-notify/...")` already sees the core's `bus.emit` for free.
+
+## Service dependency graph
 
 ```
-BilibiliNotifyServerManager
-  ├── BilibiliAPI          (service: bilibili-notify-api)
-  ├── BilibiliPush         (service: bilibili-notify-push)
-  └── SubscriptionManager  (wires subscriptions → api/push)
+BilibiliAPI         (in @bilibili-notify/api, also exposed as bilibili-notify Service via core's getInternals)
+BilibiliPush        (still koishi-tainted; service: bilibili-notify-push)
+SubscriptionManager (still koishi-tainted; injected into push)
 
-# Optional plugins (installed separately by user)
-koishi-plugin-bilibili-notify-dynamic   → requires bilibili-notify-api, bilibili-notify-push
-koishi-plugin-bilibili-notify-live      → requires bilibili-notify-api, bilibili-notify-push; optionally bilibili-notify-image
-koishi-plugin-bilibili-notify-image     → requires puppeteer; provides bilibili-notify-image service
-koishi-plugin-bilibili-notify-ai        → requires bilibili-notify (core service); calls OpenAI-compatible API
-koishi-plugin-bilibili-notify-advanced-subscription → emits bilibili-notify/advanced-sub event
+# Koishi shells consume the engines via direct construction
+koishi/dynamic   → DynamicEngine({ api, push: PushLike, image?, ai?, ... })   requires bilibili-notify
+koishi/live      → LiveEngine({ api, push, contentBuilder, image?, ai?, ... }) requires bilibili-notify; optional image/ai
+koishi/image     → ImageRenderer({ puppeteer: PuppeteerLike, ... })            requires puppeteer; provides bilibili-notify-image
+koishi/ai        → CommentaryGenerator({ api, ... })                            requires bilibili-notify
+koishi/advanced-subscription → emits bilibili-notify/advanced-sub event
 ```
 
-### Koishi Events (inter-plugin communication)
+## Cross-plugin koishi events
 
-Custom events declared on the Koishi `Context`:
-- `bilibili-notify/login-status-report` — login QR/status from API to DataServer
-- `bilibili-notify/advanced-sub` — advanced subscription config from advanced-subscription plugin
-- `bilibili-notify/ready-to-receive` — signals push system is ready
-- `bilibili-notify/cookies-refreshed` — triggers cookie persistence
-- `bilibili-notify/subscription-changed` — subscription list updated
-- `bilibili-notify/ready` — BilibiliAPI fully initialized
-- `bilibili-notify/plugin-error` — error report from sub-plugins (source, message)
+Custom events declared on `Context` (prefix `bilibili-notify/`):
 
-### Toolchain
+- `login-status-report` — emitted by `LoginFlow` via MessageBus, consumed by `BilibiliNotifyDataServer`
+- `auth-lost` / `auth-restored` — login state transitions
+- `cookies-refreshed` — triggers cookie persistence
+- `advanced-sub` — advanced-subscription schema → main subscription manager
+- `ready-to-receive` / `ready` — startup signals
+- `subscription-changed` — subscription list updated
+- `plugin-error` — error report from sub-plugins
 
-- **tsdown** — builds each package to both ESM (`.mjs`) and CJS (`.cjs`) with declaration files
-- **Biome** — linter and formatter (tab indentation, 100-char line width). Vue files are included in lint scope
-- **Lefthook** — pre-commit hook runs `yarn check:fix` (full repo) then `biome check --staged --write`
+## Toolchain
+
+- **tsdown** — builds each package to ESM (`.mjs`) + CJS (`.cjs`) with declaration files
+- **Biome** — linter + formatter (tab indent, 100-char line width). Vue files in lint scope.
+- **Lefthook** — pre-commit runs `yarn check:fix` (full repo) then `biome check --staged --write`
+- **Vitest** — unit tests (`yarn run test`)
 - **Changesets** — release tooling. `updateInternalDependencies: "patch"` only **syncs version ranges in `package.json`** for downstream consumers; it does **not** automatically include publishable downstream packages in the release. When a change in package A affects the runtime behavior of publishable package B, B must be listed explicitly in the changeset frontmatter.
 
-### Console UI (client)
+## Console UI (Koishi)
 
-`packages/core/client/` contains the Koishi console frontend (Vue-based). It is loaded via:
+`koishi/core/client/` contains the Koishi console frontend (Vue-based). Loaded via:
+
 - Dev: `resolve(__dirname, "../client/index.ts")`
 - Prod: `resolve(__dirname, "../dist")`
+
+The standalone end uses a separate React + Vite dashboard under `apps/standalone/web/` (stage 2); these don't share UI code.
+
+## Branch model
+
+- `main` — frozen old release snapshot during refactor
+- `refactor` — current trunk; all `packages/` and `koishi/` changes land here
+- (stage 2 end) `koishi` and `standalone` branches will fork from refactor; merge direction is one-way: `refactor → koishi` and `refactor → standalone`. Never merge back.

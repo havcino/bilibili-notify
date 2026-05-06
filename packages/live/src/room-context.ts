@@ -1,5 +1,5 @@
 import type { BilibiliAPI } from "@bilibili-notify/api";
-import type { ImageRenderer } from "@bilibili-notify/image-engine";
+import type { ImageRenderer } from "@bilibili-notify/image";
 import type { Logger, ServiceContext } from "@bilibili-notify/internal";
 import { GuardLevel, type MessageListener } from "blive-message-listener";
 import type protobuf from "protobufjs";

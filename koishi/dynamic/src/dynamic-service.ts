@@ -5,7 +5,7 @@ import {
 	type PushLike,
 	type PushSegment,
 	type SubscriptionsView,
-} from "@bilibili-notify/dynamic-engine";
+} from "@bilibili-notify/dynamic";
 import { BILIBILI_NOTIFY_TOKEN } from "@bilibili-notify/internal";
 import { makeKoishiMessageBus, makeKoishiServiceContext } from "@bilibili-notify/koishi-runtime";
 import type { BilibiliPush } from "@bilibili-notify/push";

@@ -1,4 +1,4 @@
-import type { DynamicFilterConfig } from "@bilibili-notify/dynamic-engine";
+import type { DynamicFilterConfig } from "@bilibili-notify/dynamic";
 import { Schema } from "koishi";
 
 export interface BilibiliNotifyDynamicConfig {

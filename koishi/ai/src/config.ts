@@ -1,4 +1,4 @@
-import type { PersonaKey } from "@bilibili-notify/ai-engine";
+import type { PersonaKey } from "@bilibili-notify/ai";
 import { Schema } from "koishi";
 
 export interface PersonaConfig {

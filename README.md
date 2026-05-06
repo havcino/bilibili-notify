@@ -11,10 +11,10 @@ A Bilibili push plugin based on <a href="https://github.com/koishijs/koishi">Koi
 
 <p align="center">
   插件跳转:
-  <a href="./packages/core/README.md">核心插件</a> ·
-  <a href="./packages/live/README.md">直播插件</a> ·
-  <a href="./packages/dynamic/README.md">动态插件</a> ·
-  <a href="./packages/image/README.md">图片渲染插件</a> ·
-  <a href="./packages/ai/README.md">AI插件</a> ·
-  <a href="./packages/advanced-subscription/README.md">高级订阅插件</a>
+  <a href="./koishi/core/README.md">核心插件</a> ·
+  <a href="./koishi/live/README.md">直播插件</a> ·
+  <a href="./koishi/dynamic/README.md">动态插件</a> ·
+  <a href="./koishi/image/README.md">图片渲染插件</a> ·
+  <a href="./koishi/ai/README.md">AI插件</a> ·
+  <a href="./koishi/advanced-subscription/README.md">高级订阅插件</a>
 </p>

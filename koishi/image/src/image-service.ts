@@ -1,4 +1,4 @@
-import { ImageRenderer, type PuppeteerLike } from "@bilibili-notify/image-engine";
+import { ImageRenderer, type PuppeteerLike } from "@bilibili-notify/image";
 import { makeKoishiServiceContext } from "@bilibili-notify/koishi-runtime";
 import { type Context, Service } from "koishi";
 import type {} from "koishi-plugin-puppeteer";

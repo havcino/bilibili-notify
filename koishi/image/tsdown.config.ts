@@ -9,5 +9,4 @@ export default defineConfig({
 	exports: true,
 	deps: { onlyBundle: false },
 	tsconfig: "tsconfig.json",
-	copy: [{ from: "src/static", to: "lib" }],
 });

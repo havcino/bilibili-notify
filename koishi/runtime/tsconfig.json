@@ -2,9 +2,7 @@
 	"extends": "../../tsconfig.base.json",
 	"compilerOptions": {
 		"rootDir": "src",
-		"outDir": "lib",
-		"jsx": "react-jsx",
-		"jsxImportSource": "vue"
+		"outDir": "lib"
 	},
 	"include": ["src"]
 }

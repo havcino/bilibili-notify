@@ -8,7 +8,7 @@ import {
 	type PushLike,
 	type SubItemView,
 	type SubscriptionsView,
-} from "@bilibili-notify/live-engine";
+} from "@bilibili-notify/live";
 import type { BilibiliPush } from "@bilibili-notify/push";
 import { type Awaitable, type Context, h, Service } from "koishi";
 import type { SubscriptionOp } from "koishi-plugin-bilibili-notify";

@@ -1,6 +1,6 @@
-import type { CommentaryGenerator } from "@bilibili-notify/ai-engine";
+import type { CommentaryGenerator } from "@bilibili-notify/ai";
 import type { BilibiliAPI } from "@bilibili-notify/api";
-import type { ImageRenderer } from "@bilibili-notify/image-engine";
+import type { ImageRenderer } from "@bilibili-notify/image";
 import type { Logger, ServiceContext } from "@bilibili-notify/internal";
 import type { LiveContentBuilder } from "./content-builder";
 import { DanmakuCollector } from "./danmaku-collector";

@@ -147,9 +147,9 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@bilibili-notify/ai-engine@workspace:^, @bilibili-notify/ai-engine@workspace:packages/ai-engine":
+"@bilibili-notify/ai@workspace:^, @bilibili-notify/ai@workspace:packages/ai":
   version: 0.0.0-use.local
-  resolution: "@bilibili-notify/ai-engine@workspace:packages/ai-engine"
+  resolution: "@bilibili-notify/ai@workspace:packages/ai"
   dependencies:
     "@bilibili-notify/api": "workspace:^"
     "@bilibili-notify/internal": "workspace:^"
@@ -178,13 +178,13 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"@bilibili-notify/dynamic-engine@workspace:^, @bilibili-notify/dynamic-engine@workspace:packages/dynamic-engine":
+"@bilibili-notify/dynamic@workspace:^, @bilibili-notify/dynamic@workspace:packages/dynamic":
   version: 0.0.0-use.local
-  resolution: "@bilibili-notify/dynamic-engine@workspace:packages/dynamic-engine"
+  resolution: "@bilibili-notify/dynamic@workspace:packages/dynamic"
   dependencies:
-    "@bilibili-notify/ai-engine": "workspace:^"
+    "@bilibili-notify/ai": "workspace:^"
     "@bilibili-notify/api": "workspace:^"
-    "@bilibili-notify/image-engine": "workspace:^"
+    "@bilibili-notify/image": "workspace:^"
     "@bilibili-notify/internal": "workspace:^"
     "@types/luxon": "npm:^3.4.2"
     cron: "npm:^3.1.7"
@@ -192,9 +192,9 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"@bilibili-notify/image-engine@workspace:^, @bilibili-notify/image-engine@workspace:packages/image-engine":
+"@bilibili-notify/image@workspace:^, @bilibili-notify/image@workspace:packages/image":
   version: 0.0.0-use.local
-  resolution: "@bilibili-notify/image-engine@workspace:packages/image-engine"
+  resolution: "@bilibili-notify/image@workspace:packages/image"
   dependencies:
     "@bilibili-notify/internal": "workspace:^"
     "@types/jsdom": "npm:^21.1.7"
@@ -217,9 +217,9 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"@bilibili-notify/koishi-runtime@workspace:^, @bilibili-notify/koishi-runtime@workspace:packages/koishi-runtime":
+"@bilibili-notify/koishi-runtime@workspace:^, @bilibili-notify/koishi-runtime@workspace:koishi/runtime":
   version: 0.0.0-use.local
-  resolution: "@bilibili-notify/koishi-runtime@workspace:packages/koishi-runtime"
+  resolution: "@bilibili-notify/koishi-runtime@workspace:koishi/runtime"
   dependencies:
     "@bilibili-notify/internal": "workspace:^"
   peerDependencies:
@@ -227,13 +227,13 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"@bilibili-notify/live-engine@workspace:^, @bilibili-notify/live-engine@workspace:packages/live-engine":
+"@bilibili-notify/live@workspace:^, @bilibili-notify/live@workspace:packages/live":
   version: 0.0.0-use.local
-  resolution: "@bilibili-notify/live-engine@workspace:packages/live-engine"
+  resolution: "@bilibili-notify/live@workspace:packages/live"
   dependencies:
-    "@bilibili-notify/ai-engine": "workspace:^"
+    "@bilibili-notify/ai": "workspace:^"
     "@bilibili-notify/api": "workspace:^"
-    "@bilibili-notify/image-engine": "workspace:^"
+    "@bilibili-notify/image": "workspace:^"
     "@bilibili-notify/internal": "workspace:^"
     "@types/luxon": "npm:^3.4.2"
     "@types/protobufjs": "npm:^6.0.0"
@@ -6401,9 +6401,9 @@ __metadata:
   languageName: node
   linkType: hard
 
-"koishi-plugin-bilibili-notify-advanced-subscription@workspace:packages/advanced-subscription":
+"koishi-plugin-bilibili-notify-advanced-subscription@workspace:koishi/advanced-subscription":
   version: 0.0.0-use.local
-  resolution: "koishi-plugin-bilibili-notify-advanced-subscription@workspace:packages/advanced-subscription"
+  resolution: "koishi-plugin-bilibili-notify-advanced-subscription@workspace:koishi/advanced-subscription"
   dependencies:
     "@bilibili-notify/push": "workspace:^"
   peerDependencies:
@@ -6412,11 +6412,11 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"koishi-plugin-bilibili-notify-ai@workspace:^, koishi-plugin-bilibili-notify-ai@workspace:packages/ai":
+"koishi-plugin-bilibili-notify-ai@workspace:^, koishi-plugin-bilibili-notify-ai@workspace:koishi/ai":
   version: 0.0.0-use.local
-  resolution: "koishi-plugin-bilibili-notify-ai@workspace:packages/ai"
+  resolution: "koishi-plugin-bilibili-notify-ai@workspace:koishi/ai"
   dependencies:
-    "@bilibili-notify/ai-engine": "workspace:^"
+    "@bilibili-notify/ai": "workspace:^"
     "@bilibili-notify/api": "workspace:^"
     "@bilibili-notify/internal": "workspace:^"
     "@bilibili-notify/koishi-runtime": "workspace:^"
@@ -6428,14 +6428,14 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"koishi-plugin-bilibili-notify-dynamic@workspace:packages/dynamic":
+"koishi-plugin-bilibili-notify-dynamic@workspace:koishi/dynamic":
   version: 0.0.0-use.local
-  resolution: "koishi-plugin-bilibili-notify-dynamic@workspace:packages/dynamic"
+  resolution: "koishi-plugin-bilibili-notify-dynamic@workspace:koishi/dynamic"
   dependencies:
-    "@bilibili-notify/ai-engine": "workspace:^"
+    "@bilibili-notify/ai": "workspace:^"
     "@bilibili-notify/api": "workspace:^"
-    "@bilibili-notify/dynamic-engine": "workspace:^"
-    "@bilibili-notify/image-engine": "workspace:^"
+    "@bilibili-notify/dynamic": "workspace:^"
+    "@bilibili-notify/image": "workspace:^"
     "@bilibili-notify/internal": "workspace:^"
     "@bilibili-notify/koishi-runtime": "workspace:^"
     "@bilibili-notify/push": "workspace:^"
@@ -6448,11 +6448,11 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"koishi-plugin-bilibili-notify-image@workspace:^, koishi-plugin-bilibili-notify-image@workspace:packages/image":
+"koishi-plugin-bilibili-notify-image@workspace:^, koishi-plugin-bilibili-notify-image@workspace:koishi/image":
   version: 0.0.0-use.local
-  resolution: "koishi-plugin-bilibili-notify-image@workspace:packages/image"
+  resolution: "koishi-plugin-bilibili-notify-image@workspace:koishi/image"
   dependencies:
-    "@bilibili-notify/image-engine": "workspace:^"
+    "@bilibili-notify/image": "workspace:^"
     "@bilibili-notify/internal": "workspace:^"
     "@bilibili-notify/koishi-runtime": "workspace:^"
   peerDependencies:
@@ -6461,15 +6461,15 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"koishi-plugin-bilibili-notify-live@workspace:packages/live":
+"koishi-plugin-bilibili-notify-live@workspace:koishi/live":
   version: 0.0.0-use.local
-  resolution: "koishi-plugin-bilibili-notify-live@workspace:packages/live"
+  resolution: "koishi-plugin-bilibili-notify-live@workspace:koishi/live"
   dependencies:
-    "@bilibili-notify/ai-engine": "workspace:^"
-    "@bilibili-notify/image-engine": "workspace:^"
+    "@bilibili-notify/ai": "workspace:^"
+    "@bilibili-notify/image": "workspace:^"
     "@bilibili-notify/internal": "workspace:^"
     "@bilibili-notify/koishi-runtime": "workspace:^"
-    "@bilibili-notify/live-engine": "workspace:^"
+    "@bilibili-notify/live": "workspace:^"
     "@bilibili-notify/push": "workspace:^"
     koishi-plugin-bilibili-notify: "workspace:^"
     koishi-plugin-bilibili-notify-ai: "workspace:^"
@@ -6480,9 +6480,9 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"koishi-plugin-bilibili-notify@workspace:^, koishi-plugin-bilibili-notify@workspace:packages/core":
+"koishi-plugin-bilibili-notify@workspace:^, koishi-plugin-bilibili-notify@workspace:koishi/core":
   version: 0.0.0-use.local
-  resolution: "koishi-plugin-bilibili-notify@workspace:packages/core"
+  resolution: "koishi-plugin-bilibili-notify@workspace:koishi/core"
   dependencies:
     "@bilibili-notify/api": "workspace:^"
     "@bilibili-notify/internal": "workspace:^"
