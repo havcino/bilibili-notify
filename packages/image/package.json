@@ -28,7 +28,8 @@
 	},
 	"dependencies": {
 		"@bilibili-notify/image-engine": "workspace:^",
-		"@bilibili-notify/internal": "workspace:^"
+		"@bilibili-notify/internal": "workspace:^",
+		"@bilibili-notify/koishi-runtime": "workspace:^"
 	},
 	"peerDependencies": {
 		"koishi": "^4.18.11",

@@ -39,7 +39,8 @@
 	"dependencies": {
 		"@bilibili-notify/ai-engine": "workspace:^",
 		"@bilibili-notify/api": "workspace:^",
-		"@bilibili-notify/internal": "workspace:^"
+		"@bilibili-notify/internal": "workspace:^",
+		"@bilibili-notify/koishi-runtime": "workspace:^"
 	},
 	"devDependencies": {
 		"@koishijs/plugin-help": "^2.4.6",

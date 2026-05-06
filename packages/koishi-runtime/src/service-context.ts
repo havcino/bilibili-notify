@@ -6,9 +6,6 @@ import type { Context } from "koishi";
  * - logger: ctx.logger(loggerName)，可选 .level 覆盖（koishi 用数字 level）
  * - setInterval / setTimeout: koishi 返回 dispose 函数 () => boolean，包装为 Disposable
  * - onDispose: ctx.on("dispose", fn)
- *
- * 阶段 1 的批次 A/B 用这个 adapter 把 Koishi ctx 注入业务核心；
- * 阶段 1.10 packages/core 主壳重构后此 helper 上移到 core 主入口统一管理。
  */
 export function makeKoishiServiceContext(
 	ctx: Context,
@@ -25,7 +22,7 @@ export function makeKoishiServiceContext(
 		debug: (msg, ...args) => koishiLogger.debug(msg, ...args),
 	};
 
-	const wrapDispose = (release: () => unknown): Disposable => ({
+	const wrap = (release: () => unknown): Disposable => ({
 		dispose() {
 			release();
 		},
@@ -34,10 +31,10 @@ export function makeKoishiServiceContext(
 	return {
 		logger,
 		setInterval(fn, ms) {
-			return wrapDispose(ctx.setInterval(fn, ms));
+			return wrap(ctx.setInterval(fn, ms));
 		},
 		setTimeout(fn, ms) {
-			return wrapDispose(ctx.setTimeout(fn, ms));
+			return wrap(ctx.setTimeout(fn, ms));
 		},
 		onDispose(fn) {
 			ctx.on("dispose", fn);

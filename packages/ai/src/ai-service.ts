@@ -7,11 +7,11 @@ import {
 } from "@bilibili-notify/ai-engine";
 import type { BilibiliAPI } from "@bilibili-notify/api";
 import { BILIBILI_NOTIFY_TOKEN } from "@bilibili-notify/internal";
+import { makeKoishiServiceContext } from "@bilibili-notify/koishi-runtime";
 import { type Awaitable, type Context, Service } from "koishi";
 import type {} from "koishi-plugin-bilibili-notify";
 import { aiCommands } from "./commands";
 import type { BilibiliNotifyAIConfig } from "./config";
-import { makeKoishiServiceContext } from "./koishi-runtime";
 
 declare module "koishi" {
 	interface Context {

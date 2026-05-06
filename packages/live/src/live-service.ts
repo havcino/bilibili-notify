@@ -1,4 +1,5 @@
 import { BILIBILI_NOTIFY_TOKEN } from "@bilibili-notify/internal";
+import { makeKoishiServiceContext } from "@bilibili-notify/koishi-runtime";
 import {
 	type LiveContentBuilder,
 	LiveEngine,
@@ -14,7 +15,6 @@ import type { SubscriptionOp } from "koishi-plugin-bilibili-notify";
 import type {} from "koishi-plugin-bilibili-notify-ai";
 import { liveCommands } from "./commands";
 import type { BilibiliNotifyLiveConfig } from "./config";
-import { makeKoishiServiceContext } from "./koishi-runtime";
 
 declare module "koishi" {
 	interface Context {

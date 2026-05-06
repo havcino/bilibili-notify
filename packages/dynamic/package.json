@@ -41,6 +41,7 @@
 		"@bilibili-notify/dynamic-engine": "workspace:^",
 		"@bilibili-notify/image-engine": "workspace:^",
 		"@bilibili-notify/internal": "workspace:^",
+		"@bilibili-notify/koishi-runtime": "workspace:^",
 		"@bilibili-notify/push": "workspace:^"
 	},
 	"devDependencies": {

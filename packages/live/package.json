@@ -39,6 +39,7 @@
 		"@bilibili-notify/ai-engine": "workspace:^",
 		"@bilibili-notify/image-engine": "workspace:^",
 		"@bilibili-notify/internal": "workspace:^",
+		"@bilibili-notify/koishi-runtime": "workspace:^",
 		"@bilibili-notify/live-engine": "workspace:^",
 		"@bilibili-notify/push": "workspace:^"
 	},

@@ -1,6 +1,7 @@
 import { isDeepStrictEqual } from "node:util";
 import { BilibiliAPI, type MySelfInfoData, type UserCardInfo } from "@bilibili-notify/api";
 import { BILIBILI_NOTIFY_TOKEN } from "@bilibili-notify/internal";
+import { makeKoishiServiceContext } from "@bilibili-notify/koishi-runtime";
 import { BilibiliPush, type SubItem, type Subscriptions } from "@bilibili-notify/push";
 import { StorageManager } from "@bilibili-notify/storage";
 import { type FlatSubConfigItem, SubscriptionManager } from "@bilibili-notify/subscription";
@@ -12,7 +13,6 @@ import QRCode from "qrcode";
 import { biliCommands, statusCommands, sysCommands } from "./commands";
 import type { BilibiliNotifyConfig } from "./config";
 import { LoginStatusController } from "./login-status";
-import { makeKoishiServiceContext } from "./runtime/service-context";
 import type { SubChange, SubscriptionOp } from "./types";
 
 const SERVICE_NAME = "bilibili-notify";

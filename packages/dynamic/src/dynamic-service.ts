@@ -7,6 +7,7 @@ import {
 	type SubscriptionsView,
 } from "@bilibili-notify/dynamic-engine";
 import { BILIBILI_NOTIFY_TOKEN } from "@bilibili-notify/internal";
+import { makeKoishiMessageBus, makeKoishiServiceContext } from "@bilibili-notify/koishi-runtime";
 import type { BilibiliPush } from "@bilibili-notify/push";
 import { PushType } from "@bilibili-notify/push";
 import { type Awaitable, type Context, h, Service } from "koishi";
@@ -14,7 +15,6 @@ import type { SubscriptionOp } from "koishi-plugin-bilibili-notify";
 import type {} from "koishi-plugin-bilibili-notify-ai";
 import { dynamicCommands } from "./commands";
 import type { BilibiliNotifyDynamicConfig } from "./config";
-import { makeKoishiMessageBus, makeKoishiServiceContext } from "./koishi-runtime";
 
 declare module "koishi" {
 	interface Context {
