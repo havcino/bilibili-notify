@@ -1,0 +1,56 @@
+import { z } from "zod";
+
+/**
+ * Bootstrap config = the YAML/JSON file + ENV/CLI merge result that's read at startup.
+ * Per plan §4.2. Runtime config (globals/subscriptions/targets) lives under `dataDir`
+ * and is owned by ConfigStore — NOT mixed in here.
+ */
+
+const ServerSchema = z.object({
+	host: z.string().min(1).default("0.0.0.0"),
+	port: z.coerce.number().int().min(1).max(65535).default(8787),
+});
+
+const BasicAuthSchema = z.object({
+	username: z.string().min(1),
+	password: z.string().min(1),
+});
+
+const AuthSchema = z
+	.object({
+		basicAuth: BasicAuthSchema.optional(),
+	})
+	.optional();
+
+/**
+ * Optional preset push targets injected at first boot to save the user from doing it
+ * manually in the dashboard. Stage 2.1 stores them as opaque records — full Zod typing
+ * lives in `@bilibili-notify/internal/schema/targets`, but the loader stays decoupled
+ * so that adding a new platform later doesn't force a config-schema bump here.
+ */
+const PresetPushTargetSchema = z
+	.object({
+		name: z.string().min(1),
+		platform: z.string().min(1),
+		scope: z.enum(["group", "private", "channel"]).optional(),
+		config: z.record(z.string(), z.unknown()).default({}),
+	})
+	.passthrough();
+
+const PresetSchema = z
+	.object({
+		pushTargets: z.array(PresetPushTargetSchema).default([]),
+	})
+	.optional();
+
+export const BootstrapConfigSchema = z.object({
+	server: ServerSchema.default({ host: "0.0.0.0", port: 8787 }),
+	dataDir: z.string().min(1).default("./bn-data"),
+	cookieEncryptionKey: z.string().min(1).optional(),
+	auth: AuthSchema,
+	logLevel: z.enum(["fatal", "error", "warn", "info", "debug", "trace", "silent"]).default("info"),
+	preset: PresetSchema,
+});
+
+export type BootstrapConfig = z.infer<typeof BootstrapConfigSchema>;
+export type PresetPushTarget = z.infer<typeof PresetPushTargetSchema>;
