@@ -1,13 +1,24 @@
 import { Hono } from "hono";
+import { createGlobalsRoute } from "./routes/globals.js";
 import { createHealthRoute } from "./routes/health.js";
+import { createSubsRoute } from "./routes/subs.js";
+import { createTargetsRoute } from "./routes/targets.js";
+import type { RouteDeps } from "./routes/types.js";
 import type { AppRuntime } from "./runtime/bootstrap.js";
 
 /**
- * Build the top-level Hono app. Stage 2.1 only mounts `/api/health`;
- * REST CRUD / WS upgrade / Sink wiring come in 2.2 / 2.3 / 2.4.
+ * Build the top-level Hono app. Stage 2.2 mounts:
+ *   /api/health           — liveness (short)
+ *   /api/health/details   — rich snapshot incl. config-scope meta
+ *   /api/globals          — GET / PATCH
+ *   /api/subs             — GET / POST / PATCH /:id / DELETE /:id
+ *   /api/targets          — GET / POST / PATCH /:id / DELETE /:id
+ *
+ * Test ping (`/api/targets/test`), WS upgrade, Sink wiring follow in 2.3 / 2.4.
  */
 export function createApp(runtime: AppRuntime): Hono {
 	const app = new Hono();
+	const deps: RouteDeps = { runtime, store: runtime.configStore };
 
 	app.onError((err, c) => {
 		runtime.serviceCtx.logger.error("unhandled request error", err);
@@ -16,7 +27,10 @@ export function createApp(runtime: AppRuntime): Hono {
 
 	app.notFound((c) => c.json({ error: "not_found" }, 404));
 
-	app.route("/api/health", createHealthRoute(runtime));
+	app.route("/api/health", createHealthRoute(deps));
+	app.route("/api/globals", createGlobalsRoute(deps));
+	app.route("/api/subs", createSubsRoute(deps));
+	app.route("/api/targets", createTargetsRoute(deps));
 
 	return app;
 }

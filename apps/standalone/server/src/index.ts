@@ -12,6 +12,11 @@ async function main(): Promise<void> {
 		`starting bilibili-notify standalone server: host=${bootstrap.server.host} port=${bootstrap.server.port} dataDir=${bootstrap.dataDir} logLevel=${bootstrap.logLevel}`,
 	);
 
+	// Load on-disk runtime config (state/globals.json, state/subscriptions.json, state/targets.json).
+	// Seeds defaults on first boot. Failure here is fatal — we don't want to start serving HTTP
+	// against a corrupt or unreadable state dir.
+	await runtime.configStore.load();
+
 	const app = createApp(runtime);
 	let server: ServerType | undefined;
 	await new Promise<void>((resolve) => {

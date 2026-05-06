@@ -25,7 +25,7 @@ export function createAppRuntime(bootstrap: BootstrapConfig): AppRuntime {
 		level: bootstrap.logLevel,
 	});
 	const bus = createNodeMessageBus();
-	const configStore = createConfigStore({ bootstrap, bus });
+	const configStore = createConfigStore({ bootstrap, bus, serviceCtx });
 
 	return {
 		bootstrap,
