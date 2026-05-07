@@ -39,7 +39,7 @@ koishi/     ← Koishi thin-shell plugins (koishi-plugin-bilibili-notify*)
 apps/       ← deployable applications (standalone, created in stage 2)
 ```
 
-Yarn workspaces glob: `["packages/*", "koishi/*"]`. `apps/standalone/` will be added in stage 2 with its own pnpm sub-workspace.
+Yarn workspaces glob: `["packages/*", "koishi/*"]`. `apps/standalone/` has its own pnpm sub-workspace and is intentionally invisible to the root yarn install — see "Branch model" below for why.
 
 **Path constraint**: never put the substring `bilibili-notify` in any directory under `koishi/` — Koishi's plugin loader gets confused. The koishi main plugin lives at `koishi/core/`, not `koishi/bilibili-notify/`. The npm name `koishi-plugin-bilibili-notify` is decoupled from the directory name (set in package.json's `name`).
 
@@ -162,6 +162,15 @@ The standalone end uses a separate React + Vite dashboard under `apps/standalone
 
 ## Branch model
 
-- `main` — frozen old release snapshot during refactor
-- `refactor` — current trunk; all `packages/` and `koishi/` changes land here
-- (stage 2 end) `koishi` and `standalone` branches will fork from refactor; merge direction is one-way: `refactor → koishi` and `refactor → standalone`. Never merge back.
+Single trunk + three coexisting top-level directories (`packages/`, `koishi/`, `apps/`). No fork into per-product branches.
+
+- `main` — frozen old release snapshot (last published koishi-only build). Receives a merge from `refactor` only when cutting an npm release.
+- `refactor` — active development trunk. All `packages/`, `koishi/`, and `apps/` changes land here.
+
+Both product forms ship from `refactor` continuously:
+- Koishi side publishes to npm via `changesets` — touches `packages/*` and `koishi/*`.
+- Standalone side ships as a docker / GHCR image — touches `apps/standalone/*`. Never published to npm.
+
+`apps/standalone/` is a separate pnpm sub-workspace and is invisible to the root yarn workspace, so its heavyweight deps (Hono, ws, Vite, etc.) do not pollute koishi-end installs. Business core packages reach it via pnpm `link:` to `../../../packages/*`.
+
+Earlier plan iterations described splitting `koishi/` and `standalone/` into separate long-lived branches with one-way merges from `refactor`. **That model has been dropped** — single-trunk maintenance is simpler, debugging is faster (one commit fixes both ends), and the directory split + pnpm isolation already gives sufficient separation.
