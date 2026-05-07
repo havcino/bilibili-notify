@@ -5,6 +5,7 @@ import { Icon } from "../components/icons";
 import { ApiError, api } from "../services/api";
 import type { Subscription } from "../types/domain";
 import type { GlobalConfig, GlobalConfigPatch } from "../types/globals";
+import { PerUpEditor } from "./rules/PerUpEditor";
 import {
 	CardStyleSection,
 	FilterSection,
@@ -109,26 +110,6 @@ function SectionList({
 					</button>
 				);
 			})}
-		</div>
-	);
-}
-
-function PerUpPlaceholder({ sub }: { sub: Subscription }) {
-	const color = colorFromUid(sub.uid);
-	return (
-		<div className="bn-glass rounded-bn-card p-8 text-center shadow-bn-card">
-			<div className="mb-3 inline-grid place-items-center">
-				<Avatar name={displayName(sub)} color={color} size={56} ring />
-			</div>
-			<div className="mb-1 text-base font-bold text-bn-text-primary">
-				{displayName(sub)} 的高级覆盖
-			</div>
-			<div className="text-[12.5px] text-bn-text-secondary">
-				per-UP <code className="rounded bg-black/5 px-1.5 py-px font-mono">overrides</code> 编辑器在
-				stage 3.6.C 落地，
-				<br />
-				当前可在「订阅」页对 {displayName(sub)} 做基础调整。
-			</div>
 		</div>
 	);
 }
@@ -256,7 +237,7 @@ export default function Rules() {
 
 				<div className="space-y-4">
 					{!isGlobal && focusedSub ? (
-						<PerUpPlaceholder sub={focusedSub} />
+						<PerUpEditor sub={focusedSub} defaults={draft.defaults} />
 					) : section === "filter" ? (
 						<FilterSection value={draft.defaults.filters} onPatch={patchDraft} />
 					) : section === "live" ? (

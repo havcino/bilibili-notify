@@ -120,22 +120,85 @@ export interface SpecialUser {
 	template?: string;
 }
 
+export interface AIPersonaShape {
+	name: string;
+	addressUser: string;
+	addressSelf: string;
+	traits: string;
+	catchphrase: string;
+}
+
 export interface AIOverride {
 	preset: string;
-	persona?: unknown;
+	persona?: AIPersonaShape;
 	dynamicPrompt?: string;
 	liveSummaryPrompt?: string;
 	temperature?: number;
 }
 
-export interface SubscriptionOverrides {
-	features?: Partial<Record<FeatureKey, boolean>>;
-	filters?: Record<string, unknown>;
-	schedule?: Record<string, unknown>;
-	templates?: Record<string, unknown>;
-	ai?: AIOverride;
-	cardStyle?: Record<string, unknown>;
+export type GuardLevel = 1 | 2 | 3;
+export interface TimeRange {
+	start: number;
+	end: number;
 }
+
+export interface ContentFiltersFull {
+	blockForward: boolean;
+	blockArticle: boolean;
+	blockKeywords: string[];
+	blockRegex: string[];
+	whitelistKeywords: string[];
+	whitelistRegex: string[];
+	minScPrice: number;
+	minGuardLevel: GuardLevel;
+}
+export type ContentFiltersOverride = Partial<ContentFiltersFull>;
+
+export interface ScheduleFull {
+	pushTime: number;
+	restartPush: boolean;
+	quietHours: TimeRange[];
+}
+export type ScheduleOverride = Partial<ScheduleFull>;
+
+export interface GuardEntryShape {
+	imageUrl: string;
+	template: string;
+}
+export interface GuardBundleShape {
+	captain: GuardEntryShape;
+	commander: GuardEntryShape;
+	governor: GuardEntryShape;
+}
+
+export interface TemplateBundleFull {
+	liveStart: string;
+	liveOngoing: string;
+	liveEnd: string;
+	liveSummary: string;
+	specialDanmaku: string;
+	specialUserEnter: string;
+	guardBuy: GuardBundleShape;
+}
+export type TemplateOverride = Partial<TemplateBundleFull>;
+
+export interface CardStyleFull {
+	cardColorStart: string;
+	cardColorEnd: string;
+	cardBasePlateColor: string;
+	cardBasePlateBorder: string;
+}
+export type CardStyleOverride = Partial<CardStyleFull>;
+
+export interface OverridesShape {
+	features?: Partial<Record<FeatureKey, boolean>>;
+	filters?: ContentFiltersOverride;
+	schedule?: ScheduleOverride;
+	templates?: TemplateOverride;
+	ai?: AIOverride;
+	cardStyle?: CardStyleOverride;
+}
+export type SubscriptionOverrides = OverridesShape;
 
 export interface SubscriptionState {
 	lastDynamicId?: string;
