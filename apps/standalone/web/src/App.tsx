@@ -28,8 +28,9 @@ export default function App() {
 					<Route path="/" element={<Dashboard />} />
 					<Route path="/subs" element={<Subs />} />
 					<Route path="/targets" element={<Targets />} />
+					<Route path="/history" element={<Placeholder name="推送历史" />} />
 					<Route path="/rules" element={<Placeholder name="高级规则" />} />
-					<Route path="/cards" element={<Placeholder name="卡片样式" />} />
+					<Route path="/cards" element={<Placeholder name="卡片预览 · 样式" />} />
 					<Route path="/ai" element={<Placeholder name="智能女仆" />} />
 					<Route path="/auth" element={<Auth />} />
 				</Routes>
