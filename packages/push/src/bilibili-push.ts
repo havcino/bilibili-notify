@@ -1,64 +1,53 @@
-// biome-ignore lint/correctness/noUnusedImports: module augmentation
-import {} from "@koishijs/plugin-notifier";
-import { type Bot, type Context, h, type Logger, Universal } from "koishi";
-import { type MasterConfig, PUSH_TYPE_LABEL, type PushArrMap, PushType } from "./types";
+import type {
+	DeliveryResult,
+	FeatureKey,
+	Logger,
+	NotificationPayload,
+	NotificationSink,
+	PushTarget,
+} from "@bilibili-notify/internal";
+import type { SubscriptionStore } from "@bilibili-notify/subscription";
 
 const INITIAL_RETRY_DELAY_MS = 3000;
 const MAX_RETRY_DELAY_MS = INITIAL_RETRY_DELAY_MS * 2 ** 5;
-const SEND_THROTTLE_MS = 500;
-const MAX_PUSH_MAP_WAIT_ATTEMPTS = 12; // 12 * 5s = 60s total
 
-/** Treat as a transient transport-layer failure that warrants refreshing the Bot reference. */
-function isTransportError(err: Error): boolean {
-	const msg = err.message ?? "";
-	return (
-		msg.includes("_request is not a function") ||
-		msg.includes("request is not a function") ||
-		msg.includes("ECONNRESET") ||
-		msg.includes("socket hang up")
-	);
+/** Options for constructing a BilibiliPush instance. */
+export interface BilibiliPushOptions {
+	/** Platform-neutral push sink — translates targetId → platform delivery. */
+	sink: NotificationSink;
+	/** Subscription store — used to resolve routing per uid+feature. */
+	store: SubscriptionStore;
+	/** Optional master PushTarget for private error notifications. */
+	master?: PushTarget | null;
+	/** Logger instance. */
+	logger: Logger;
 }
 
 /**
- * 部分 OneBot 实现（NapCat / Lagrange 等）在群消息含 `@全体` 时偶发返回非零
- * retcode（最常见 1200）但消息已成功下发。把这类已知"报错但已发送"的情况识别
- * 为成功，避免触发重试导致重复推送，也避免上层误报"放弃推送"。
+ * Platform-neutral push router.
+ *
+ * Replaces the old koishi-coupled BilibiliPush. Routing comes from
+ * store.findByUid(uid)?.routing[feature] → targetId[] → sink.send(targetId, payload).
+ * The old pushArrMap, broadcastToTargets, sendPrivateMsg/sendErrorMsg are gone.
  */
-function isAmbiguousSuccess(platform: string, err: Error): boolean {
-	if (platform !== "onebot") return false;
-	const msg = err.message ?? "";
-	return /\bretcode:\s*1200\b/.test(msg);
-}
-
-export interface BilibiliPushConfig {
-	logLevel: number;
-	master: MasterConfig;
-}
-
 export class BilibiliPush {
-	readonly logger: Logger;
-	private readonly ctx: Context;
-	private readonly config: BilibiliPushConfig;
+	private readonly sink: NotificationSink;
+	private readonly store: SubscriptionStore;
+	private readonly master: PushTarget | null;
+	private readonly logger: Logger;
 	private disposed = false;
 
-	/** Set by core after subscriptions are loaded */
-	pushArrMap: PushArrMap = new Map();
-	pushArrMapReady = false;
-
-	constructor(ctx: Context, config: BilibiliPushConfig) {
-		this.ctx = ctx;
-		this.config = config;
-		this.logger = ctx.logger("bilibili-notify-push");
-		this.logger.level = config.logLevel;
+	constructor(opts: BilibiliPushOptions) {
+		this.sink = opts.sink;
+		this.store = opts.store;
+		this.master = opts.master ?? null;
+		this.logger = opts.logger;
 	}
 
 	start(): void {
 		this.disposed = false;
-		const master = this.config.master;
-		if (master.enable && master.platform && !this.getBot(master.platform)) {
-			this.ctx.notifier?.create({
-				content: "未找到管理员平台机器人，无法推送运行状态，请尽快配置",
-			});
+		if (this.master && !this.sink.isAvailable(this.master.id)) {
+			this.logger.warn("[push] master 目标当前不可达，运行状态通知将无法发送");
 		}
 	}
 
@@ -66,276 +55,109 @@ export class BilibiliPush {
 		this.disposed = true;
 	}
 
-	// ---- Bot helpers ----
-
-	// biome-ignore lint/suspicious/noExplicitAny: Bot generic context compatibility
-	getBot(platform: string, selfId?: string): Bot<any> | undefined {
-		return this.ctx.bots.find(
-			(b) => b.platform === platform && (!selfId || selfId === "" || b.selfId === selfId),
-		);
-	}
-
-	// ---- Private message to admin ----
-
-	async sendPrivateMsg(content: string): Promise<void> {
-		const cfg = this.config.master;
-		if (!cfg.enable) return;
-		if (!cfg.platform || !cfg.masterAccount) {
-			this.logger.warn("[push] master 已启用但缺少 platform / masterAccount，跳过推送");
-			return;
-		}
-
-		const bot = this.ctx.bots.find((b) => b.platform === cfg.platform) ?? this.getBot(cfg.platform);
-		if (!bot) {
-			this.logger.warn("[push] 未找到管理员机器人实例，暂时无法推送");
-			return;
-		}
-		if (bot.status !== Universal.Status.ONLINE) {
-			this.logger.warn(`[push] ${bot.platform} 机器人未在线，暂时无法推送私信`);
-			return;
-		}
-
-		if (cfg.masterAccountGuildId) {
-			await bot.sendPrivateMessage(cfg.masterAccount, content, cfg.masterAccountGuildId);
-		} else {
-			await bot.sendPrivateMessage(cfg.masterAccount, content);
-		}
-	}
-
-	async sendErrorMsg(reason: string): Promise<void> {
-		this.logger.error(`[push] ${reason}`);
-		await this.sendPrivateMsg(reason);
-	}
-
-	// ---- Broadcast ----
-
-	async broadcastToTargets(
+	/**
+	 * Broadcast a notification to all targets registered for a given uid + feature.
+	 * Returns an array of DeliveryResult (one per target).
+	 */
+	async broadcastToFeature(
 		uid: string,
-		// biome-ignore lint/suspicious/noExplicitAny: Koishi h() element
-		content: any,
-		type: PushType,
-	): Promise<void> {
-		if (this.disposed) return;
+		feature: FeatureKey,
+		payload: NotificationPayload,
+	): Promise<DeliveryResult[]> {
+		if (this.disposed) return [];
 
-		// Wait for pushArrMap to be initialized, capped to avoid an infinite loop
-		// when the core plugin is misconfigured or never finishes loading subs.
-		let waitedAttempts = 0;
-		while (!this.pushArrMapReady) {
-			if (waitedAttempts >= MAX_PUSH_MAP_WAIT_ATTEMPTS) {
-				this.logger.error(
-					`[push] 推送对象信息超过 ${MAX_PUSH_MAP_WAIT_ATTEMPTS * 5}s 仍未初始化，放弃推送 (uid=${uid}, type=${PUSH_TYPE_LABEL[type]})`,
-				);
-				return;
-			}
-			this.logger.warn(
-				`[push] 推送对象信息尚未初始化，等待5秒后重试 (uid=${uid}, type=${PUSH_TYPE_LABEL[type]}, attempt=${waitedAttempts + 1}/${MAX_PUSH_MAP_WAIT_ATTEMPTS})`,
-			);
-			await this.sleep(5000);
-			if (this.disposed) return;
-			waitedAttempts++;
+		const sub = this.store.findByUid(uid);
+		if (!sub) {
+			this.logger.debug(`[push] uid=${uid} 无订阅记录，跳过 feature=${feature}`);
+			return [];
 		}
 
-		const record = this.pushArrMap.get(uid);
-		if (!record) return;
-
-		const label = `推送对象: ${uid}, 推送类型: ${PUSH_TYPE_LABEL[type]}`;
-		switch (type) {
-			case PushType.StartBroadcasting:
-				await this.pushToArr(record.liveAtAll, h.at("all"));
-				await this.pushToArr(record.live, h("message", content), label);
-				break;
-
-			case PushType.Live:
-				await this.pushToArr(record.live, h("message", content), label);
-				break;
-
-			case PushType.LiveEnd:
-				await this.pushToArr(record.liveEnd, h("message", content), label);
-				break;
-
-			case PushType.Dynamic:
-				await this.pushToArr(record.dynamicAtAll, h.at("all"));
-				await this.pushToArr(record.dynamic, h("message", content), label);
-				break;
-
-			case PushType.LiveGuardBuy:
-				await this.pushToArr(record.liveGuardBuy, h("message", content), label);
-				break;
-
-			case PushType.Superchat:
-				await this.pushToArr(record.superchat, h("message", content), label);
-				break;
-
-			case PushType.WordCloudAndLiveSummary: {
-				// content is [wordcloudMsg, liveSummaryMsg]
-				const [wcMsg, summaryMsg] = content as [unknown, unknown];
-				const wcArr = record.wordcloud ?? [];
-				const sumArr = record.liveSummary ?? [];
-				const both = wcArr.filter((x) => sumArr.includes(x));
-				const wcOnly = wcArr.filter((x) => !sumArr.includes(x));
-				const sumOnly = sumArr.filter((x) => !wcArr.includes(x));
-
-				// biome-ignore lint/suspicious/noExplicitAny: content items are Koishi h() elements
-				const bothMsgs = [wcMsg, summaryMsg].filter(Boolean) as any[];
-				await this.pushToArr(bothMsgs.length > 0 ? both : [], h("message", bothMsgs), label);
-				// biome-ignore lint/suspicious/noExplicitAny: content items are Koishi h() elements
-				await this.pushToArr(wcMsg ? wcOnly : [], h("message", wcMsg as any), label);
-				// biome-ignore lint/suspicious/noExplicitAny: content items are Koishi h() elements
-				await this.pushToArr(summaryMsg ? sumOnly : [], h("message", summaryMsg as any), label);
-				break;
-			}
-
-			case PushType.UserDanmakuMsg:
-				await this.pushToArr(record.specialDanmaku, h("message", content), label);
-				break;
-
-			case PushType.UserActions:
-				await this.pushToArr(record.specialUserEnterTheRoom, h("message", content), label);
-				break;
-		}
-	}
-
-	/** 仅在数组非空时推送，减少调用方的重复判断 */
-	// biome-ignore lint/suspicious/noExplicitAny: Koishi message content
-	private async pushToArr(arr: string[] | undefined, content: any, label?: string): Promise<void> {
-		if (arr?.length) {
-			if (label) this.logger.info(`[push] ${label}`);
-			await this.push(arr, content);
-		} else if (label) {
-			this.logger.debug(`[push] ${label} — 目标数组为空，跳过`);
-		}
-	}
-
-	// ---- Low-level message sender ----
-
-	// biome-ignore lint/suspicious/noExplicitAny: Koishi message content
-	private async push(targets: string[], content: any): Promise<void> {
-		// Group targets by platform
-		const byPlatform: Record<string, string[]> = {};
-		for (const target of targets) {
-			const [platform, channelId] = target.split(":");
-			if (!byPlatform[platform]) byPlatform[platform] = [];
-			byPlatform[platform].push(channelId);
+		const targetIds = sub.routing[feature] ?? [];
+		if (targetIds.length === 0) {
+			this.logger.debug(`[push] uid=${uid} feature=${feature} 无目标，跳过`);
+			return [];
 		}
 
-		for (const [platform, channelIds] of Object.entries(byPlatform)) {
-			let succeeded = 0;
-			let failed = 0;
-
-			for (const channelId of channelIds) {
-				const ok = await this.sendOnceWithRetry(platform, channelId, content);
-				if (ok) succeeded++;
-				else failed++;
-			}
-			if (failed === 0) {
-				this.logger.info(`[push] 成功推送 ${succeeded} 条消息到 ${platform}`);
-			} else {
-				this.logger.warn(`[push] 推送到 ${platform} 完成：成功 ${succeeded} 条，失败 ${failed} 条`);
-			}
-		}
+		this.logger.info(`[push] uid=${uid} feature=${feature} → ${targetIds.length} 个目标`);
+		return this.sendBatch(targetIds, payload);
 	}
 
 	/**
-	 * 推送单条消息到指定 channel，失败时在多 bot 之间轮转 + 指数退避重试。
-	 * 返回 true 表示成功，false 表示放弃。
+	 * Send a notification to all targets in the list.
+	 * Failures are captured per-target; does not throw.
 	 */
-	private async sendOnceWithRetry(
-		platform: string,
-		channelId: string,
-		// biome-ignore lint/suspicious/noExplicitAny: Koishi message content
-		content: any,
-	): Promise<boolean> {
-		if (this.disposed) return false;
+	async sendBatch(targetIds: string[], payload: NotificationPayload): Promise<DeliveryResult[]> {
+		if (this.disposed) return [];
+		const results: DeliveryResult[] = [];
+		for (const id of targetIds) {
+			const result = await this.sendToTarget(id, payload);
+			results.push(result);
+		}
+		return results;
+	}
+
+	/**
+	 * Send a notification to a single target.
+	 * Retries with exponential back-off if the sink indicates the target is temporarily unavailable.
+	 */
+	async sendToTarget(
+		targetId: string,
+		payload: NotificationPayload,
+		opts?: { private?: boolean },
+	): Promise<DeliveryResult> {
+		if (this.disposed) return { ok: false, latencyMs: 0, err: "disposed" };
 
 		let delay = INITIAL_RETRY_DELAY_MS;
-		// 抽取在线 bot 时刷新引用，覆盖 bot 重连/替换的场景
-		const triedBotIds = new Set<string>();
-
 		while (!this.disposed) {
-			const bots = this.ctx.bots.filter((b) => b.platform === platform);
-			if (bots.length === 0) {
-				this.logger.warn(`[push] 平台 ${platform} 当前没有可用机器人，跳过 ${channelId}`);
-				return false;
-			}
-
-			// 优先选还没试过的在线 bot
-			const onlineBot = bots.find(
-				(b) => b.status === Universal.Status.ONLINE && !triedBotIds.has(b.selfId),
-			);
-
-			if (!onlineBot) {
-				// 区分两种情况：
-				// 1. 当前没有任何在线 bot（断线/未登录）→ sleep + 等重连后再试
-				// 2. 在线 bot 都已尝试过且都报了非 transport 错误 → 同样的错误重试只会
-				//    重复发同一条失败请求（在 retcode-1200-已送达 这类场景下还会复制推送），
-				//    必须立即放弃。
-				const hasOnlineUntried = bots.some(
-					(b) => b.status === Universal.Status.ONLINE && !triedBotIds.has(b.selfId),
-				);
-				const hasAnyOnline = bots.some((b) => b.status === Universal.Status.ONLINE);
-
-				if (hasAnyOnline && !hasOnlineUntried) {
-					this.logger.error(
-						`[push] 平台 ${platform} 所有在线机器人均失败（已尝试 ${triedBotIds.size} 个），放弃推送到 ${channelId}`,
-					);
-					await this.sendPrivateMsg(
-						`平台 ${platform} 所有在线机器人均失败，放弃推送到 ${channelId}`,
-					);
-					return false;
-				}
-
+			if (!this.sink.isAvailable(targetId)) {
 				if (delay > MAX_RETRY_DELAY_MS) {
-					this.logger.error(
-						`[push] 平台 ${platform} 持续无可用机器人（已等待 ${MAX_RETRY_DELAY_MS / 1000}s+），放弃推送到 ${channelId}`,
-					);
-					await this.sendPrivateMsg(`机器人持续不可用，放弃推送到 ${channelId}`);
-					return false;
+					const msg = `target=${targetId} 持续不可达，放弃推送`;
+					this.logger.error(`[push] ${msg}`);
+					return { ok: false, latencyMs: 0, err: msg };
 				}
-				this.logger.warn(
-					`[push] 平台 ${platform} 暂无可用在线机器人，${delay / 1000}s 后重试 ${channelId}`,
-				);
+				this.logger.warn(`[push] target=${targetId} 暂不可达，${delay / 1000}s 后重试`);
 				await this.sleep(delay);
-				if (this.disposed) return false;
 				delay *= 2;
-				triedBotIds.clear(); // 等待后 bot 可能恢复，重新尝试全部
 				continue;
 			}
 
-			triedBotIds.add(onlineBot.selfId);
+			const t0 = Date.now();
 			try {
-				await onlineBot.sendMessage(channelId, content);
-				await this.sleep(SEND_THROTTLE_MS);
-				return true;
+				const result = opts?.private
+					? await this.sink.sendPrivate(targetId, payload)
+					: await this.sink.send(targetId, payload);
+				return result;
 			} catch (e) {
-				if (this.disposed) return false;
-				const err = e as Error;
-
-				if (isAmbiguousSuccess(platform, err)) {
-					// OneBot 1200 这类"报错但消息已发送"的场景：再试同一个 bot 会
-					// 再发一条副本，必须直接当成成功返回。
-					this.logger.warn(
-						`[push] 机器人 ${onlineBot.selfId} 推送到 ${channelId} 报告 ambiguous-success（${err.message}），不重试`,
-					);
-					await this.sleep(SEND_THROTTLE_MS);
-					return true;
-				}
-
-				if (isTransportError(err)) {
-					this.logger.warn(
-						`[push] 机器人 ${onlineBot.selfId} transport 不可用（${err.message}），换 bot 重试 ${channelId}`,
-					);
-					// 不计入 triedBotIds：重新刷新 bot 列表后再选其他在线 bot
-					triedBotIds.delete(onlineBot.selfId);
-					continue;
-				}
-
-				this.logger.error(
-					`[push] 机器人 ${onlineBot.selfId} 发送到 ${channelId} 失败: ${err.message}`,
-				);
-				// 其他错误：换下一个 bot；该 bot 已记入 triedBotIds 不再选中
+				const err = e instanceof Error ? e.message : String(e);
+				this.logger.error(`[push] target=${targetId} 发送失败: ${err}`);
+				return { ok: false, latencyMs: Date.now() - t0, err };
 			}
 		}
-		return false;
+		return { ok: false, latencyMs: 0, err: "disposed" };
+	}
+
+	/**
+	 * Send a private message to the configured master target.
+	 * No-op if no master is configured or target is unavailable.
+	 */
+	async sendToMaster(payload: NotificationPayload): Promise<DeliveryResult | null> {
+		if (this.disposed || !this.master) return null;
+		if (!this.sink.isAvailable(this.master.id)) {
+			this.logger.warn("[push] master 目标不可达，跳过私信通知");
+			return null;
+		}
+		return this.sendToTarget(this.master.id, payload, { private: true });
+	}
+
+	/** Convenience: send a plain-text error message to the master. */
+	async sendPrivateMsg(text: string): Promise<void> {
+		await this.sendToMaster({ kind: "text", text });
+	}
+
+	/** Convenience: log the error and optionally notify master. */
+	async sendErrorMsg(reason: string): Promise<void> {
+		this.logger.error(`[push] ${reason}`);
+		await this.sendPrivateMsg(reason);
 	}
 
 	private sleep(ms: number): Promise<void> {

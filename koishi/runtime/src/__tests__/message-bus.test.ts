@@ -93,7 +93,7 @@ describe("makeKoishiMessageBus()", () => {
 
 		bus.on("subscription-changed", a);
 		bus.on("subscription-changed", b);
-		bus.emit("subscription-changed");
+		bus.emit("subscription-changed", []);
 
 		expect(a).toHaveBeenCalledTimes(1);
 		expect(b).toHaveBeenCalledTimes(1);

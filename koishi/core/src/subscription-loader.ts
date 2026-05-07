@@ -1,18 +1,17 @@
 import type { BilibiliAPI } from "@bilibili-notify/api";
-import type { BilibiliPush, SubItem, Subscriptions } from "@bilibili-notify/push";
-import { SubscriptionManager } from "@bilibili-notify/subscription";
+import {
+	FEATURE_KEYS,
+	type FeatureKey,
+	makeEmptySubscription,
+	type Subscription,
+	type SubscriptionRouting,
+} from "@bilibili-notify/internal";
+import type { FlatSubConfigItem, SubscriptionStore } from "@bilibili-notify/subscription";
 import type { Notifier } from "@koishijs/plugin-notifier";
 import { type Context, h, type Logger } from "koishi";
 import type { BilibiliNotifyConfig } from "./config";
-import { diffSubManagers } from "./sub-diff";
-import {
-	addSubViaCrud,
-	type CrudDeps,
-	removeSubViaCrud,
-	type SubFlagOverrides,
-	updateSubViaCrud,
-} from "./subscription-crud";
-import type { SubscriptionOp } from "./types";
+import type { TargetRegistry } from "./target-registry";
+import { synthesizeTargetsForFlatSub } from "./target-synthesis";
 
 export interface SubscriptionLoaderHooks {
 	getConfig(): BilibiliNotifyConfig;
@@ -21,41 +20,144 @@ export interface SubscriptionLoaderHooks {
 }
 
 /**
- * Owns the koishi-side runtime subscription state: builds the initial map from
- * `config.subs` / `config.advancedSub`, performs add/remove/update CRUD via the
- * helpers in subscription-crud.ts, emits `bilibili-notify/subscription-changed`,
- * and refreshes the console subscription Notifier widget.
+ * Maps the legacy master feature booleans to FeatureKeys.
+ * These are the features that have per-sub toggles.
+ */
+const LEGACY_FEATURE_MAP: ReadonlyArray<{ legacy: keyof FlatSubConfigItem; feature: FeatureKey }> =
+	[
+		{ legacy: "dynamic", feature: "dynamic" },
+		{ legacy: "dynamicAtAll", feature: "dynamicAtAll" },
+		{ legacy: "live", feature: "live" },
+		{ legacy: "liveAtAll", feature: "liveAtAll" },
+		{ legacy: "liveEnd", feature: "liveEnd" },
+		{ legacy: "liveGuardBuy", feature: "liveGuardBuy" },
+		{ legacy: "superchat", feature: "superchat" },
+		{ legacy: "wordcloud", feature: "wordcloud" },
+		{ legacy: "liveSummary", feature: "liveSummary" },
+	] as const;
+
+/**
+ * Translate a FlatSubConfigItem into a Subscription + synthesize PushTargets.
+ * The channel ids in the legacy `target` field become real PushTarget rows.
+ * Returns [subscription, targets[]].
+ *
+ * Target synthesis strategy:
+ * - The legacy `target: "channel1,channel2"` string gets split by comma.
+ * - Each channel becomes a PushTarget with:
+ *     id        = stable deterministic uuid based on platform+channelId
+ *     platform  = "koishi-<item.platform>"
+ *     scope     = "group"
+ *     config    = { botPlatform: item.platform, channelId }
+ * - De-duplication: if the registry already has a target with the same
+ *   platform+channelId, reuse its id.
+ * - Every enabled feature on the sub gets that target's id in routing[feature].
+ */
+export function flatSubToSubscription(
+	item: FlatSubConfigItem,
+	registry: TargetRegistry,
+): Subscription {
+	const uid = item.uid.split(",")[0].trim();
+	// Use a deterministic id based on uid so re-loading is stable.
+	const subId = deterministicUuid(`sub:${uid}`);
+	const sub = makeEmptySubscription({ id: subId, uid });
+	sub.overrides = {};
+
+	// Synthesize targets and wire routing
+	const channelIds = item.target
+		.split(",")
+		.map((s) => s.trim())
+		.filter(Boolean);
+	const koishiPlatform = `koishi-${item.platform}`;
+
+	const targetIds: string[] = [];
+	for (const channelId of channelIds) {
+		// Reuse existing target if same platform+channelId
+		const existing = registry.findByPlatformAndChannel(koishiPlatform, channelId);
+		if (existing) {
+			targetIds.push(existing.id);
+		} else {
+			const t = synthesizeTargetsForFlatSub(koishiPlatform, channelId);
+			registry.set(t);
+			targetIds.push(t.id);
+		}
+	}
+
+	// Wire routing: each enabled legacy feature → all targetIds
+	const routing: SubscriptionRouting = Object.fromEntries(
+		FEATURE_KEYS.map((k) => [k, [] as string[]]),
+	) as SubscriptionRouting;
+
+	for (const { legacy, feature } of LEGACY_FEATURE_MAP) {
+		if (item[legacy as keyof FlatSubConfigItem]) {
+			routing[feature] = [...targetIds];
+		}
+	}
+	// specialDanmaku / specialUserEnter get no legacy mapping (not in flat config)
+	// but keep empty arrays as initialized.
+
+	sub.routing = routing;
+	return sub;
+}
+
+/** Deterministic UUID v5-like (using SHA-based approach via a simple hash). */
+function deterministicUuid(input: string): string {
+	// Simple deterministic id: hash the input string into a uuid-shaped string.
+	// We use a djb2 hash spread across 16 bytes.
+	let h1 = 5381;
+	let h2 = 52711;
+	let h3 = 0xdeadbeef;
+	let h4 = 0xbaddcafe;
+	for (let i = 0; i < input.length; i++) {
+		const c = input.charCodeAt(i);
+		h1 = (Math.imul(h1, 33) ^ c) >>> 0;
+		h2 = (Math.imul(h2, 37) ^ c) >>> 0;
+		h3 = (Math.imul(h3, 31) ^ c) >>> 0;
+		h4 = (Math.imul(h4, 29) ^ c) >>> 0;
+	}
+	const toHex = (n: number, len: number) => n.toString(16).padStart(len, "0");
+	return `${toHex(h1, 8)}-${toHex(h2 & 0xffff, 4)}-4${toHex((h3 >> 4) & 0x0fff, 3)}-${toHex(((h4 >> 4) & 0x3fff) | 0x8000, 4)}-${toHex(h1 ^ h2, 8)}${toHex(h3 ^ h4, 4)}`;
+}
+
+export interface SubscriptionLoaderOptions {
+	ctx: Context;
+	logger: Logger;
+	hooks: SubscriptionLoaderHooks;
+	store: SubscriptionStore;
+	registry: TargetRegistry;
+	api: BilibiliAPI;
+}
+
+/**
+ * Owns the koishi-side runtime subscription state.
+ * Translates config.subs (FlatSubConfigItem[]) into Subscription[] + PushTarget[],
+ * seeds the SubscriptionStore, and handles advanced-sub events.
  */
 export class SubscriptionLoader {
 	private readonly ctx: Context;
 	private readonly logger: Logger;
 	private readonly hooks: SubscriptionLoaderHooks;
-	subMgr: SubscriptionManager | null = null;
+	private readonly store: SubscriptionStore;
+	private readonly registry: TargetRegistry;
+	private readonly api: BilibiliAPI;
 	private subNotifier?: Notifier;
-	currentSubs: Subscriptions | null = null;
 
-	constructor(ctx: Context, logger: Logger, hooks: SubscriptionLoaderHooks) {
-		this.ctx = ctx;
-		this.logger = logger;
-		this.hooks = hooks;
-	}
-
-	bootstrap(api: BilibiliAPI, push: BilibiliPush): void {
-		this.subMgr = new SubscriptionManager(api, push, this.ctx);
+	constructor(opts: SubscriptionLoaderOptions) {
+		this.ctx = opts.ctx;
+		this.logger = opts.logger;
+		this.hooks = opts.hooks;
+		this.store = opts.store;
+		this.registry = opts.registry;
+		this.api = opts.api;
 	}
 
 	dispose(): void {
 		this.subNotifier?.dispose();
 		this.subNotifier = undefined;
-		this.subMgr = null;
-		this.currentSubs = null;
+		this.store.replaceAll([]);
+		this.registry.clear();
 	}
 
-	get subManager() {
-		return this.subMgr?.subManager ?? new Map<string, SubItem>();
-	}
-
-	/** Initial load after a successful login. Mirrors the legacy `loadInitialSubscriptions`. */
+	/** Initial load after a successful login. */
 	async loadInitialSubscriptions(): Promise<void> {
 		const config = this.hooks.getConfig();
 		if (config.advancedSub) {
@@ -68,63 +170,60 @@ export class SubscriptionLoader {
 			return;
 		}
 		this.logger.debug(`[sub] 从配置加载 ${config.subs.length} 个订阅项`);
-		const subs = SubscriptionManager.fromFlatConfig(config.subs);
-		if (!this.subMgr) return;
-		await this.subMgr.loadSubscriptions(subs, { isReload: false });
-		this.syncCurrentSubs();
+		const subs = await this.translateFlatSubs(config.subs);
+		this.store.replaceAll(subs);
 		this.updateSubNotifier();
-		const ops: SubscriptionOp[] = [...this.subMgr.subManager.values()].map((sub) => ({
-			type: "add" as const,
-			sub,
-		}));
-		if (ops.length) this.ctx.emit("bilibili-notify/subscription-changed", ops);
 	}
 
 	/** Wire the optional advanced-sub event listener. No-op outside advanced-sub mode. */
 	registerAdvancedSubListener(): void {
 		if (!this.hooks.getConfig().advancedSub) return;
-		this.ctx.on("bilibili-notify/advanced-sub", async (subs: Subscriptions) => {
-			if (!Object.keys(subs).length) {
+		this.ctx.on("bilibili-notify/advanced-sub", async (incoming: Subscription[]) => {
+			if (!incoming.length) {
 				this.logger.info("[sub] 订阅加载完毕，但未添加任何订阅");
 				return;
 			}
-			if (!this.subMgr) return;
-			const prevSubManager = new Map(this.subMgr.subManager);
-			await this.subMgr.loadSubscriptions(subs, { isReload: prevSubManager.size > 0 });
-			this.syncCurrentSubs();
+			// incoming are already Subscription[] (translated by advanced-sub adapter)
+			this.store.replaceAll(incoming);
 			this.updateSubNotifier();
-			const ops = diffSubManagers(prevSubManager, this.subMgr.subManager);
-			if (ops.length) this.ctx.emit("bilibili-notify/subscription-changed", ops);
 		});
 	}
 
-	addSub(
-		params: { uid: string; name: string; platform: string; target: string } & SubFlagOverrides,
-	): Promise<string> {
-		return addSubViaCrud(this.crudDeps(), params);
-	}
-
-	updateSub(params: { uid: string } & SubFlagOverrides): Promise<string> {
-		return updateSubViaCrud(this.crudDeps(), params);
-	}
-
-	removeSub(uid: string): string {
-		return removeSubViaCrud(this.crudDeps(), uid);
-	}
-
-	syncCurrentSubs(): void {
-		if (!this.subMgr?.subManager.size) {
-			this.currentSubs = null;
-			return;
+	/** Translate a flat config array into Subscription[], registering PushTargets. */
+	private async translateFlatSubs(items: FlatSubConfigItem[]): Promise<Subscription[]> {
+		const subs: Subscription[] = [];
+		for (const item of items) {
+			const sub = flatSubToSubscription(item, this.registry);
+			// Perform follow + roomId resolution via API
+			const uid = sub.uid;
+			const followResult = await this.followUser(uid);
+			if (followResult.code !== 0) {
+				this.logger.error(`[sub] 关注 UID：${uid} 失败：${followResult.message}，跳过`);
+				continue;
+			}
+			subs.push(sub);
 		}
-		const result: Subscriptions = {};
-		for (const [uid, sub] of this.subMgr.subManager) result[uid] = sub;
-		this.currentSubs = result;
+		return subs;
+	}
+
+	private async followUser(uid: string): Promise<{ code: number; message: string }> {
+		try {
+			// biome-ignore lint/suspicious/noExplicitAny: API response shape
+			const res = (await this.api.follow(uid)) as any;
+			const code: number = res.code ?? -1;
+			const message: string = res.message ?? "";
+			if (code === 22001 || code === 22014 || code === 0) {
+				return { code: 0, message: "OK" };
+			}
+			return { code, message };
+		} catch (e) {
+			const msg = e instanceof Error ? (e.message ?? e.toString()) : String(e);
+			return { code: -1, message: msg };
+		}
 	}
 
 	/** Refresh the koishi console subscription Notifier widget. */
 	updateSubNotifier(): void {
-		if (!this.subMgr) return;
 		this.subNotifier?.dispose();
 		const subInfo = this.hooks.subList();
 		if (subInfo === "没有订阅任何UP") {
@@ -141,23 +240,6 @@ export class SubscriptionLoader {
 		]);
 		this.subNotifier = this.ctx.notifier.create(content);
 	}
-
-	private commitConfig(next: BilibiliNotifyConfig): void {
-		this.hooks.setConfig(next);
-		this.ctx.emit("bilibili-notify/update-config", next);
-		this.syncCurrentSubs();
-		this.updateSubNotifier();
-	}
-
-	private crudDeps(): CrudDeps {
-		return {
-			ctx: this.ctx,
-			logger: this.logger,
-			getConfig: () => this.hooks.getConfig(),
-			commitConfig: (next) => this.commitConfig(next),
-			getSubMgr: () => this.subMgr,
-		};
-	}
 }
 
-export type { SubFlagOverrides };
+export type { FlatSubConfigItem };

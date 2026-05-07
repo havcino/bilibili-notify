@@ -1,3 +1,3 @@
-export type { BilibiliPushConfig } from "./bilibili-push";
+export type { BilibiliPushOptions } from "./bilibili-push";
 export { BilibiliPush } from "./bilibili-push";
-export * from "./types";
+export { PUSH_TYPE_LABEL, PushType } from "./types";

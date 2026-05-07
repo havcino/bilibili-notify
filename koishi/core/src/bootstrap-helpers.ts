@@ -1,5 +1,6 @@
 import type { BilibiliAPI } from "@bilibili-notify/api";
-import type { BilibiliPush, Subscriptions } from "@bilibili-notify/push";
+import type { Subscription } from "@bilibili-notify/internal";
+import type { BilibiliPush } from "@bilibili-notify/push";
 import type { StorageManager } from "@bilibili-notify/storage";
 import type { Context, Logger } from "koishi";
 
@@ -45,11 +46,25 @@ export async function warnMissingPlugins(
 	ctx: Context,
 	push: BilibiliPush | null,
 	logger: Logger,
-	subs: Subscriptions,
+	subs: Subscription[],
 ): Promise<void> {
 	if (!push) return;
-	const needDynamic = Object.values(subs).some((s) => s.dynamic);
-	const needLive = Object.values(subs).some((s) => s.live);
+	const needDynamic = subs.some(
+		(s) =>
+			Object.values(s.routing).some((ids) => ids.length > 0) &&
+			s.overrides.features?.dynamic !== false,
+	);
+	const needLive = subs.some((s) => {
+		const liveFeatures: Array<keyof typeof s.routing> = [
+			"live",
+			"liveEnd",
+			"liveGuardBuy",
+			"superchat",
+			"wordcloud",
+			"liveSummary",
+		];
+		return liveFeatures.some((f) => (s.routing[f] ?? []).length > 0);
+	});
 	if (needDynamic && !ctx.get("bilibili-notify-dynamic")) {
 		const msg =
 			"[bilibili-notify] 警告：有订阅开启了动态通知，但动态插件（koishi-plugin-bilibili-notify-dynamic）未运行，请检查是否已安装并启用该插件。";

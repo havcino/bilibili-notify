@@ -1,3 +1,4 @@
+import type { Subscription } from "./schema/subscriptions";
 import type { PushTarget } from "./schema/targets";
 
 /** 通用资源释放接口；adapter 提供，业务持有，dispose 时统一调用。 */
@@ -27,6 +28,14 @@ export interface ServiceContext {
 }
 
 /**
+ * 订阅变更操作。CRUD 产生的 diff 列表，随 subscription-changed 事件携带。
+ */
+export type SubscriptionOp =
+	| { type: "add"; sub: Subscription }
+	| { type: "remove"; id: string }
+	| { type: "update"; sub: Subscription };
+
+/**
  * 业务核心唯一事件源。所有 Koishi `bilibili-notify/*` 事件 + 独立端 WS channel 都源自这里。
  * Koishi adapter 将这些事件桥接到 ctx.emit('bilibili-notify/<event>')；独立端 adapter 直接 mitt-like 实现。
  */
@@ -34,7 +43,7 @@ export interface BiliEvents {
 	"auth-lost": () => void;
 	"auth-restored": () => void;
 	"cookies-refreshed": (data: unknown) => void;
-	"subscription-changed": () => void;
+	"subscription-changed": (ops: SubscriptionOp[]) => void;
 	"login-status-report": (snapshot: LoginSnapshot) => void;
 	"plugin-error": (source: string, message: string) => void;
 	ready: () => void;

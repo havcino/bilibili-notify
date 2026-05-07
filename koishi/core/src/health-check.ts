@@ -11,14 +11,6 @@ export interface HealthCheckOptions {
 
 /**
  * Health-check / cookie-loss reporting on the koishi side.
- *
- * The actual periodic auth probe lives inside `LoginFlow` (it transitions the
- * snapshot and emits `auth-lost` over the MessageBus). This adapter listens on
- * the koishi-mirrored event and notifies the master account through a private
- * message, debounced so a burst of -101 responses does not spam the user.
- *
- * The `loginHealthCheckMinutes` config value is consumed when wiring `LoginFlow`
- * via `LoginFlowBridge`; this file is purely the reaction.
  */
 export class HealthCheck {
 	private readonly opts: HealthCheckOptions;

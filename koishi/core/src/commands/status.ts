@@ -41,7 +41,7 @@ export function statusCommands(this: BilibiliNotifyServerManager): void {
 		.usage("查看订阅管理对象")
 		.example("status sm")
 		.action(() => {
-			this.ctx.logger.info("[status]", this.subManager);
+			this.ctx.logger.info("[status]", this.store?.list());
 			return "查看控制台";
 		});
 

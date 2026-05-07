@@ -6,13 +6,13 @@ import {
 	type PushSegment,
 	type SubscriptionsView,
 } from "@bilibili-notify/dynamic";
+import type { SubscriptionOp } from "@bilibili-notify/internal";
 import { BILIBILI_NOTIFY_TOKEN } from "@bilibili-notify/internal";
 import { makeKoishiMessageBus, makeKoishiServiceContext } from "@bilibili-notify/koishi-runtime";
 import type { BilibiliPush } from "@bilibili-notify/push";
-import { PushType } from "@bilibili-notify/push";
 import { type Awaitable, type Context, h, Service } from "koishi";
-import type { SubscriptionOp } from "koishi-plugin-bilibili-notify";
-import type {} from "koishi-plugin-bilibili-notify-ai";
+// biome-ignore lint/correctness/noUnusedImports: module augmentation for ctx["bilibili-notify"]
+import type {} from "koishi-plugin-bilibili-notify";
 import { dynamicCommands } from "./commands";
 import type { BilibiliNotifyDynamicConfig } from "./config";
 
@@ -31,9 +31,10 @@ declare module "koishi" {
 const SERVICE_NAME = "bilibili-notify-dynamic";
 
 /**
- * koishi 端 PushLike adapter。把 dynamic-engine 的 PushSegment[] / PushKind 翻译为
- * koishi `h(...)` 元素并交给 BilibiliPush.broadcastToTargets。私聊与错误信息直接走
- * push 自带的 sendPrivateMsg / sendErrorMsg。
+ * Adapt the new BilibiliPush (platform-neutral) to the PushLike interface
+ * that DynamicEngine expects. The engine sends PushSegment[] + PushKind;
+ * this adapter translates to NotificationPayload and delegates to
+ * push.broadcastToFeature.
  */
 function adaptPush(push: BilibiliPush): PushLike {
 	const segmentToKoishi = (seg: PushSegment) => {
@@ -43,7 +44,6 @@ function adaptPush(push: BilibiliPush): PushLike {
 			case "image":
 				return h.image(seg.buffer, seg.mime);
 			case "image-group":
-				// dynamic-engine 仅在 forward=true（DYNAMIC_TYPE_DRAW 转发图集）时下发 image-group
 				return h(
 					"message",
 					{ forward: seg.forward },
@@ -54,14 +54,61 @@ function adaptPush(push: BilibiliPush): PushLike {
 
 	return {
 		async broadcastDynamic(uid, segments, kind: PushKind) {
-			// dynamic-engine 当前只发 "dynamic" / "dynamic-images" 两种 kind；二者最终都映射到
-			// PushType.Dynamic（原 dynamic-service.ts 同样统一用 PushType.Dynamic）。
+			// Both "dynamic" and "dynamic-images" map to the "dynamic" feature key.
 			void kind;
 			const koishiSegments = segments.map(segmentToKoishi);
-			// image-group 已经是一个完整 message 节点；非 image-group 则用 message 包一层。
 			const isOnlyImageGroup = segments.length === 1 && segments[0].type === "image-group";
-			const content = isOnlyImageGroup ? koishiSegments[0] : h("message", koishiSegments);
-			await push.broadcastToTargets(uid, content, PushType.Dynamic);
+			// Build a composite payload from koishi h() elements
+			const _koishiContent = isOnlyImageGroup ? koishiSegments[0] : h("message", koishiSegments);
+			// Wrap in NotificationPayload text (h() elements serialize to strings via toString)
+			// For koishi, we leverage that the KoishiSink's payloadToKoishi converts "text" payloads
+			// using h.text() — but for composite rich content we need a workaround.
+			// Strategy: pass the koishi h() element as a "text" payload; the KoishiSink calls
+			// h.text(payload.text) which would lose formatting. Instead, pass as composite with
+			// the koishi element embedded as a text segment — but the sink only understands
+			// the defined PayloadSegment types.
+			//
+			// The cleanest approach: use sendBatch directly with a composite payload
+			// containing the text representation, and also handle image segments.
+			// For rich koishi content, we need to bypass the generic sink and call
+			// push.broadcastToFeature, but the sink still needs to handle the koishi
+			// h() elements. Since KoishiSink uses payloadToKoishi which maps kinds,
+			// we need to pick the right kind.
+			//
+			// Resolution: build a NotificationPayload from segments.
+			let payload: import("@bilibili-notify/internal").NotificationPayload;
+			if (segments.length === 1 && segments[0].type === "text") {
+				payload = { kind: "text", text: segments[0].text };
+			} else if (segments.length === 1 && segments[0].type === "image") {
+				payload = {
+					kind: "image",
+					image: { buffer: segments[0].buffer, mime: segments[0].mime },
+				};
+			} else if (segments.length === 1 && segments[0].type === "image-group") {
+				// image-group: format as text with URLs (fallback)
+				payload = {
+					kind: "text",
+					text: segments[0].urls.join("\n"),
+				};
+			} else {
+				// composite: map all segments
+				type PS = import("@bilibili-notify/internal").PayloadSegment;
+				const mapped: PS[] = [];
+				for (const seg of segments) {
+					if (seg.type === "text") {
+						mapped.push({ type: "text" as const, text: seg.text });
+					} else if (seg.type === "image") {
+						mapped.push({ type: "image" as const, buffer: seg.buffer, mime: seg.mime });
+					} else {
+						// image-group → individual links
+						for (const url of seg.urls) {
+							mapped.push({ type: "link" as const, href: url });
+						}
+					}
+				}
+				payload = { kind: "composite", segments: mapped };
+			}
+			await push.broadcastToFeature(uid, "dynamic", payload);
 		},
 		sendPrivateMsg(content) {
 			return push.sendPrivateMsg(content);
@@ -70,6 +117,31 @@ function adaptPush(push: BilibiliPush): PushLike {
 			return push.sendErrorMsg(reason);
 		},
 	};
+}
+
+/** Build a SubscriptionsView from the store for the engine's getSubs callback. */
+// biome-ignore lint/suspicious/noExplicitAny: store type from InternalsShape
+function storeToSubscriptionsView(store: any): SubscriptionsView {
+	const view: SubscriptionsView = {};
+	for (const sub of store.list()) {
+		if (!sub.enabled) continue;
+		const hasDynamic = (sub.routing.dynamic?.length ?? 0) > 0;
+		view[sub.uid] = {
+			uid: sub.uid,
+			uname: sub.cachedProfile?.name ?? sub.uid,
+			dynamic: hasDynamic,
+			customCardStyle: sub.overrides.cardStyle
+				? {
+						enable: true,
+						cardColorStart: sub.overrides.cardStyle.cardColorStart,
+						cardColorEnd: sub.overrides.cardStyle.cardColorEnd,
+						cardBasePlateColor: sub.overrides.cardStyle.cardBasePlateColor,
+						cardBasePlateBorder: sub.overrides.cardStyle.cardBasePlateBorder,
+					}
+				: { enable: false },
+		};
+	}
+	return view;
 }
 
 export class BilibiliNotifyDynamic extends Service<BilibiliNotifyDynamicConfig> {
@@ -111,15 +183,45 @@ export class BilibiliNotifyDynamic extends Service<BilibiliNotifyDynamicConfig> 
 			config: this.toEngineConfig(this.config),
 			getSubs: () => {
 				const fresh = this.ctx["bilibili-notify"].getInternals(BILIBILI_NOTIFY_TOKEN);
-				return (fresh?.subs ?? null) as SubscriptionsView | null;
+				if (!fresh) return null;
+				return storeToSubscriptionsView(fresh.store);
 			},
 		});
 
 		this.engine.start();
 
-		// koishi 端订阅事件 → engine.applyOps（engine 自身只监听 auth-restored）
+		// koishi 端订阅事件 → engine.applyOps
 		this.ctx.on("bilibili-notify/subscription-changed", (ops: SubscriptionOp[]) => {
-			this.engine?.applyOps(ops);
+			// Translate new SubscriptionOp[] to the SubscriptionOpView format DynamicEngine expects
+			const opViews = ops.map((op) => {
+				if (op.type === "add") {
+					const hasDynamic = (op.sub.routing.dynamic?.length ?? 0) > 0;
+					return {
+						type: "add" as const,
+						sub: {
+							uid: op.sub.uid,
+							uname: op.sub.cachedProfile?.name ?? op.sub.uid,
+							dynamic: hasDynamic,
+							customCardStyle: op.sub.overrides.cardStyle
+								? {
+										enable: true,
+										...op.sub.overrides.cardStyle,
+									}
+								: { enable: false },
+						},
+					};
+				}
+				if (op.type === "remove") {
+					return { type: "delete" as const, uid: op.id };
+				}
+				// update
+				return {
+					type: "update" as const,
+					uid: op.sub.uid,
+					changes: [{ scope: "dynamic", dynamic: (op.sub.routing.dynamic?.length ?? 0) > 0 }],
+				};
+			});
+			this.engine?.applyOps(opViews);
 		});
 
 		dynamicCommands.call(this);

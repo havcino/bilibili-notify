@@ -24,14 +24,11 @@
 		"build": "tsdown",
 		"typecheck": "tsc --noEmit"
 	},
-	"peerDependencies": {
-		"@koishijs/plugin-notifier": "*",
-		"koishi": "^4.18.11"
+	"dependencies": {
+		"@bilibili-notify/internal": "workspace:^",
+		"@bilibili-notify/subscription": "workspace:^"
 	},
 	"engines": {
 		"node": ">=20.0.0"
-	},
-	"devDependencies": {
-		"@koishijs/plugin-notifier": "^1.2.1"
 	}
 }

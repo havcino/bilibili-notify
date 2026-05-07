@@ -1,6 +1,6 @@
 import { resolve } from "node:path";
 import type { BilibiliAPI, BiliDataServer } from "@bilibili-notify/api";
-import type { Subscriptions } from "@bilibili-notify/push";
+import type { Subscription, SubscriptionOp } from "@bilibili-notify/internal";
 import type { CookieData } from "@bilibili-notify/storage";
 // biome-ignore lint/correctness/noUnusedImports: module augmentation
 import {} from "@koishijs/plugin-console";
@@ -10,15 +10,9 @@ import type { Context, Schema } from "koishi";
 import BilibiliNotifyServerManager from "./app-bootstrap";
 import { type BilibiliNotifyConfig, BilibiliNotifyConfigSchema } from "./config";
 import BilibiliNotifyDataServer from "./data-server";
-import type {
-	DynamicSubChange,
-	LiveSubChange,
-	SubChange,
-	SubscriptionOp,
-	TargetSubChange,
-} from "./types";
+import type { SubscriptionOp as LegacySubscriptionOp } from "./types";
 
-export type { DynamicSubChange, LiveSubChange, SubChange, SubscriptionOp, TargetSubChange };
+export type { LegacySubscriptionOp, SubscriptionOp };
 export { type BilibiliNotifyConfig, BilibiliNotifyConfigSchema };
 
 declare module "koishi" {
@@ -29,7 +23,7 @@ declare module "koishi" {
 		"bilibili-notify/login-status-report"(data: BiliDataServer): void;
 		"bilibili-notify/auth-lost"(): void;
 		"bilibili-notify/auth-restored"(): void;
-		"bilibili-notify/advanced-sub"(subs: Subscriptions): void;
+		"bilibili-notify/advanced-sub"(subs: Subscription[]): void;
 		"bilibili-notify/ready-to-receive"(): void;
 		"bilibili-notify/cookies-refreshed"(data: CookieData): void;
 		"bilibili-notify/subscription-changed"(ops: SubscriptionOp[]): void;

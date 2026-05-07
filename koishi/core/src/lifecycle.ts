@@ -1,19 +1,26 @@
 import { BilibiliAPI } from "@bilibili-notify/api";
 import { BILIBILI_NOTIFY_TOKEN } from "@bilibili-notify/internal";
 import { makeKoishiMessageBus, makeKoishiServiceContext } from "@bilibili-notify/koishi-runtime";
-import { BilibiliPush, type Subscriptions } from "@bilibili-notify/push";
+import { BilibiliPush } from "@bilibili-notify/push";
 import type { StorageManager } from "@bilibili-notify/storage";
+import { createSubscriptionStore, type SubscriptionStore } from "@bilibili-notify/subscription";
 import type { Context, Logger } from "koishi";
 import { hasLoginCookie, loadInitialCookies, warnMissingPlugins } from "./bootstrap-helpers";
 import type { BilibiliNotifyConfig } from "./config";
 import { LoginFlowBridge } from "./login-flow-bridge";
-import type { SubFlagOverrides, SubscriptionLoader } from "./subscription-loader";
+import { createKoishiSink } from "./sink";
+import { SubscriptionLoader } from "./subscription-loader";
+import { TargetRegistry } from "./target-registry";
+import { synthesizeMasterTarget } from "./target-synthesis";
 
 /** Mutable runtime state on the manager that lifecycle helpers read/write. */
 export interface ManagerSlots {
 	api: BilibiliAPI | null;
 	push: BilibiliPush | null;
 	loginBridge: LoginFlowBridge | null;
+	store: SubscriptionStore | null;
+	registry: TargetRegistry | null;
+	subLoader: SubscriptionLoader | null;
 }
 
 export interface LifecycleDeps {
@@ -21,10 +28,10 @@ export interface LifecycleDeps {
 	logger: Logger;
 	getConfig(): BilibiliNotifyConfig;
 	storageMgr: StorageManager;
-	subLoader: SubscriptionLoader;
 	/** Run after api/push are up — caller registers koishi commands here. */
 	registerCommands(): void;
 	slots: ManagerSlots;
+	subList(): string;
 }
 
 /**
@@ -34,6 +41,8 @@ export interface LifecycleDeps {
 export async function bringUp(deps: LifecycleDeps): Promise<boolean> {
 	const config = deps.getConfig();
 	const apiServiceCtx = makeKoishiServiceContext(deps.ctx, "bilibili-notify-api", config.logLevel);
+	const bus = makeKoishiMessageBus(deps.ctx);
+
 	const api = new BilibiliAPI({
 		serviceCtx: apiServiceCtx,
 		config: { userAgent: config.userAgent },
@@ -42,7 +51,41 @@ export async function bringUp(deps: LifecycleDeps): Promise<boolean> {
 			onAuthLost: () => void deps.slots.loginBridge?.flow.handleAuthLost(),
 		},
 	});
-	const push = new BilibiliPush(deps.ctx, { logLevel: config.logLevel, master: config.master });
+
+	// --- Target registry + SubscriptionStore ---
+	const registry = new TargetRegistry();
+	const store = createSubscriptionStore(bus);
+
+	// --- Master target synthesis ---
+	let masterTarget = null;
+	if (config.master.enable && config.master.platform && config.master.masterAccount) {
+		masterTarget = synthesizeMasterTarget(
+			config.master.platform,
+			config.master.masterAccount,
+			config.master.masterAccountGuildId,
+		);
+		registry.set(masterTarget);
+	}
+
+	// --- Koishi NotificationSink ---
+	const sink = createKoishiSink({
+		ctx: deps.ctx,
+		resolveTarget: (id) => registry.get(id),
+	});
+
+	// --- BilibiliPush (new platform-neutral form) ---
+	const pushServiceCtx = makeKoishiServiceContext(
+		deps.ctx,
+		"bilibili-notify-push",
+		config.logLevel,
+	);
+	const push = new BilibiliPush({
+		sink,
+		store,
+		master: masterTarget,
+		logger: pushServiceCtx.logger,
+	});
+
 	await api.start();
 	deps.logger.debug("[module] BilibiliAPI 启动完成");
 	push.start();
@@ -50,7 +93,7 @@ export async function bringUp(deps: LifecycleDeps): Promise<boolean> {
 
 	const loginBridge = new LoginFlowBridge({
 		ctx: deps.ctx,
-		bus: makeKoishiMessageBus(deps.ctx),
+		bus,
 		serviceCtx: apiServiceCtx,
 		api,
 		logger: deps.logger,
@@ -61,18 +104,34 @@ export async function bringUp(deps: LifecycleDeps): Promise<boolean> {
 	loginBridge.install();
 	await loginBridge.flow.start();
 
+	const subLoader = new SubscriptionLoader({
+		ctx: deps.ctx,
+		logger: deps.logger,
+		hooks: {
+			getConfig: deps.getConfig,
+			setConfig: () => {
+				/* config is managed by app-bootstrap */
+			},
+			subList: deps.subList,
+		},
+		store,
+		registry,
+		api,
+	});
+
 	deps.slots.api = api;
 	deps.slots.push = push;
 	deps.slots.loginBridge = loginBridge;
+	deps.slots.store = store;
+	deps.slots.registry = registry;
+	deps.slots.subLoader = subLoader;
 
-	deps.subLoader.bootstrap(api, push);
-	deps.subLoader.registerAdvancedSubListener();
+	subLoader.registerAdvancedSubListener();
 
 	deps.ctx.on("bilibili-notify/subscription-changed", async () => {
 		await deps.ctx.sleep(5000);
-		if (deps.subLoader.currentSubs) {
-			await warnMissingPlugins(deps.ctx, deps.slots.push, deps.logger, deps.subLoader.currentSubs);
-		}
+		const subs = store.list();
+		await warnMissingPlugins(deps.ctx, push, deps.logger, subs);
 	});
 
 	deps.registerCommands();
@@ -87,23 +146,22 @@ export async function bringUp(deps: LifecycleDeps): Promise<boolean> {
 		return true;
 	}
 	await loginBridge.flow.reportAccountInfo();
-	await deps.subLoader.loadInitialSubscriptions();
+	await subLoader.loadInitialSubscriptions();
 	return true;
 }
 
 /** Tear down the api / push / login bridge and reset slots. */
-export function tearDown(deps: {
-	logger: Logger;
-	subLoader: SubscriptionLoader;
-	slots: ManagerSlots;
-}): void {
+export function tearDown(deps: { logger: Logger; slots: ManagerSlots }): void {
 	deps.slots.loginBridge?.stop();
-	deps.subLoader.dispose();
+	deps.slots.subLoader?.dispose();
 	deps.slots.push?.stop();
 	deps.slots.api?.stop();
 	deps.slots.push = null;
 	deps.slots.api = null;
 	deps.slots.loginBridge = null;
+	deps.slots.store = null;
+	deps.slots.registry = null;
+	deps.slots.subLoader = null;
 	deps.logger.debug("[stop] 插件资源清理完成");
 }
 
@@ -111,12 +169,7 @@ export function tearDown(deps: {
 export interface InternalsShape {
 	api: BilibiliAPI;
 	push: BilibiliPush;
-	subs: Subscriptions | null;
-	addSub: (
-		params: { uid: string; name: string; platform: string; target: string } & SubFlagOverrides,
-	) => Promise<string>;
-	removeSub: (uid: string) => string;
-	updateSub: (params: { uid: string } & SubFlagOverrides) => Promise<string>;
+	store: SubscriptionStore;
 }
 
 /** Build the internals object exposed to friendly plugins; null-guarded for the 4 prereqs. */
@@ -124,15 +177,12 @@ export function buildInternals(args: {
 	token: symbol;
 	api: BilibiliAPI | null;
 	push: BilibiliPush | null;
-	subLoader: SubscriptionLoader;
+	store: SubscriptionStore | null;
 }): InternalsShape | null {
-	if (args.token !== BILIBILI_NOTIFY_TOKEN || !args.api || !args.push) return null;
+	if (args.token !== BILIBILI_NOTIFY_TOKEN || !args.api || !args.push || !args.store) return null;
 	return {
 		api: args.api,
 		push: args.push,
-		subs: args.subLoader.currentSubs,
-		addSub: (p) => args.subLoader.addSub(p),
-		removeSub: (uid) => args.subLoader.removeSub(uid),
-		updateSub: (p) => args.subLoader.updateSub(p),
+		store: args.store,
 	};
 }

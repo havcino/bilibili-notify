@@ -1,12 +1,18 @@
+import { randomUUID } from "node:crypto";
 import {
 	type AIScene,
 	CommentaryGenerator,
 	type CommentaryGeneratorConfig,
 	type SessionContext,
 	type SubManagement,
+	type Subscriptions,
 } from "@bilibili-notify/ai";
 import type { BilibiliAPI } from "@bilibili-notify/api";
-import { BILIBILI_NOTIFY_TOKEN } from "@bilibili-notify/internal";
+import {
+	BILIBILI_NOTIFY_TOKEN,
+	FEATURE_KEYS,
+	makeEmptySubscription,
+} from "@bilibili-notify/internal";
 import { makeKoishiServiceContext } from "@bilibili-notify/koishi-runtime";
 import { type Awaitable, type Context, Service } from "koishi";
 import type {} from "koishi-plugin-bilibili-notify";
@@ -39,6 +45,21 @@ function toEngineConfig(config: BilibiliNotifyAIConfig): CommentaryGeneratorConf
 	};
 }
 
+/** Convert a SubscriptionStore to the Subscriptions map the AI tools expect. */
+// biome-ignore lint/suspicious/noExplicitAny: store type from InternalsShape
+function storeToAiSubs(store: any): Subscriptions {
+	const subs: Subscriptions = {};
+	for (const sub of store.list()) {
+		subs[sub.uid] = {
+			uid: sub.uid,
+			uname: sub.cachedProfile?.name ?? sub.uid,
+			dynamic: (sub.routing.dynamic?.length ?? 0) > 0,
+			live: (sub.routing.live?.length ?? 0) > 0,
+		};
+	}
+	return subs;
+}
+
 export class BilibiliNotifyAI extends Service<BilibiliNotifyAIConfig> {
 	static readonly [Service.provide] = SERVICE_NAME;
 	static readonly inject = ["bilibili-notify"];
@@ -49,9 +70,7 @@ export class BilibiliNotifyAI extends Service<BilibiliNotifyAIConfig> {
 		super(ctx, SERVICE_NAME);
 		this.config = config;
 		const serviceCtx = makeKoishiServiceContext(ctx, SERVICE_NAME, config.logLevel);
-		// 引擎构造期需要 api，但 internals 在 start() 之后才稳定可见。这里传入一个
-		// 延迟代理：start() 时把 api 实例放进 holder，引擎调用 api 方法时按需拿；
-		// 缺失则抛错（与原服务实现的 'AI apiKey 未配置' 等错误处理一致）。
+		// Lazy api proxy: resolved in start()
 		const apiHolder: { api: BilibiliAPI | null } = { api: null };
 		const apiProxy = new Proxy({} as BilibiliAPI, {
 			get(_, prop) {
@@ -70,7 +89,6 @@ export class BilibiliNotifyAI extends Service<BilibiliNotifyAIConfig> {
 			api: apiProxy,
 			config: toEngineConfig(config),
 		});
-		// 把 holder 暴露到实例上，供 start() 注入 api。
 		(this as unknown as { _apiHolder: typeof apiHolder })._apiHolder = apiHolder;
 		aiCommands.call(this);
 	}
@@ -81,13 +99,75 @@ export class BilibiliNotifyAI extends Service<BilibiliNotifyAIConfig> {
 		const holder = (this as unknown as { _apiHolder: { api: BilibiliAPI | null } })._apiHolder;
 		holder.api = internals.api;
 
+		const { store } = internals;
+
+		// Build SubManagement wrapping store for AI CRUD tools
 		const subMgmt: SubManagement = {
-			addSub: internals.addSub,
-			removeSub: internals.removeSub,
-			updateSub: internals.updateSub,
+			addSub: async (params) => {
+				const {
+					uid,
+					name,
+					dynamic = true,
+					dynamicAtAll = false,
+					live = true,
+					liveAtAll = false,
+					liveGuardBuy = false,
+					superchat = false,
+					wordcloud = true,
+					liveSummary = true,
+				} = params;
+				const sub = makeEmptySubscription({ id: randomUUID(), uid });
+				const targetIds: string[] = [randomUUID()]; // placeholder target id
+				const routing = Object.fromEntries(FEATURE_KEYS.map((k) => [k, [] as string[]]));
+				if (dynamic) routing.dynamic = [...targetIds];
+				if (dynamicAtAll) routing.dynamicAtAll = [...targetIds];
+				if (live) routing.live = [...targetIds];
+				if (liveAtAll) routing.liveAtAll = [...targetIds];
+				if (liveGuardBuy) routing.liveGuardBuy = [...targetIds];
+				if (superchat) routing.superchat = [...targetIds];
+				if (wordcloud) routing.wordcloud = [...targetIds];
+				if (liveSummary) routing.liveSummary = [...targetIds];
+				sub.routing = routing as typeof sub.routing;
+				store.upsert(sub);
+				return `已成功订阅 ${name}（UID: ${uid}）`;
+			},
+			removeSub: (uid) => {
+				const sub = store.findByUid(uid);
+				if (!sub) return `UID: ${uid} 不在订阅列表中`;
+				store.removeById(sub.id);
+				return `已成功取消订阅（UID: ${uid}）`;
+			},
+			updateSub: async (params) => {
+				const sub = store.findByUid(params.uid);
+				if (!sub) return `UID: ${params.uid} 不在订阅列表中`;
+				const updated = { ...sub };
+				const targetIds = Object.values(sub.routing)
+					.flat()
+					.filter((id, i, arr) => arr.indexOf(id) === i);
+				const routing = { ...sub.routing };
+				if (params.dynamic !== undefined) routing.dynamic = params.dynamic ? targetIds : [];
+				if (params.dynamicAtAll !== undefined)
+					routing.dynamicAtAll = params.dynamicAtAll ? targetIds : [];
+				if (params.live !== undefined) routing.live = params.live ? targetIds : [];
+				if (params.liveAtAll !== undefined) routing.liveAtAll = params.liveAtAll ? targetIds : [];
+				if (params.liveGuardBuy !== undefined)
+					routing.liveGuardBuy = params.liveGuardBuy ? targetIds : [];
+				if (params.superchat !== undefined) routing.superchat = params.superchat ? targetIds : [];
+				if (params.wordcloud !== undefined) routing.wordcloud = params.wordcloud ? targetIds : [];
+				if (params.liveSummary !== undefined)
+					routing.liveSummary = params.liveSummary ? targetIds : [];
+				updated.routing = routing;
+				store.upsert(updated);
+				return `已成功更新（UID: ${params.uid}）的订阅设置`;
+			},
 		};
+
 		this.engine.setSubManagement({
-			getSubs: () => this.ctx["bilibili-notify"].getInternals(BILIBILI_NOTIFY_TOKEN)?.subs ?? null,
+			getSubs: () => {
+				const fresh = this.ctx["bilibili-notify"].getInternals(BILIBILI_NOTIFY_TOKEN);
+				if (!fresh) return null;
+				return storeToAiSubs(fresh.store);
+			},
 			subMgmt,
 		});
 		this.engine.start();
@@ -97,7 +177,7 @@ export class BilibiliNotifyAI extends Service<BilibiliNotifyAIConfig> {
 		this.engine.stop();
 	}
 
-	// ── 代理至 engine（保留原始 Service 公共 API） ───────────────────────────
+	// ── proxy to engine ────────────────────────────────────────────────
 
 	getSystemPrompt(scene?: AIScene, summary?: string): string {
 		return this.engine.getSystemPrompt(scene, summary);

@@ -1,6 +1,8 @@
 import type { FlatSubConfigItem } from "@bilibili-notify/subscription";
 import { Schema } from "koishi";
 
+export type { FlatSubConfigItem };
+
 export interface BilibiliNotifyConfig {
 	advancedSub: boolean;
 	subs: FlatSubConfigItem[];
