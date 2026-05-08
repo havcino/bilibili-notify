@@ -3,17 +3,16 @@
  * `.bn-design/variation-ac.jsx`.
  *
  * Left column: ImageRenderingSidebar bound to GlobalConfig.defaults.cardStyle
- * via /api/globals PATCH. Right column: live card preview that calls the
- * puppeteer-core-backed `/api/cards/preview` route — for `kind: "live"` the
- * server runs the production LiveCard template through Vue SSR + UnoCSS +
- * puppeteer screenshot and returns a base64 PNG. Other kinds (dyn / sc /
- * guard) still render the in-DOM mock until their templates land in the
- * preview route.
+ * via /api/globals PATCH. Right column: card preview that calls the
+ * puppeteer-core-backed `/api/cards/preview` route for ALL four kinds (live /
+ * dyn / sc / guard). The server runs the matching production template
+ * (LiveCard / DynamicCard / SCCard / GuardCard) through Vue SSR + UnoCSS +
+ * puppeteer screenshot and returns a base64 PNG.
  */
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
-import { Avatar, Btn, Pill } from "../components/atoms";
+import { Btn } from "../components/atoms";
 import { Field, TColor } from "../components/forms";
 import { GlassBox } from "../components/glass-box";
 import { Icon } from "../components/icons";
@@ -22,25 +21,11 @@ import type { CardStyle, GlobalConfig } from "../types/globals";
 
 type CardKind = "live" | "dyn" | "sc" | "guard";
 
-const KIND_LABELS: Record<CardKind, { label: string; tone: string; sub: string }> = {
-	live: { label: "● 直播中", tone: "#FF6699", sub: "2 分钟前 · 游戏" },
-	dyn: { label: "动态", tone: "#00AEEC", sub: "12 分钟前 · 图文动态" },
-	sc: { label: "SC ¥30", tone: "#fdcb6e", sub: "5 分钟前 · SuperChat" },
-	guard: { label: "舰长", tone: "#f2a053", sub: "刚刚 · 开通大航海" },
-};
-
-const TITLES: Record<CardKind, string> = {
-	live: "【赛博朋克2077】资料片实况首播！",
-	dyn: "今天直播间发了一些新游戏的预告片，大家觉得哪个最值得期待？",
-	sc: "感谢「孤勇者」 ¥30 SuperChat",
-	guard: "感谢「梦梦」开通舰长！",
-};
-
-const DESCS: Record<CardKind, string> = {
-	live: "游戏 · 单机 · 主机 — 一年一度的资料片首发，番茄哥带大家云一波",
-	dyn: "配图来自前几天的发布会，等周五正式直播再细聊～",
-	sc: "主播加油！这首要听到！老番茄唱得太好了！",
-	guard: "从此以后这个舰队就是我的家了 (｡•̀ᴗ-)✧",
+const KIND_LABELS: Record<CardKind, { label: string; tone: string }> = {
+	live: { label: "直播开播", tone: "#FF6699" },
+	dyn: { label: "动态发布", tone: "#00AEEC" },
+	sc: { label: "SC 提醒", tone: "#fdcb6e" },
+	guard: { label: "上舰提醒", tone: "#f2a053" },
 };
 
 interface PreviewResponse {
@@ -49,7 +34,7 @@ interface PreviewResponse {
 	err?: string;
 }
 
-function LivePreviewImage({ style }: { style: CardStyle }) {
+function PreviewImage({ kind, style }: { kind: CardKind; style: CardStyle }) {
 	// debounce style edits — TColor pickers fire many onChange callbacks per second
 	const [debouncedStyle, setDebouncedStyle] = useState(style);
 	useEffect(() => {
@@ -58,10 +43,10 @@ function LivePreviewImage({ style }: { style: CardStyle }) {
 	}, [style]);
 
 	const query = useQuery({
-		queryKey: ["card-preview", "live", debouncedStyle],
+		queryKey: ["card-preview", kind, debouncedStyle],
 		queryFn: async () => {
 			const res = await api.post<PreviewResponse>("/api/cards/preview", {
-				kind: "live",
+				kind,
 				style: debouncedStyle,
 			});
 			if (!res.ok || !res.dataUrl) {
@@ -112,58 +97,7 @@ function LivePreviewImage({ style }: { style: CardStyle }) {
 }
 
 function CardPreview({ kind, style }: { kind: CardKind; style: CardStyle }) {
-	if (kind === "live") return <LivePreviewImage style={style} />;
-	const meta = KIND_LABELS[kind];
-	const previewBg = `linear-gradient(135deg, ${style.cardColorStart}, ${style.cardColorEnd})`;
-	const showImage = kind === "dyn";
-	return (
-		<div
-			className="flex min-h-[420px] items-center justify-center rounded-bn-card border border-gray-200 p-7 transition"
-			style={{ background: previewBg }}
-		>
-			<div
-				className="w-[380px] rounded-xl p-4 shadow-[0_6px_20px_rgba(0,0,0,0.14)] backdrop-blur-md"
-				style={{
-					background: style.cardBasePlateColor,
-					border: `1px solid ${style.cardBasePlateBorder}`,
-				}}
-			>
-				<div className="mb-3 flex items-center gap-2.5">
-					<Avatar name="老番茄" color="#FF6699" size={44} />
-					<div className="flex-1">
-						<div className="text-sm font-bold text-bn-text-primary">老番茄</div>
-						<div className="text-[11px] text-bn-text-secondary">{meta.sub}</div>
-					</div>
-					<Pill color={meta.tone}>{meta.label}</Pill>
-				</div>
-				<div className="mb-2 text-sm font-bold leading-snug text-bn-text-primary">
-					{TITLES[kind]}
-				</div>
-				<div className="mb-2.5 text-xs leading-relaxed text-bn-text-tertiary">{DESCS[kind]}</div>
-				{showImage ? (
-					<div
-						className="relative flex h-40 items-center justify-center overflow-hidden rounded-lg text-xs text-white/85"
-						style={{
-							background: "linear-gradient(135deg, #FB7299, #ffaaa7)",
-						}}
-					>
-						<span>动态配图</span>
-					</div>
-				) : null}
-				<div className="mt-3 flex items-center gap-3.5 text-[11px] text-bn-text-tertiary">
-					<span className="inline-flex items-center gap-1">
-						<Icon.eye size={12} /> 23.4 万
-					</span>
-					<span className="inline-flex items-center gap-1">
-						<Icon.chat size={12} /> 5,891
-					</span>
-					<span className="inline-flex items-center gap-1">
-						<Icon.gift size={12} /> 142
-					</span>
-				</div>
-			</div>
-		</div>
-	);
+	return <PreviewImage kind={kind} style={style} />;
 }
 
 export default function Cards() {
@@ -317,7 +251,7 @@ export default function Cards() {
 				<div className="flex items-center justify-between text-[13px] text-bn-text-primary">
 					<span className="font-bold">卡片预览 · 实时反映左侧 image 配置</span>
 					<span className="text-[11px] font-normal text-bn-text-secondary">
-						{kind === "live" ? "puppeteer 真实渲染 · 600×可变高" : `${kind} 模板暂用 CSS mock`}
+						puppeteer 真实渲染 · 渲染宽度{kind === "sc" || kind === "guard" ? " 430" : " 600"}px
 					</span>
 				</div>
 				<CardPreview kind={kind} style={draft} />

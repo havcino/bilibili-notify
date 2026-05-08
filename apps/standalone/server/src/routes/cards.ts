@@ -2,18 +2,29 @@
  * `POST /api/cards/preview` — render a sample card via puppeteer-core and
  * return base64 PNG. Used by the Cards page's right-side live preview.
  *
- * First iteration only supports `kind: "live"` — the LiveCard template is
- * exported from packages/image; mock data fills in the LiveCardProps shape
- * so operators see how their style choices land before any real notification
- * goes out. Other kinds (dyn / sc / guard) return 501 until their templates
- * + mock data are wired here.
+ * Supports all four kinds (live / dyn / sc / guard). Each kind has its own
+ * fabricated mock data shaped to the corresponding template's prop type;
+ * cardColorStart/End from the request flows through verbatim so operators
+ * see how their style choices land before any real notification goes out.
  *
  * 503 path — when the operator hasn't set BN_CHROME_PATH (or chromePath in
  * yaml) we don't try to launch puppeteer. The route reports the missing
  * config so the Cards page can render an actionable hint.
  */
 
-import { LiveCard, type LiveCardProps, renderCard } from "@bilibili-notify/image";
+import {
+	type Component,
+	DynamicCard,
+	type DynamicCardProps,
+	GuardCard,
+	type GuardCardProps,
+	h,
+	LiveCard,
+	type LiveCardProps,
+	renderCard,
+	SCCard,
+	type SCCardProps,
+} from "@bilibili-notify/image";
 import { Hono } from "hono";
 import { z } from "zod";
 import type { StandalonePuppeteer } from "../runtime/puppeteer.js";
@@ -69,18 +80,12 @@ export function createCardsRoute(opts: CardsRouteOptions): Hono {
 			);
 		}
 
-		if (kind !== "live") {
-			return c.json<PreviewResponse>(
-				{ ok: false, err: `kind=${kind} 暂未接入真实渲染（仅 live 已支持）` },
-				501,
-			);
-		}
-
 		try {
-			const html = await renderCard(LiveCard, buildLivePreviewProps(style), {
-				title: "卡片预览 · 直播",
+			const { component, props, title, htmlWidth } = buildPreviewSpec(kind, style);
+			const html = await renderCard(component, props, {
+				title,
 				font: style.font ?? "PingFang SC, sans-serif",
-				htmlWidth: 600,
+				htmlWidth,
 			});
 			const buffer = await screenshotHtml(opts.puppeteer, html);
 			const dataUrl = `data:image/png;base64,${buffer.toString("base64")}`;
@@ -95,6 +100,61 @@ export function createCardsRoute(opts: CardsRouteOptions): Hono {
 	return app;
 }
 
+interface PreviewSpec {
+	component: Component;
+	props: Record<string, unknown>;
+	title: string;
+	htmlWidth: number;
+}
+
+function buildPreviewSpec(
+	kind: "live" | "dyn" | "sc" | "guard",
+	style: z.infer<typeof StyleSchema>,
+): PreviewSpec {
+	if (kind === "live") {
+		return {
+			component: LiveCard,
+			props: buildLivePreviewProps(style),
+			title: "卡片预览 · 直播",
+			htmlWidth: 600,
+		};
+	}
+	if (kind === "dyn") {
+		return {
+			component: DynamicCard,
+			props: buildDynamicPreviewProps(style),
+			title: "卡片预览 · 动态",
+			htmlWidth: 600,
+		};
+	}
+	if (kind === "sc") {
+		return {
+			component: SCCard,
+			props: buildScPreviewProps(style),
+			title: "卡片预览 · SC",
+			htmlWidth: 430,
+		};
+	}
+	return {
+		component: GuardCard,
+		props: buildGuardPreviewProps(style),
+		title: "卡片预览 · 上舰",
+		htmlWidth: 430,
+	};
+}
+
+const SVG_COVER =
+	"data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 600 338'%3E%3Crect width='600' height='338' fill='%23FB7299'/%3E%3Ctext x='50%25' y='50%25' fill='white' font-size='32' text-anchor='middle' dominant-baseline='middle'%3ECover%3C/text%3E%3C/svg%3E";
+
+const SVG_AVATAR_PINK =
+	"data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='32' fill='%23FB7299'/%3E%3Ctext x='50%25' y='52%25' fill='white' font-size='28' text-anchor='middle' dominant-baseline='middle'%3EUP%3C/text%3E%3C/svg%3E";
+
+const SVG_AVATAR_BLUE =
+	"data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='32' fill='%2300AEEC'/%3E%3Ctext x='50%25' y='52%25' fill='white' font-size='30' text-anchor='middle' dominant-baseline='middle'%3EUP%3C/text%3E%3C/svg%3E";
+
+const SVG_AVATAR_FAN =
+	"data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='32' fill='%23fdcb6e'/%3E%3Ctext x='50%25' y='52%25' fill='white' font-size='28' text-anchor='middle' dominant-baseline='middle'%3E粉%3C/text%3E%3C/svg%3E";
+
 function buildLivePreviewProps(style: z.infer<typeof StyleSchema>): LiveCardProps {
 	return {
 		hideDesc: style.hideDesc ?? false,
@@ -102,8 +162,7 @@ function buildLivePreviewProps(style: z.infer<typeof StyleSchema>): LiveCardProp
 		cardColorStart: style.cardColorStart,
 		cardColorEnd: style.cardColorEnd,
 		data: {
-			user_cover:
-				"data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 600 338'%3E%3Crect width='600' height='338' fill='%23FB7299'/%3E%3Ctext x='50%25' y='50%25' fill='white' font-size='32' text-anchor='middle' dominant-baseline='middle'%3ECover%3C/text%3E%3C/svg%3E",
+			user_cover: SVG_COVER,
 			keyframe: "",
 			title: "【赛博朋克 2077】资料片实况首播！",
 			area_name: "游戏",
@@ -111,8 +170,7 @@ function buildLivePreviewProps(style: z.infer<typeof StyleSchema>): LiveCardProp
 			online: 12_345,
 		},
 		username: "示例 UP 主",
-		userface:
-			"data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='32' fill='%2300AEEC'/%3E%3Ctext x='50%25' y='52%25' fill='white' font-size='30' text-anchor='middle' dominant-baseline='middle'%3EUP%3C/text%3E%3C/svg%3E",
+		userface: SVG_AVATAR_BLUE,
 		titleStatus: "已开播 12 分钟",
 		liveTime: "2026-05-09 19:00:00",
 		liveStatus: 1,
@@ -122,6 +180,58 @@ function buildLivePreviewProps(style: z.infer<typeof StyleSchema>): LiveCardProp
 		watchedNum: "3.4万",
 		fansNum: "215万",
 		fansChanged: "+128",
+	};
+}
+
+function buildDynamicPreviewProps(style: z.infer<typeof StyleSchema>): DynamicCardProps {
+	const mainContent = h(
+		"div",
+		{
+			style: "font-size:14px;line-height:1.7;color:#444;padding:6px 0;white-space:pre-line;",
+		},
+		"这是一段示例动态正文。你可以在「卡片预览·样式」里看到改色后的渲染效果。\n第二行用来演示换行和留白。",
+	);
+	return {
+		cardColorStart: style.cardColorStart,
+		cardColorEnd: style.cardColorEnd,
+		decorateColor: "#FB7299",
+		avatarUrl: SVG_AVATAR_BLUE,
+		upName: "示例 UP 主",
+		upIsVip: true,
+		pubTime: "2026-05-09 18:24:00",
+		decorateCardUrl: undefined,
+		decorateCardId: undefined,
+		topic: "示例话题",
+		mainContent,
+		forwardCount: "1.2万",
+		commentCount: "5,891",
+		likeCount: "8.7万",
+	};
+}
+
+function buildScPreviewProps(style: z.infer<typeof StyleSchema>): SCCardProps {
+	return {
+		senderFace: SVG_AVATAR_FAN,
+		senderName: "示例粉丝",
+		masterName: "示例 UP 主",
+		masterAvatarUrl: SVG_AVATAR_BLUE,
+		text: "主播加油！这首要听到！示例 UP 主唱得太好了！",
+		price: 30,
+		duration: "2 分钟",
+		bgColor: [style.cardColorStart, style.cardColorEnd] as const,
+	};
+}
+
+function buildGuardPreviewProps(style: z.infer<typeof StyleSchema>): GuardCardProps {
+	return {
+		captainImgUrl: SVG_AVATAR_PINK,
+		guardLevel: 3 as GuardCardProps["guardLevel"],
+		uname: "示例新舰长",
+		face: SVG_AVATAR_PINK,
+		isAdmin: 0,
+		masterAvatarUrl: SVG_AVATAR_BLUE,
+		masterName: "示例 UP 主",
+		bgColor: [style.cardColorStart, style.cardColorEnd],
 	};
 }
 
