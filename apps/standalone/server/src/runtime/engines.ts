@@ -34,7 +34,6 @@ import type {
 	NotificationPayload,
 	PayloadSegment,
 	PushTarget,
-	ServiceContext,
 	Subscription,
 	SubscriptionOp,
 } from "@bilibili-notify/internal";
@@ -54,6 +53,7 @@ import type { HistoryAppendInput, HistoryStore } from "../history/store.js";
 import type { PlatformAdapter } from "../platforms/types.js";
 import { createMultiplexSink } from "../sink/multiplex.js";
 import { segmentToPayload, standaloneContentBuilder } from "./content-builder.js";
+import type { NodeServiceContext } from "./service-context.js";
 
 export interface EnginesRuntime extends Disposable {
 	readonly dynamic: DynamicEngine;
@@ -66,7 +66,13 @@ export interface EnginesRuntime extends Disposable {
 }
 
 export interface CreateEnginesOptions {
-	serviceCtx: ServiceContext;
+	/**
+	 * NodeServiceContext (not the platform-neutral ServiceContext) — engines.ts
+	 * uses `forSubsystem(name, level)` to give each engine its own pino instance
+	 * driven by globals.app.logLevels.{dynamic,live,image,ai}. The standalone
+	 * runtime constructs the parent context once at boot.
+	 */
+	serviceCtx: NodeServiceContext;
 	api: BilibiliAPI;
 	configStore: ConfigStore;
 	historyStore: HistoryStore;
@@ -77,6 +83,12 @@ export interface CreateEnginesOptions {
 
 export function createEngines(opts: CreateEnginesOptions): EnginesRuntime {
 	const log = opts.serviceCtx.logger;
+	// Per-module sub-contexts. Pino level is fixed at construct time, so editing
+	// globals.app.logLevels via /api/globals takes effect on next server restart.
+	const initialLevels = opts.configStore.getGlobals().app.logLevels;
+	const dynamicCtx = opts.serviceCtx.forSubsystem("dynamic", initialLevels?.dynamic);
+	const liveCtx = opts.serviceCtx.forSubsystem("live", initialLevels?.live);
+	const aiCtx = opts.serviceCtx.forSubsystem("ai", initialLevels?.ai);
 	const globals = (): GlobalConfig => opts.configStore.getGlobals();
 
 	// ---------- Sink + push ----------
@@ -115,7 +127,7 @@ export function createEngines(opts: CreateEnginesOptions): EnginesRuntime {
 	if (aiSettings.enabled && aiSettings.apiKey && aiSettings.baseUrl) {
 		try {
 			commentary = new CommentaryGenerator({
-				serviceCtx: opts.serviceCtx,
+				serviceCtx: aiCtx,
 				api: opts.api,
 				config: {
 					apiKey: aiSettings.apiKey,
@@ -183,7 +195,7 @@ export function createEngines(opts: CreateEnginesOptions): EnginesRuntime {
 	};
 
 	const dynamic = new DynamicEngine({
-		serviceCtx: opts.serviceCtx,
+		serviceCtx: dynamicCtx,
 		bus: opts.bus,
 		api: opts.api,
 		push: dynamicPushLike,
@@ -230,7 +242,7 @@ export function createEngines(opts: CreateEnginesOptions): EnginesRuntime {
 	};
 
 	const live = new LiveEngine({
-		serviceCtx: opts.serviceCtx,
+		serviceCtx: liveCtx,
 		api: opts.api,
 		push: livePushLike,
 		contentBuilder: standaloneContentBuilder,

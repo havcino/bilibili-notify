@@ -24,7 +24,10 @@ import type {
 	ContentFilters,
 	GlobalConfigPatch,
 	GuardBundle,
+	LogLevel,
 	MasterConfig,
+	ModuleLogLevels,
+	ModuleName,
 	ScheduleConfig,
 	TemplateBundle,
 } from "../../types/globals";
@@ -464,13 +467,19 @@ export function CoreAppSection({
 				/>
 			</FieldRow>
 
-			<FieldRow label="日志等级" code="app.logLevel" hint="影响 server 端 pino 输出层级">
+			<FieldRow label="日志等级（全局）" code="app.logLevel" hint="未在下方按模块覆盖时的兜底">
 				<TSelect
 					value={app.logLevel}
 					onChange={(v) => setApp("logLevel", v as AppConfig["logLevel"])}
 					options={LOG_LEVELS}
 				/>
 			</FieldRow>
+
+			<ModuleLogLevelsRow
+				levels={app.logLevels}
+				fallback={app.logLevel}
+				onChange={(next) => setApp("logLevels", next)}
+			/>
 
 			<FieldRow
 				label="User-Agent"
@@ -534,5 +543,74 @@ export function CoreAppSection({
 				<div className="mt-1.5 text-[11px] text-bn-text-secondary">{masterStatus}</div>
 			</div>
 		</GlassBox>
+	);
+}
+
+// ── ModuleLogLevelsRow — per-engine log level overrides under Core ───────────
+
+const MODULES: ReadonlyArray<{ id: ModuleName; label: string; tone: string }> = [
+	{ id: "core", label: "core 核心", tone: "#FB7299" },
+	{ id: "dynamic", label: "dynamic 动态", tone: "#00AEEC" },
+	{ id: "live", label: "live 直播", tone: "#FF6699" },
+	{ id: "image", label: "image 卡片", tone: "#a29bfe" },
+	{ id: "ai", label: "ai 智能", tone: "#fdcb6e" },
+];
+
+const MODULE_OPTIONS: { value: string; label: string }[] = [
+	{ value: "", label: "（跟随全局）" },
+	{ value: "error", label: "ERROR" },
+	{ value: "info", label: "INFO" },
+	{ value: "debug", label: "DEBUG" },
+];
+
+function ModuleLogLevelsRow({
+	levels,
+	fallback,
+	onChange,
+}: {
+	levels: ModuleLogLevels | undefined;
+	fallback: LogLevel;
+	onChange: (next: ModuleLogLevels | undefined) => void;
+}) {
+	function setOne(id: ModuleName, value: string): void {
+		const current = levels ?? {};
+		const next: ModuleLogLevels = { ...current };
+		if (!value) delete next[id];
+		else next[id] = value as LogLevel;
+		onChange(Object.keys(next).length === 0 ? undefined : next);
+	}
+	return (
+		<FieldRow
+			label="按模块覆盖"
+			code="app.logLevels"
+			hint="留「跟随全局」即用 app.logLevel；改完保存后需重启服务（pino 等级在构造时定型）"
+			full
+		>
+			<div className="grid w-full grid-cols-1 gap-1.5 sm:grid-cols-2">
+				{MODULES.map((m) => {
+					const current = levels?.[m.id] ?? "";
+					return (
+						<div
+							key={m.id}
+							className="flex items-center justify-between gap-2 rounded-md border border-black/5 bg-white/60 px-2.5 py-1.5"
+						>
+							<span className="flex items-center gap-1.5 text-[12px] font-bold text-bn-text-primary">
+								<span
+									className="inline-block h-1.5 w-1.5 rounded-full"
+									style={{ background: m.tone }}
+								/>
+								{m.label}
+							</span>
+							<TSelect
+								value={current}
+								onChange={(v) => setOne(m.id, v)}
+								options={MODULE_OPTIONS}
+							/>
+						</div>
+					);
+				})}
+			</div>
+			<input type="hidden" value={fallback} readOnly />
+		</FieldRow>
 	);
 }

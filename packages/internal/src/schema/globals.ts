@@ -28,8 +28,29 @@ export const BootstrapConfigSchema = z.object({
 });
 export type BootstrapConfig = z.infer<typeof BootstrapConfigSchema>;
 
+export const LogLevelSchema = z.enum(["error", "info", "debug"]);
+export type LogLevel = z.infer<typeof LogLevelSchema>;
+
+/**
+ * Per-module log-level overrides. Each key is a Subscription-engine module
+ * name; a missing key falls back to `app.logLevel`. Independent of plugin
+ * concept — Koishi端解释为 plugin 级,standalone 端为 engine module 级,
+ * 接口 / 字段名共用。
+ */
+export const ModuleLogLevelsSchema = z
+	.object({
+		core: LogLevelSchema.optional(),
+		dynamic: LogLevelSchema.optional(),
+		live: LogLevelSchema.optional(),
+		image: LogLevelSchema.optional(),
+		ai: LogLevelSchema.optional(),
+	})
+	.optional();
+export type ModuleLogLevels = z.infer<typeof ModuleLogLevelsSchema>;
+
 export const AppConfigSchema = z.object({
-	logLevel: z.enum(["error", "info", "debug"]).default("info"),
+	logLevel: LogLevelSchema.default("info"),
+	logLevels: ModuleLogLevelsSchema,
 	userAgent: z.string().optional(),
 	dynamicCron: z.string().default("*/2 * * * *"),
 	healthCheckMinutes: z.number().int().min(5).max(180).default(30),

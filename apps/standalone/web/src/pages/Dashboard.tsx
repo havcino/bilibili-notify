@@ -15,7 +15,7 @@ import {
 import { useAuthStore } from "../store/auth";
 import { BiliLoginStatus } from "../types/auth";
 import type { PushTarget, Subscription } from "../types/domain";
-import type { GlobalConfig } from "../types/globals";
+import type { GlobalConfig, ModuleLogLevels } from "../types/globals";
 import { colorFromUid, displayName } from "./up/helpers";
 
 interface HealthSnapshot {
@@ -286,6 +286,8 @@ interface PluginCell {
 	label: string;
 	enabled: boolean;
 	sub?: string;
+	logLevel: string | undefined;
+	logLevelSource: "global" | "module";
 }
 
 const LOG_LEVEL_TONE: Record<"error" | "info" | "debug", { fg: string; bg: string }> = {
@@ -302,46 +304,49 @@ function pickLogTone(level: string | undefined): { fg: string; bg: string } {
 function PluginMatrix({
 	cells,
 	version,
-	logLevel,
 }: {
 	cells: PluginCell[];
 	version: string | undefined;
-	logLevel: string | undefined;
 }) {
-	const tone = pickLogTone(logLevel);
-	const levelLabel = logLevel ? logLevel.toUpperCase() : "—";
 	return (
 		<div
 			className="grid gap-2"
 			style={{ gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))" }}
 		>
-			{cells.map((c) => (
-				<div
-					key={c.id}
-					className="rounded-[8px] border border-black/[0.06] bg-white px-3 py-2.5"
-				>
-					<div className="mb-1.5 flex items-center justify-between">
-						<span className="text-[12.5px] font-bold text-bn-text-primary">{c.label}</span>
-						<span
-							className="inline-block h-1.5 w-1.5 rounded-full"
-							style={{ background: c.enabled ? "#22c55e" : "#cbd5e1" }}
-						/>
+			{cells.map((c) => {
+				const tone = pickLogTone(c.logLevel);
+				const levelLabel = c.logLevel ? c.logLevel.toUpperCase() : "—";
+				const isOverride = c.logLevelSource === "module";
+				return (
+					<div
+						key={c.id}
+						className="rounded-[8px] border border-black/[0.06] bg-white px-3 py-2.5"
+					>
+						<div className="mb-1.5 flex items-center justify-between">
+							<span className="text-[12.5px] font-bold text-bn-text-primary">{c.label}</span>
+							<span
+								className="inline-block h-1.5 w-1.5 rounded-full"
+								style={{ background: c.enabled ? "#22c55e" : "#cbd5e1" }}
+							/>
+						</div>
+						<div className="mb-1 font-mono text-[10.5px] text-bn-text-tertiary">
+							{version ? `v${version}` : "—"}
+						</div>
+						<div className="flex items-center gap-1.5 text-[11px] text-bn-text-secondary">
+							日志{" "}
+							<span
+								className="rounded px-1.5 font-bold"
+								style={{ background: tone.bg, color: tone.fg, fontSize: 10 }}
+								title={isOverride ? "按模块覆盖" : "继承全局"}
+							>
+								{levelLabel}
+								{isOverride ? "*" : ""}
+							</span>
+							{c.sub ? <span className="ml-auto text-[10.5px]">{c.sub}</span> : null}
+						</div>
 					</div>
-					<div className="mb-1 font-mono text-[10.5px] text-bn-text-tertiary">
-						{version ? `v${version}` : "—"}
-					</div>
-					<div className="flex items-center gap-1.5 text-[11px] text-bn-text-secondary">
-						日志{" "}
-						<span
-							className="rounded px-1.5 font-bold"
-							style={{ background: tone.bg, color: tone.fg, fontSize: 10 }}
-						>
-							{levelLabel}
-						</span>
-						{c.sub ? <span className="ml-auto text-[10.5px]">{c.sub}</span> : null}
-					</div>
-				</div>
-			))}
+				);
+			})}
 		</div>
 	);
 }
@@ -349,6 +354,7 @@ function PluginMatrix({
 function SystemHealthCard({
 	health,
 	logLevel,
+	logLevels,
 	dynamicEnabled,
 	liveEnabled,
 	imageEnabled,
@@ -356,32 +362,34 @@ function SystemHealthCard({
 }: {
 	health: HealthSnapshot | undefined;
 	logLevel: string | undefined;
+	logLevels: ModuleLogLevels | undefined;
 	dynamicEnabled: boolean;
 	liveEnabled: boolean;
 	imageEnabled: boolean;
 	aiEnabled: boolean;
 }) {
+	const effectiveLevel = (id: PluginCell["id"]): { level: string | undefined; source: "global" | "module" } => {
+		const override = logLevels?.[id];
+		if (override) return { level: override, source: "module" };
+		return { level: logLevel, source: "global" };
+	};
+
+	const buildCell = (
+		id: PluginCell["id"],
+		label: string,
+		enabled: boolean,
+		sub: string,
+	): PluginCell => {
+		const { level, source } = effectiveLevel(id);
+		return { id, label, enabled, sub, logLevel: level, logLevelSource: source };
+	};
+
 	const cells: PluginCell[] = [
-		{ id: "core", label: "核心 · core", enabled: true, sub: health ? "运行中" : "拉取中…" },
-		{
-			id: "dynamic",
-			label: "动态 · dynamic",
-			enabled: dynamicEnabled,
-			sub: dynamicEnabled ? "运行中" : "未启用",
-		},
-		{
-			id: "live",
-			label: "直播 · live",
-			enabled: liveEnabled,
-			sub: liveEnabled ? "运行中" : "无监听",
-		},
-		{
-			id: "image",
-			label: "卡片 · image",
-			enabled: imageEnabled,
-			sub: imageEnabled ? "puppeteer 就绪" : "未接入",
-		},
-		{ id: "ai", label: "AI · ai", enabled: aiEnabled, sub: aiEnabled ? "运行中" : "未启用" },
+		buildCell("core", "核心 · core", true, health ? "运行中" : "拉取中…"),
+		buildCell("dynamic", "动态 · dynamic", dynamicEnabled, dynamicEnabled ? "运行中" : "未启用"),
+		buildCell("live", "直播 · live", liveEnabled, liveEnabled ? "运行中" : "无监听"),
+		buildCell("image", "卡片 · image", imageEnabled, imageEnabled ? "puppeteer 就绪" : "未接入"),
+		buildCell("ai", "AI · ai", aiEnabled, aiEnabled ? "运行中" : "未启用"),
 	];
 
 	return (
@@ -393,7 +401,7 @@ function SystemHealthCard({
 			badge={health?.status === "ok" ? "健康" : "—"}
 			dense
 		>
-			<PluginMatrix cells={cells} version={health?.version} logLevel={logLevel} />
+			<PluginMatrix cells={cells} version={health?.version} />
 		</GlassBox>
 	);
 }
@@ -505,6 +513,7 @@ export default function Dashboard() {
 				<SystemHealthCard
 					health={health.data}
 					logLevel={globalsQuery.data?.app.logLevel}
+					logLevels={globalsQuery.data?.app.logLevels}
 					dynamicEnabled={loggedIn}
 					liveEnabled={loggedIn && live.length > 0}
 					imageEnabled={false}

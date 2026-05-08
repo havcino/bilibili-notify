@@ -7,8 +7,19 @@ import type { FeatureKey } from "./domain";
 
 export type LogLevel = "error" | "info" | "debug";
 
+export type ModuleName = "core" | "dynamic" | "live" | "image" | "ai";
+
+export type ModuleLogLevels = Partial<Record<ModuleName, LogLevel>>;
+
 export interface AppConfig {
 	logLevel: LogLevel;
+	/**
+	 * Per-module level overrides — missing key falls back to `logLevel`. On the
+	 * standalone end maps to engine modules (core / dynamic / live / image / ai);
+	 * on Koishi端 maps to the same-named sub-plugins. Pino level is fixed at
+	 * server-construct time, so edits take effect on next restart.
+	 */
+	logLevels?: ModuleLogLevels;
 	userAgent?: string;
 	dynamicCron: string;
 	healthCheckMinutes: number;

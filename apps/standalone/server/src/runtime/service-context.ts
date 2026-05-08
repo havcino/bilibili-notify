@@ -1,5 +1,5 @@
 import type { Disposable, Logger, ServiceContext } from "@bilibili-notify/internal";
-import { pino } from "pino";
+import { type Logger as PinoLogger, pino } from "pino";
 import type { LogEntry, LogLevel } from "../ws/types.js";
 
 export interface NodeServiceContextOptions {
@@ -40,21 +40,32 @@ export interface NodeServiceContext extends ServiceContext {
 	 * Returns the previous hook so callers can restore it on dispose.
 	 */
 	setLogHook(fn: ((entry: LogEntry) => void) | undefined): ((entry: LogEntry) => void) | undefined;
+	/**
+	 * Spawn a child ServiceContext for a named subsystem (engine module). The
+	 * child shares timers / onDispose / WS log hook with the parent but its
+	 * `logger` writes through a fresh pino instance with `name=parent:sub` and
+	 * an independent `level`. Used by engines.ts to give each business engine
+	 * (dynamic / live / image / ai) its own log pipeline so operators can crank
+	 * one to debug without flooding the others. Pino level is set at construct
+	 * time, so changing logLevels at runtime requires a server restart.
+	 */
+	forSubsystem(name: string, level: string | undefined): ServiceContext;
 }
 
 export function createNodeServiceContext(opts: NodeServiceContextOptions): NodeServiceContext {
 	const pretty = opts.pretty ?? Boolean(process.stdout.isTTY);
+	const transportOpt = pretty
+		? {
+				transport: {
+					target: "pino-pretty" as const,
+					options: { colorize: true, translateTime: "SYS:HH:MM:ss.l" },
+				},
+			}
+		: {};
 	const baseLogger = pino({
 		name: opts.name,
 		level: opts.level ?? "info",
-		...(pretty
-			? {
-					transport: {
-						target: "pino-pretty",
-						options: { colorize: true, translateTime: "SYS:HH:MM:ss.l" },
-					},
-				}
-			: {}),
+		...transportOpt,
 	});
 
 	let logHook: ((entry: LogEntry) => void) | undefined = opts.onLog;
@@ -75,24 +86,25 @@ export function createNodeServiceContext(opts: NodeServiceContextOptions): NodeS
 			// without recursing through ourselves, so swallow.
 		}
 	};
-	const logger: Logger = {
+	const wrapLogger = (target: PinoLogger): Logger => ({
 		info: (msg, ...args) => {
-			callPino(baseLogger.info.bind(baseLogger) as never, msg, args);
+			callPino(target.info.bind(target) as never, msg, args);
 			fanOut("info", msg, args);
 		},
 		warn: (msg, ...args) => {
-			callPino(baseLogger.warn.bind(baseLogger) as never, msg, args);
+			callPino(target.warn.bind(target) as never, msg, args);
 			fanOut("warn", msg, args);
 		},
 		error: (msg, ...args) => {
-			callPino(baseLogger.error.bind(baseLogger) as never, msg, args);
+			callPino(target.error.bind(target) as never, msg, args);
 			fanOut("error", msg, args);
 		},
 		debug: (msg, ...args) => {
-			callPino(baseLogger.debug.bind(baseLogger) as never, msg, args);
+			callPino(target.debug.bind(target) as never, msg, args);
 			fanOut("debug", msg, args);
 		},
-	};
+	});
+	const logger = wrapLogger(baseLogger);
 
 	const intervals = new Set<NodeJS.Timeout>();
 	const timeouts = new Set<NodeJS.Timeout>();
@@ -111,37 +123,54 @@ export function createNodeServiceContext(opts: NodeServiceContextOptions): NodeS
 		},
 	});
 
+	const setIntervalImpl: ServiceContext["setInterval"] = (fn, ms) => {
+		const handle = setInterval(fn, ms);
+		intervals.add(handle);
+		return wrapInterval(handle);
+	};
+	const setTimeoutImpl: ServiceContext["setTimeout"] = (fn, ms) => {
+		const handle: NodeJS.Timeout = setTimeout(() => {
+			timeouts.delete(handle);
+			fn();
+		}, ms);
+		timeouts.add(handle);
+		return wrapTimeout(handle);
+	};
+	const onDisposeImpl: ServiceContext["onDispose"] = (fn) => {
+		if (disposed) {
+			// Mirror "scope already torn down" semantics: schedule asap so callers don't leak.
+			queueMicrotask(() => {
+				Promise.resolve(fn()).catch((err: unknown) =>
+					logger.error("onDispose hook (post-dispose) threw", err),
+				);
+			});
+			return;
+		}
+		disposeHooks.push(fn);
+	};
+
 	return {
 		logger,
-		setInterval(fn, ms) {
-			const handle = setInterval(fn, ms);
-			intervals.add(handle);
-			return wrapInterval(handle);
-		},
-		setTimeout(fn, ms) {
-			const handle: NodeJS.Timeout = setTimeout(() => {
-				timeouts.delete(handle);
-				fn();
-			}, ms);
-			timeouts.add(handle);
-			return wrapTimeout(handle);
-		},
-		onDispose(fn) {
-			if (disposed) {
-				// Mirror "scope already torn down" semantics: schedule asap so callers don't leak.
-				queueMicrotask(() => {
-					Promise.resolve(fn()).catch((err: unknown) =>
-						logger.error("onDispose hook (post-dispose) threw", err),
-					);
-				});
-				return;
-			}
-			disposeHooks.push(fn);
-		},
+		setInterval: setIntervalImpl,
+		setTimeout: setTimeoutImpl,
+		onDispose: onDisposeImpl,
 		setLogHook(fn) {
 			const prev = logHook;
 			logHook = fn;
 			return prev;
+		},
+		forSubsystem(name: string, level: string | undefined): ServiceContext {
+			const subPino = pino({
+				name: `${opts.name}:${name}`,
+				level: level ?? opts.level ?? "info",
+				...transportOpt,
+			});
+			return {
+				logger: wrapLogger(subPino),
+				setInterval: setIntervalImpl,
+				setTimeout: setTimeoutImpl,
+				onDispose: onDisposeImpl,
+			};
 		},
 		async dispose() {
 			if (disposed) return;

@@ -90,19 +90,13 @@ function LivePreviewImage({ style }: { style: CardStyle }) {
 			) : query.error ? (
 				<div className="w-[380px] rounded-xl bg-white p-4 text-[12px]">
 					<div className="mb-1 font-bold text-red-600">
-						{status === 503
-							? "puppeteer 未配置"
-							: status === 501
-								? "kind 暂未支持"
-								: "渲染失败"}
+						{status === 503 ? "puppeteer 未配置" : status === 501 ? "kind 暂未支持" : "渲染失败"}
 					</div>
-					<div className="text-bn-text-secondary">
-						{apiErr?.message ?? "未知错误"}
-					</div>
+					<div className="text-bn-text-secondary">{apiErr?.message ?? "未知错误"}</div>
 					{status === 503 ? (
 						<div className="mt-2 rounded bg-amber-50 p-2 text-[11px] text-amber-800">
-							设置 <code className="font-mono">BN_CHROME_PATH</code>{" "}
-							环境变量指向 chrome / chromium 二进制后重启服务。
+							设置 <code className="font-mono">BN_CHROME_PATH</code> 环境变量指向 chrome / chromium
+							二进制后重启服务。
 						</div>
 					) : null}
 				</div>
@@ -323,9 +317,7 @@ export default function Cards() {
 				<div className="flex items-center justify-between text-[13px] text-bn-text-primary">
 					<span className="font-bold">卡片预览 · 实时反映左侧 image 配置</span>
 					<span className="text-[11px] font-normal text-bn-text-secondary">
-						{kind === "live"
-							? "puppeteer 真实渲染 · 600×可变高"
-							: `${kind} 模板暂用 CSS mock`}
+						{kind === "live" ? "puppeteer 真实渲染 · 600×可变高" : `${kind} 模板暂用 CSS mock`}
 					</span>
 				</div>
 				<CardPreview kind={kind} style={draft} />
