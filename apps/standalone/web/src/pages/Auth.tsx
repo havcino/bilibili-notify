@@ -1,5 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
+import { Btn } from "../components/atoms";
 import { ApiError, api } from "../services/api";
 import { useAuthStore } from "../store/auth";
 import { BiliLoginStatus, type BiliLoginStatusValue } from "../types/auth";
@@ -48,34 +49,6 @@ function QrCard({ data, msg }: { data: unknown; msg: string }) {
 			<div className="text-sm text-amber-800">使用 Bilibili 手机客户端扫码登录</div>
 			{msg ? <div className="text-xs text-amber-700">{msg}</div> : null}
 		</div>
-	);
-}
-
-interface ActionButtonProps {
-	label: string;
-	onClick: () => void;
-	pending?: boolean;
-	tone?: "primary" | "neutral" | "danger";
-	disabled?: boolean;
-}
-
-function ActionButton({ label, onClick, pending, tone = "neutral", disabled }: ActionButtonProps) {
-	const base = "rounded px-4 py-2 text-sm font-medium transition disabled:opacity-50";
-	const palette =
-		tone === "primary"
-			? "bg-blue-600 text-white hover:bg-blue-700"
-			: tone === "danger"
-				? "bg-white text-red-600 ring-1 ring-red-200 hover:bg-red-50"
-				: "bg-white text-gray-700 ring-1 ring-gray-200 hover:bg-gray-50";
-	return (
-		<button
-			type="button"
-			disabled={disabled || pending}
-			onClick={onClick}
-			className={`${base} ${palette}`}
-		>
-			{pending ? "处理中…" : label}
-		</button>
 	);
 }
 
@@ -157,32 +130,36 @@ export default function Auth() {
 			) : null}
 
 			<div className="flex flex-wrap gap-2">
-				<ActionButton
-					tone="primary"
-					label="发起扫码登录"
-					pending={startQr.isPending}
-					disabled={isQrPhase || status === BiliLoginStatus.LOGGED_IN}
+				<Btn
+					variant="primary"
+					disabled={
+						startQr.isPending || isQrPhase || status === BiliLoginStatus.LOGGED_IN
+					}
 					onClick={() => startQr.mutate()}
-				/>
-				<ActionButton
-					label="刷新 Cookie"
-					pending={refresh.isPending}
-					disabled={status !== BiliLoginStatus.LOGGED_IN}
+				>
+					{startQr.isPending ? "处理中…" : "发起扫码登录"}
+				</Btn>
+				<Btn
+					variant="outline"
+					disabled={refresh.isPending || status !== BiliLoginStatus.LOGGED_IN}
 					onClick={() => refresh.mutate()}
-				/>
-				<ActionButton
-					tone="danger"
-					label="退出登录"
-					pending={logout.isPending}
-					disabled={status !== BiliLoginStatus.LOGGED_IN}
+				>
+					{refresh.isPending ? "处理中…" : "刷新 Cookie"}
+				</Btn>
+				<Btn
+					variant="danger"
+					disabled={logout.isPending || status !== BiliLoginStatus.LOGGED_IN}
 					onClick={() => logout.mutate()}
-				/>
-				<ActionButton
-					tone="danger"
-					label="重置密钥与 Cookie"
-					pending={reset.isPending}
+				>
+					{logout.isPending ? "处理中…" : "退出登录"}
+				</Btn>
+				<Btn
+					variant="danger"
+					disabled={reset.isPending}
 					onClick={() => reset.mutate()}
-				/>
+				>
+					{reset.isPending ? "处理中…" : "重置密钥与 Cookie"}
+				</Btn>
 			</div>
 
 			<details className="rounded border border-gray-200 bg-gray-50 p-3 text-xs text-gray-600">
