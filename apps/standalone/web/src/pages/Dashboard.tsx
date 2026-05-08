@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { type ReactNode, useMemo } from "react";
+import { useMemo } from "react";
 import { Link } from "react-router-dom";
 import { Avatar, Btn, Pill, StatsBar } from "../components/atoms";
 import { GlassPanel, GlassStatCard } from "../components/glass";
@@ -15,6 +15,7 @@ import {
 import { useAuthStore } from "../store/auth";
 import { BiliLoginStatus } from "../types/auth";
 import type { PushTarget, Subscription } from "../types/domain";
+import type { GlobalConfig } from "../types/globals";
 import { colorFromUid, displayName } from "./up/helpers";
 
 interface HealthSnapshot {
@@ -22,16 +23,6 @@ interface HealthSnapshot {
 	version: string;
 	uptime: number;
 	startedAt: string;
-}
-
-function formatUptime(seconds: number): string {
-	if (seconds < 60) return `${Math.round(seconds)}s`;
-	const m = Math.floor(seconds / 60);
-	if (m < 60) return `${m}m`;
-	const h = Math.floor(m / 60);
-	if (h < 24) return `${h}h ${m % 60}m`;
-	const d = Math.floor(h / 24);
-	return `${d}d ${h % 24}h`;
 }
 
 function formatViewers(n: number | undefined): string {
@@ -288,121 +279,121 @@ function TimelinePanel({
 	);
 }
 
-interface ModuleCell {
+// ── Plugin matrix (mirrors .bn-design SystemHealthPanel) ──────────────────
+
+interface PluginCell {
+	id: "core" | "dynamic" | "live" | "image" | "ai";
 	label: string;
-	value: ReactNode;
+	enabled: boolean;
 	sub?: string;
-	dot: "ok" | "warn" | "err" | "off";
 }
 
-const DOT_COLOR: Record<ModuleCell["dot"], string> = {
-	ok: "#22c55e",
-	warn: "#f59e0b",
-	err: "#ef4444",
-	off: "#cbd5e1",
+const LOG_LEVEL_TONE: Record<"error" | "info" | "debug", { fg: string; bg: string }> = {
+	error: { fg: "#ef4444", bg: "rgba(239,68,68,0.1)" },
+	info: { fg: "#00AEEC", bg: "rgba(0,174,236,0.1)" },
+	debug: { fg: "#a29bfe", bg: "rgba(162,155,254,0.1)" },
 };
+
+function pickLogTone(level: string | undefined): { fg: string; bg: string } {
+	if (level === "error" || level === "info" || level === "debug") return LOG_LEVEL_TONE[level];
+	return LOG_LEVEL_TONE.info;
+}
+
+function PluginMatrix({
+	cells,
+	version,
+	logLevel,
+}: {
+	cells: PluginCell[];
+	version: string | undefined;
+	logLevel: string | undefined;
+}) {
+	const tone = pickLogTone(logLevel);
+	const levelLabel = logLevel ? logLevel.toUpperCase() : "—";
+	return (
+		<div
+			className="grid gap-2"
+			style={{ gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))" }}
+		>
+			{cells.map((c) => (
+				<div
+					key={c.id}
+					className="rounded-[8px] border border-black/[0.06] bg-white px-3 py-2.5"
+				>
+					<div className="mb-1.5 flex items-center justify-between">
+						<span className="text-[12.5px] font-bold text-bn-text-primary">{c.label}</span>
+						<span
+							className="inline-block h-1.5 w-1.5 rounded-full"
+							style={{ background: c.enabled ? "#22c55e" : "#cbd5e1" }}
+						/>
+					</div>
+					<div className="mb-1 font-mono text-[10.5px] text-bn-text-tertiary">
+						{version ? `v${version}` : "—"}
+					</div>
+					<div className="flex items-center gap-1.5 text-[11px] text-bn-text-secondary">
+						日志{" "}
+						<span
+							className="rounded px-1.5 font-bold"
+							style={{ background: tone.bg, color: tone.fg, fontSize: 10 }}
+						>
+							{levelLabel}
+						</span>
+						{c.sub ? <span className="ml-auto text-[10.5px]">{c.sub}</span> : null}
+					</div>
+				</div>
+			))}
+		</div>
+	);
+}
 
 function SystemHealthCard({
 	health,
-	loggedIn,
-	loginMsg,
-	subsCount,
-	enabledSubs,
-	targetsCount,
-	enabledTargets,
+	logLevel,
+	dynamicEnabled,
+	liveEnabled,
+	imageEnabled,
+	aiEnabled,
 }: {
 	health: HealthSnapshot | undefined;
-	loggedIn: boolean;
-	loginMsg: string;
-	subsCount: number;
-	enabledSubs: number;
-	targetsCount: number;
-	enabledTargets: number;
+	logLevel: string | undefined;
+	dynamicEnabled: boolean;
+	liveEnabled: boolean;
+	imageEnabled: boolean;
+	aiEnabled: boolean;
 }) {
-	const apiDot: ModuleCell["dot"] = loggedIn
-		? "ok"
-		: loginMsg.includes("扫码") || loginMsg.includes("登录")
-			? "warn"
-			: "off";
-	const apiValue = loggedIn ? "已登录" : loginMsg.includes("扫码") ? "扫码中" : "未登录";
-
-	const cells: ModuleCell[] = [
+	const cells: PluginCell[] = [
+		{ id: "core", label: "核心 · core", enabled: true, sub: health ? "运行中" : "拉取中…" },
 		{
-			label: "推送通道",
-			value: (
-				<>
-					{enabledTargets}
-					<span className="text-bn-text-tertiary"> / {targetsCount}</span>
-				</>
-			),
-			sub: targetsCount === 0 ? "未配置任何目标" : `${enabledTargets} 个启用`,
-			dot: targetsCount === 0 ? "off" : enabledTargets > 0 ? "ok" : "warn",
+			id: "dynamic",
+			label: "动态 · dynamic",
+			enabled: dynamicEnabled,
+			sub: dynamicEnabled ? "运行中" : "未启用",
 		},
 		{
-			label: "订阅监听",
-			value: (
-				<>
-					{enabledSubs}
-					<span className="text-bn-text-tertiary"> / {subsCount}</span>
-				</>
-			),
-			sub: subsCount === 0 ? "未订阅 UP 主" : `${enabledSubs} 个启用`,
-			dot: subsCount === 0 ? "off" : enabledSubs > 0 ? "ok" : "warn",
+			id: "live",
+			label: "直播 · live",
+			enabled: liveEnabled,
+			sub: liveEnabled ? "运行中" : "无监听",
 		},
 		{
-			label: "B 站 API",
-			value: apiValue,
-			sub: loginMsg || "—",
-			dot: apiDot,
+			id: "image",
+			label: "卡片 · image",
+			enabled: imageEnabled,
+			sub: imageEnabled ? "puppeteer 就绪" : "未接入",
 		},
-		{
-			label: "进程健康",
-			value: health?.status ?? "—",
-			sub: health ? `v${health.version}` : "拉取中…",
-			dot: health?.status === "ok" ? "ok" : health ? "err" : "off",
-		},
-		{
-			label: "运行时间",
-			value: health ? formatUptime(health.uptime) : "—",
-			sub: health ? new Date(health.startedAt).toLocaleString() : "—",
-			dot: health ? "ok" : "off",
-		},
+		{ id: "ai", label: "AI · ai", enabled: aiEnabled, sub: aiEnabled ? "运行中" : "未启用" },
 	];
 
 	return (
 		<GlassBox
-			title="系统状态"
-			subtitle="模块健康 / 登录 / 进程信息"
+			title="系统状态 · 各模块"
+			subtitle="版本 · 日志等级 · 健康检查"
 			accent="#22c55e"
 			icon={<Icon.check size={14} />}
 			badge={health?.status === "ok" ? "健康" : "—"}
 			dense
 		>
-			<div
-				className="grid gap-2"
-				style={{ gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))" }}
-			>
-				{cells.map((c) => (
-					<div
-						key={c.label}
-						className="rounded-[8px] border border-black/[0.06] bg-white/80 px-3 py-2.5"
-					>
-						<div className="mb-1.5 flex items-center justify-between">
-							<span className="text-[12px] font-bold text-bn-text-primary">{c.label}</span>
-							<span
-								className="inline-block h-1.5 w-1.5 rounded-full"
-								style={{ background: DOT_COLOR[c.dot] }}
-							/>
-						</div>
-						<div className="font-mono text-[15px] font-bold leading-none text-bn-text-primary">
-							{c.value}
-						</div>
-						{c.sub ? (
-							<div className="mt-1.5 truncate text-[10.5px] text-bn-text-tertiary">{c.sub}</div>
-						) : null}
-					</div>
-				))}
-			</div>
+			<PluginMatrix cells={cells} version={health?.version} logLevel={logLevel} />
 		</GlassBox>
 	);
 }
@@ -434,6 +425,10 @@ export default function Dashboard() {
 		queryFn: () => api.get<HistoryResponse>("/api/history"),
 		refetchInterval: 30_000,
 	});
+	const globalsQuery = useQuery({
+		queryKey: ["globals"],
+		queryFn: () => api.get<GlobalConfig>("/api/globals"),
+	});
 
 	const subs = subsQuery.data ?? [];
 	const targets = targetsQuery.data ?? [];
@@ -441,7 +436,6 @@ export default function Dashboard() {
 	const history = historyQuery.data?.entries ?? [];
 
 	const enabledSubs = subs.filter((s) => s.enabled).length;
-	const enabledTargets = targets.filter((t) => t.enabled).length;
 	const todayPushes = history.filter(
 		(h) => h.ts.slice(0, 10) === new Date().toISOString().slice(0, 10),
 	).length;
@@ -510,12 +504,17 @@ export default function Dashboard() {
 				<TimelinePanel entries={history} subs={subs} targets={targets} />
 				<SystemHealthCard
 					health={health.data}
-					loggedIn={loggedIn}
-					loginMsg={loggedIn ? snapshot?.msg || "LOGGED_IN" : snapshot?.msg || "等待登录"}
-					subsCount={subs.length}
-					enabledSubs={enabledSubs}
-					targetsCount={targets.length}
-					enabledTargets={enabledTargets}
+					logLevel={globalsQuery.data?.app.logLevel}
+					dynamicEnabled={loggedIn}
+					liveEnabled={loggedIn && live.length > 0}
+					imageEnabled={false}
+					aiEnabled={
+						!!(
+							globalsQuery.data?.defaults.ai.enabled &&
+							globalsQuery.data?.defaults.ai.apiKey &&
+							globalsQuery.data?.defaults.ai.baseUrl
+						)
+					}
 				/>
 			</div>
 		</div>
