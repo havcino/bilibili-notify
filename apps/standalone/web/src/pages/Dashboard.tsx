@@ -1,8 +1,9 @@
 import { useQuery } from "@tanstack/react-query";
-import { useMemo } from "react";
+import { type ReactNode, useMemo } from "react";
 import { Link } from "react-router-dom";
 import { Avatar, Btn, Pill, StatsBar } from "../components/atoms";
-import { GlassPanel, GlassStatCard, PulseDot } from "../components/glass";
+import { GlassPanel, GlassStatCard } from "../components/glass";
+import { GlassBox } from "../components/glass-box";
 import { Icon } from "../components/icons";
 import { api } from "../services/api";
 import {
@@ -287,6 +288,20 @@ function TimelinePanel({
 	);
 }
 
+interface ModuleCell {
+	label: string;
+	value: ReactNode;
+	sub?: string;
+	dot: "ok" | "warn" | "err" | "off";
+}
+
+const DOT_COLOR: Record<ModuleCell["dot"], string> = {
+	ok: "#22c55e",
+	warn: "#f59e0b",
+	err: "#ef4444",
+	off: "#cbd5e1",
+};
+
 function SystemHealthCard({
 	health,
 	loggedIn,
@@ -304,46 +319,91 @@ function SystemHealthCard({
 	targetsCount: number;
 	enabledTargets: number;
 }) {
+	const apiDot: ModuleCell["dot"] = loggedIn
+		? "ok"
+		: loginMsg.includes("扫码") || loginMsg.includes("登录")
+			? "warn"
+			: "off";
+	const apiValue = loggedIn ? "已登录" : loginMsg.includes("扫码") ? "扫码中" : "未登录";
+
+	const cells: ModuleCell[] = [
+		{
+			label: "推送通道",
+			value: (
+				<>
+					{enabledTargets}
+					<span className="text-bn-text-tertiary"> / {targetsCount}</span>
+				</>
+			),
+			sub: targetsCount === 0 ? "未配置任何目标" : `${enabledTargets} 个启用`,
+			dot: targetsCount === 0 ? "off" : enabledTargets > 0 ? "ok" : "warn",
+		},
+		{
+			label: "订阅监听",
+			value: (
+				<>
+					{enabledSubs}
+					<span className="text-bn-text-tertiary"> / {subsCount}</span>
+				</>
+			),
+			sub: subsCount === 0 ? "未订阅 UP 主" : `${enabledSubs} 个启用`,
+			dot: subsCount === 0 ? "off" : enabledSubs > 0 ? "ok" : "warn",
+		},
+		{
+			label: "B 站 API",
+			value: apiValue,
+			sub: loginMsg || "—",
+			dot: apiDot,
+		},
+		{
+			label: "进程健康",
+			value: health?.status ?? "—",
+			sub: health ? `v${health.version}` : "拉取中…",
+			dot: health?.status === "ok" ? "ok" : health ? "err" : "off",
+		},
+		{
+			label: "运行时间",
+			value: health ? formatUptime(health.uptime) : "—",
+			sub: health ? new Date(health.startedAt).toLocaleString() : "—",
+			dot: health ? "ok" : "off",
+		},
+	];
+
 	return (
-		<GlassPanel
-			accent="#22c55e"
+		<GlassBox
 			title="系统状态"
-			subtitle={health ? `自 ${new Date(health.startedAt).toLocaleString()} 起运行` : "拉取中…"}
+			subtitle="模块健康 / 登录 / 进程信息"
+			accent="#22c55e"
+			icon={<Icon.check size={14} />}
+			badge={health?.status === "ok" ? "健康" : "—"}
+			dense
 		>
-			<dl className="space-y-2 text-sm">
-				<div className="flex items-center justify-between">
-					<dt className="text-bn-text-secondary">健康</dt>
-					<dd>
-						<Pill color={health?.status === "ok" ? "#22c55e" : "#ef4444"} subtle>
-							<PulseDot color={health?.status === "ok" ? "#22c55e" : "#ef4444"} />
-							{health?.status ?? "—"}
-						</Pill>
-					</dd>
-				</div>
-				<div className="flex items-center justify-between">
-					<dt className="text-bn-text-secondary">登录态</dt>
-					<dd>
-						<Pill color={loggedIn ? "#22c55e" : "#fbbf24"} subtle>
-							{loginMsg}
-						</Pill>
-					</dd>
-				</div>
-				<div className="flex items-center justify-between">
-					<dt className="text-bn-text-secondary">订阅 / 推送</dt>
-					<dd className="font-mono text-xs text-bn-text-tertiary">
-						{enabledSubs}/{subsCount} subs · {enabledTargets}/{targetsCount} targets
-					</dd>
-				</div>
-				{health ? (
-					<div className="flex items-center justify-between">
-						<dt className="text-bn-text-secondary">运行时间</dt>
-						<dd className="font-mono text-xs text-bn-text-tertiary">
-							{formatUptime(health.uptime)} · v{health.version}
-						</dd>
+			<div
+				className="grid gap-2"
+				style={{ gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))" }}
+			>
+				{cells.map((c) => (
+					<div
+						key={c.label}
+						className="rounded-[8px] border border-black/[0.06] bg-white/80 px-3 py-2.5"
+					>
+						<div className="mb-1.5 flex items-center justify-between">
+							<span className="text-[12px] font-bold text-bn-text-primary">{c.label}</span>
+							<span
+								className="inline-block h-1.5 w-1.5 rounded-full"
+								style={{ background: DOT_COLOR[c.dot] }}
+							/>
+						</div>
+						<div className="font-mono text-[15px] font-bold leading-none text-bn-text-primary">
+							{c.value}
+						</div>
+						{c.sub ? (
+							<div className="mt-1.5 truncate text-[10.5px] text-bn-text-tertiary">{c.sub}</div>
+						) : null}
 					</div>
-				) : null}
-			</dl>
-		</GlassPanel>
+				))}
+			</div>
+		</GlassBox>
 	);
 }
 
