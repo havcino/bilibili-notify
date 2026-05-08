@@ -7,6 +7,7 @@ import { createGlobalsRoute } from "./routes/globals.js";
 import { createHealthRoute } from "./routes/health.js";
 import { createHistoryRoute } from "./routes/history.js";
 import { createLiveRoute } from "./routes/live.js";
+import { createPushRoute } from "./routes/push.js";
 import { createSubsRoute } from "./routes/subs.js";
 import { createTargetsRoute } from "./routes/targets.js";
 import type { RouteDeps } from "./routes/types.js";
@@ -72,6 +73,7 @@ export function createApp(runtime: AppRuntime, options: CreateAppOptions = {}): 
 	app.route("/api/targets", createTargetsRoute(deps));
 	app.route("/api/live", createLiveRoute(deps));
 	app.route("/api/history", createHistoryRoute(deps));
+	app.route("/api/push", createPushRoute(deps));
 	if (options.authSystem) {
 		app.route("/api/auth", createAuthRoute({ ...deps, authSystem: options.authSystem }));
 	}

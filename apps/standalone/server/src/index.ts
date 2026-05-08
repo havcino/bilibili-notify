@@ -3,7 +3,13 @@ import { type ServerType, serve } from "@hono/node-server";
 import { createApp } from "./app.js";
 import { type AuthSystem, createAuthSystem } from "./auth/index.js";
 import { loadBootstrapConfig } from "./config/loader.js";
+import { startHistoryRetention } from "./history/retention.js";
+import { createOnebotAdapter } from "./platforms/onebot.js";
+import { createWebDashboardAdapter } from "./platforms/web-dashboard.js";
+import { createWebhookAdapter } from "./platforms/webhook.js";
 import { createAppRuntime } from "./runtime/bootstrap.js";
+import { createEngines } from "./runtime/engines.js";
+import { bindSubscriptionStore } from "./runtime/subscription-store.js";
 import { createWsServer } from "./ws/server.js";
 
 async function main(): Promise<void> {
@@ -50,6 +56,36 @@ async function main(): Promise<void> {
 		);
 	}
 
+	// Engine layer (Stage 4 P0). The order matters:
+	//   1. SubscriptionStore binding mirrors the file-backed config into an
+	//      in-memory store + emits subscription-changed on diffs.
+	//   2. Platform adapters are constructed from logger; they hold no state.
+	//   3. createEngines() builds Sink → BilibiliPush → DynamicEngine + LiveEngine
+	//      and registers serviceCtx.onDispose for graceful shutdown.
+	const subBinding = bindSubscriptionStore({ bus: runtime.bus, configStore: runtime.configStore });
+	const adapters = [
+		createOnebotAdapter({ logger: log }),
+		createWebhookAdapter({ logger: log }),
+		createWebDashboardAdapter({ logger: log }),
+	];
+	const engines = createEngines({
+		serviceCtx: runtime.serviceCtx,
+		api: authSystem.api,
+		configStore: runtime.configStore,
+		historyStore: runtime.historyStore,
+		subscriptionStore: subBinding.store,
+		bus: runtime.bus,
+		adapters,
+	});
+	runtime.attachEngines(engines);
+
+	// Daily retention pass for history jsonl files.
+	startHistoryRetention({
+		serviceCtx: runtime.serviceCtx,
+		store: runtime.configStore,
+		logger: log,
+	});
+
 	const app = createApp(runtime, { authSystem, basicAuthCredentials });
 	let server: ServerType | undefined;
 	await new Promise<void>((resolve) => {
@@ -89,6 +125,8 @@ async function main(): Promise<void> {
 		try {
 			runtime.serviceCtx.setLogHook(previousLogHook);
 			wsServer.dispose();
+			subBinding.dispose();
+			engines.dispose();
 			authSystem?.dispose();
 			if (server) {
 				await new Promise<void>((resolve) => {

@@ -2,10 +2,12 @@ import { Hono } from "hono";
 import type { RouteDeps } from "./types.js";
 
 /**
- * Currently-watched live rooms. Per plan §三, dashboard "正在直播" panel reads
- * this. Until LiveEngine lands in apps/standalone/server (stage 4 backend
- * wiring), the route returns an empty list so the front-end renders its
- * design's empty state without erroring.
+ * `GET /api/live/listening` — currently-watched live rooms.
+ *
+ * The dashboard's "正在直播" panel polls this. Backed by the LiveEngine's
+ * listener manager. When the engine layer is not attached (early boot, before
+ * authSystem is up) the route returns `[]` so the panel renders its empty
+ * state cleanly.
  */
 export interface LiveListenerSnapshot {
 	uid: string;
@@ -17,8 +19,13 @@ export interface LiveListenerSnapshot {
 	areaName?: string;
 }
 
-export function createLiveRoute(_deps: RouteDeps): Hono {
+export function createLiveRoute(deps: RouteDeps): Hono {
 	const app = new Hono();
-	app.get("/listening", (c) => c.json<LiveListenerSnapshot[]>([]));
+	app.get("/listening", (c) => {
+		const engines = deps.runtime.engines;
+		if (!engines) return c.json<LiveListenerSnapshot[]>([]);
+		const uids = engines.listListeningUids();
+		return c.json<LiveListenerSnapshot[]>(uids.map((uid) => ({ uid })));
+	});
 	return app;
 }
