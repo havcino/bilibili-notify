@@ -80,9 +80,7 @@ function TargetCard({ target, testing, onTest, onEdit, onDelete }: TargetCardPro
 					<div className="truncate text-[13px] font-bold text-bn-text-primary">
 						{target.name || "（未命名）"}
 					</div>
-					<div className="truncate font-mono text-[11px] text-bn-text-tertiary">
-						{headIdent}
-					</div>
+					<div className="truncate font-mono text-[11px] text-bn-text-tertiary">{headIdent}</div>
 				</div>
 				{testing ? <TestingDot kind={testing} /> : <StatusDot kind={statusForCard(target)} />}
 			</div>
@@ -379,18 +377,17 @@ function ModalShell({
 		return () => window.removeEventListener("keydown", onKey);
 	}, [onCancel]);
 	return (
-		<div
-			className="bn-anim-fade-in fixed inset-0 z-[300] flex items-center justify-center bg-black/35 backdrop-blur-[4px]"
-			onClick={(e) => {
-				if (e.target === e.currentTarget) onCancel();
-			}}
-			onKeyDown={(e) => {
-				if (e.key === "Escape") onCancel();
-			}}
-			role="presentation"
-		>
+		<div className="bn-anim-fade-in fixed inset-0 z-[300] flex items-center justify-center">
+			<button
+				type="button"
+				aria-label="关闭弹窗"
+				onClick={onCancel}
+				className="absolute inset-0 cursor-default border-0 bg-black/35 backdrop-blur-[4px]"
+			/>
 			<div
-				className="rounded-[14px] bg-white p-6 shadow-2xl"
+				role="dialog"
+				aria-modal="true"
+				className="relative rounded-[14px] bg-white p-6"
 				style={{ width, boxShadow: "0 20px 60px rgba(0,0,0,0.2)" }}
 			>
 				{children}
@@ -478,9 +475,7 @@ function PlatformSpecificFields({
 			>
 				<TInput
 					value={cfg.dashboardUser ?? ""}
-					onChange={(v) =>
-						onChange({ ...target, config: { dashboardUser: v || undefined } })
-					}
+					onChange={(v) => onChange({ ...target, config: { dashboardUser: v || undefined } })}
 				/>
 			</Field>
 		);
@@ -582,10 +577,7 @@ export default function Targets() {
 				kind: "text",
 			});
 			setTesting((p) => ({ ...p, [t.id]: res.ok ? "ok" : "fail" }));
-			showToast(
-				res.ok ? `连通 · ${res.latencyMs}ms` : `失败：${res.err ?? "未知错误"}`,
-				res.ok,
-			);
+			showToast(res.ok ? `连通 · ${res.latencyMs}ms` : `失败：${res.err ?? "未知错误"}`, res.ok);
 		} catch (err) {
 			setTesting((p) => ({ ...p, [t.id]: "fail" }));
 			const msg = err instanceof ApiError ? err.message : String(err);
