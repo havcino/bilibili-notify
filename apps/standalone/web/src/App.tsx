@@ -10,18 +10,11 @@ import Ai from "./pages/Ai";
 import Auth from "./pages/Auth";
 import Cards from "./pages/Cards";
 import Dashboard from "./pages/Dashboard";
+import History from "./pages/History";
 import Rules from "./pages/Rules";
 import Subs from "./pages/Subs";
 import Targets from "./pages/Targets";
 import { api } from "./services/api";
-
-function Placeholder({ name }: { name: string }) {
-	return (
-		<div className="bn-glass rounded-bn-card p-8 text-center text-sm text-bn-text-secondary shadow-bn-card">
-			页面占位：{name}
-		</div>
-	);
-}
 
 interface HealthSnapshot {
 	status: string;
@@ -66,7 +59,7 @@ export default function App() {
 						<Route path="/" element={<Dashboard />} />
 						<Route path="/subs" element={<Subs />} />
 						<Route path="/targets" element={<Targets />} />
-						<Route path="/history" element={<Placeholder name="推送历史" />} />
+						<Route path="/history" element={<History />} />
 						<Route path="/rules" element={<Rules />} />
 						<Route path="/cards" element={<Cards />} />
 						<Route path="/ai" element={<Ai />} />
