@@ -1,5 +1,6 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { NavLink } from "react-router-dom";
+import { useBackendReachable } from "../hooks/useBackendReachable";
 import { api } from "../services/api";
 import { useAuthStore } from "../store/auth";
 import { BiliLoginStatus } from "../types/auth";
@@ -61,6 +62,7 @@ function AccountChip() {
 
 export function GlassHeader() {
 	const qc = useQueryClient();
+	const reachable = useBackendReachable();
 	const subs = useQuery({
 		queryKey: ["subscriptions"],
 		queryFn: () => api.get<Subscription[]>("/api/subs"),
@@ -98,10 +100,17 @@ export function GlassHeader() {
 					</div>
 				</div>
 				<div className="flex shrink-0 items-center gap-2">
-					<span className="bn-anim-pulse inline-flex items-center gap-1.5 rounded-full bg-emerald-500/15 px-2.5 py-1 text-[11.5px] font-semibold text-emerald-700">
-						<span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-						推送服务运行中
-					</span>
+					{reachable ? (
+						<span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/15 px-2.5 py-1 text-[11.5px] font-semibold text-emerald-700">
+							<span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+							推送服务运行中
+						</span>
+					) : (
+						<span className="inline-flex items-center gap-1.5 rounded-full bg-red-500/12 px-2.5 py-1 text-[11.5px] font-semibold text-red-600">
+							<span className="h-1.5 w-1.5 rounded-full bg-red-500" />
+							后端失联
+						</span>
+					)}
 					<Btn variant="outline" size="sm" icon={<Icon.refresh size={14} />} onClick={refreshAll}>
 						刷新
 					</Btn>

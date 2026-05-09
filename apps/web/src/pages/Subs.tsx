@@ -257,7 +257,7 @@ export default function Subs() {
 
 			{subsQuery.isLoading ? <div className="text-sm text-bn-text-secondary">加载中…</div> : null}
 			{subsQuery.error ? (
-				<div className="text-sm text-red-600">
+				<div className="rounded border border-red-200 bg-red-50 p-3 text-xs text-red-700">
 					加载失败：{String((subsQuery.error as Error).message)}
 				</div>
 			) : null}

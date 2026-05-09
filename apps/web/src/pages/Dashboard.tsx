@@ -5,6 +5,7 @@ import { Avatar, Btn, Pill, StatsBar } from "../components/atoms";
 import { GlassPanel, GlassStatCard } from "../components/glass";
 import { GlassBox } from "../components/glass-box";
 import { Icon } from "../components/icons";
+import { useBackendReachable } from "../hooks/useBackendReachable";
 import { api } from "../services/api";
 import {
 	bucketByDay,
@@ -344,6 +345,7 @@ function PluginMatrix({ cells, version }: { cells: PluginCell[]; version: string
 
 function SystemHealthCard({
 	health,
+	reachable,
 	logLevel,
 	logLevels,
 	dynamicEnabled,
@@ -352,6 +354,7 @@ function SystemHealthCard({
 	aiEnabled,
 }: {
 	health: HealthSnapshot | undefined;
+	reachable: boolean;
 	logLevel: string | undefined;
 	logLevels: ModuleLogLevels | undefined;
 	dynamicEnabled: boolean;
@@ -367,6 +370,9 @@ function SystemHealthCard({
 		return { level: logLevel, source: "global" };
 	};
 
+	// When the backend is unreachable, all module status text falls back to
+	// "—" — keeping the previous "运行中 / 已就绪" copy alive while the API is
+	// dead would be lying to the user.
 	const buildCell = (
 		id: PluginCell["id"],
 		label: string,
@@ -374,7 +380,14 @@ function SystemHealthCard({
 		sub: string,
 	): PluginCell => {
 		const { level, source } = effectiveLevel(id);
-		return { id, label, enabled, sub, logLevel: level, logLevelSource: source };
+		return {
+			id,
+			label,
+			enabled: reachable && enabled,
+			sub: reachable ? sub : "—",
+			logLevel: level,
+			logLevelSource: source,
+		};
 	};
 
 	const cells: PluginCell[] = [
@@ -389,11 +402,16 @@ function SystemHealthCard({
 		<GlassBox
 			title="系统状态 · 各模块"
 			subtitle="版本 · 日志等级 · 健康检查"
-			accent="#22c55e"
+			accent={reachable ? "#22c55e" : "#ef4444"}
 			icon={<Icon.check size={14} />}
-			badge={health?.status === "ok" ? "健康" : "—"}
+			badge={!reachable ? "失联" : health?.status === "ok" ? "健康" : "—"}
 			dense
 		>
+			{!reachable ? (
+				<div className="mb-2.5 rounded border border-red-200 bg-red-50 p-2 text-[11.5px] text-red-700">
+					后端 API 当前不可达 (apps/server 未运行 或 网络中断),以下数据可能为最后一次成功拉取的快照。
+				</div>
+			) : null}
 			<PluginMatrix cells={cells} version={health?.version} />
 		</GlassBox>
 	);
@@ -402,6 +420,7 @@ function SystemHealthCard({
 export default function Dashboard() {
 	const snapshot = useAuthStore((s) => s.snapshot);
 	const loggedIn = snapshot?.status === BiliLoginStatus.LOGGED_IN;
+	const reachable = useBackendReachable();
 
 	const health = useQuery({
 		queryKey: ["health"],
@@ -505,6 +524,7 @@ export default function Dashboard() {
 				<TimelinePanel entries={history} subs={subs} targets={targets} />
 				<SystemHealthCard
 					health={health.data}
+					reachable={reachable}
 					logLevel={globalsQuery.data?.app.logLevel}
 					logLevels={globalsQuery.data?.app.logLevels}
 					dynamicEnabled={loggedIn}
