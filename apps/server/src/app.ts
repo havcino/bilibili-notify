@@ -104,7 +104,14 @@ export function createApp(runtime: AppRuntime, options: CreateAppOptions = {}): 
 	app.route("/api/live", createLiveRoute(deps));
 	app.route("/api/history", createHistoryRoute(deps));
 	app.route("/api/push", createPushRoute(deps));
-	app.route("/api/cards", createCardsRoute({ deps, puppeteer: options.puppeteer ?? null }));
+	app.route(
+		"/api/cards",
+		createCardsRoute({
+			deps,
+			puppeteer: options.puppeteer ?? null,
+			api: options.authSystem?.api ?? null,
+		}),
+	);
 	if (options.authSystem) {
 		app.route("/api/auth", createAuthRoute({ ...deps, authSystem: options.authSystem }));
 	}

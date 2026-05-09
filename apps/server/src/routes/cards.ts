@@ -2,16 +2,29 @@
  * `POST /api/cards/preview` — render a sample card via puppeteer-core and
  * return base64 PNG. Used by the Cards page's right-side live preview.
  *
- * Supports all four kinds (live / dyn / sc / guard). Each kind has its own
- * fabricated mock data shaped to the corresponding template's prop type;
- * cardColorStart/End from the request flows through verbatim so operators
- * see how their style choices land before any real notification goes out.
+ * Two routing paths per kind, picked by what the request body's `content`
+ * field carries:
+ *
+ *   live + content.roomId  → fetch real LiveRoomInfo + MasterInfo via
+ *                            BilibiliAPI, render through ImageRenderer
+ *                            (same code path as production push).
+ *   dyn  + content.uid     → fetch the user's space dynamic feed,
+ *                            pick the offset-th item, render via
+ *                            ImageRenderer.generateDynamicCard.
+ *   sc   + content.text    → text override on top of the SCCard mock.
+ *   guard+ content.text    → text override (= new captain uname) on the
+ *                            GuardCard mock.
+ *   any kind + empty content → falls through to the fabricated mock data
+ *                              path (the original behaviour) so the
+ *                              gradient picker stays usable without a
+ *                              logged-in account.
  *
  * 503 path — when the operator hasn't set BN_CHROME_PATH (or chromePath in
  * yaml) we don't try to launch puppeteer. The route reports the missing
  * config so the Cards page can render an actionable hint.
  */
 
+import type { BilibiliAPI } from "@bilibili-notify/api";
 import {
 	type Component,
 	DynamicCard,
@@ -19,6 +32,7 @@ import {
 	GuardCard,
 	type GuardCardProps,
 	h,
+	ImageRenderer,
 	LiveCard,
 	type LiveCardProps,
 	renderCard,
@@ -33,6 +47,11 @@ import type { RouteDeps } from "./types.js";
 export interface CardsRouteOptions {
 	deps: RouteDeps;
 	puppeteer: StandalonePuppeteer | null;
+	/**
+	 * BilibiliAPI from authSystem. When null, real-data fetch paths
+	 * (live + dyn with content) return an actionable error.
+	 */
+	api: BilibiliAPI | null;
 }
 
 const StyleSchema = z.object({
@@ -47,10 +66,9 @@ const StyleSchema = z.object({
 
 const ContentSchema = z
 	.object({
-		// live: real-fetch path lands in a follow-up commit; field is parsed but
-		// ignored today so the frontend can already collect roomId.
+		// live: roomId triggers a real fetch via BilibiliAPI when present + non-empty.
 		roomId: z.string().optional(),
-		// dyn: same — uid + offset are parsed but ignored until real fetch lands.
+		// dyn: uid + offset (1 = newest). offset defaults to 1 when only uid given.
 		uid: z.string().optional(),
 		offset: z.number().int().positive().optional(),
 		// sc / guard: text override flows straight into the mock template props.
@@ -65,6 +83,7 @@ const PreviewRequestSchema = z.object({
 });
 
 type PreviewContent = z.infer<typeof ContentSchema>;
+type PreviewStyle = z.infer<typeof StyleSchema>;
 
 export interface PreviewResponse {
 	ok: boolean;
@@ -77,6 +96,28 @@ const RENDER_TIMEOUT_MS = 20_000;
 export function createCardsRoute(opts: CardsRouteOptions): Hono {
 	const app = new Hono();
 	const log = opts.deps.runtime.serviceCtx.logger;
+
+	// One ImageRenderer reused across requests. Lazy — only constructed when
+	// the first real-fetch path actually runs, so deployments without
+	// BN_CHROME_PATH or a logged-in account don't spin one up needlessly.
+	let imageRenderer: ImageRenderer | null = null;
+	function getImageRenderer(style: PreviewStyle): ImageRenderer | null {
+		if (!opts.puppeteer) return null;
+		if (!imageRenderer) {
+			imageRenderer = new ImageRenderer({
+				serviceCtx: opts.deps.runtime.serviceCtx,
+				puppeteer: opts.puppeteer,
+				config: {
+					cardColorStart: style.cardColorStart,
+					cardColorEnd: style.cardColorEnd,
+					font: style.font ?? "PingFang SC, sans-serif",
+					hideDesc: style.hideDesc ?? false,
+					followerDisplay: style.followerDisplay ?? true,
+				},
+			});
+		}
+		return imageRenderer;
+	}
 
 	app.post("/preview", async (c) => {
 		const body = (await c.req.json().catch(() => null)) as unknown;
@@ -96,6 +137,46 @@ export function createCardsRoute(opts: CardsRouteOptions): Hono {
 			);
 		}
 
+		// Real-fetch branches. Each returns a complete response or throws to fall
+		// through to the mock pipeline below; on user-supplied input that fails
+		// we surface the error instead of silently rendering mock data, since
+		// silently lying would defeat the point of the input.
+		try {
+			if (kind === "live" && content?.roomId?.trim()) {
+				const renderer = getImageRenderer(style);
+				if (!renderer) throw new Error("puppeteer 未就绪");
+				if (!opts.api) throw new Error("auth system 未就绪 — 后端账号尚未登录");
+				const buffer = await renderRealLive(opts.api, renderer, content.roomId.trim(), style);
+				return c.json<PreviewResponse>({
+					ok: true,
+					// ImageRenderer outputs JPEG (see doRender → screenshot type: "jpeg").
+					dataUrl: `data:image/jpeg;base64,${buffer.toString("base64")}`,
+				});
+			}
+			if (kind === "dyn" && content?.uid?.trim()) {
+				const renderer = getImageRenderer(style);
+				if (!renderer) throw new Error("puppeteer 未就绪");
+				if (!opts.api) throw new Error("auth system 未就绪 — 后端账号尚未登录");
+				const buffer = await renderRealDynamic(
+					opts.api,
+					renderer,
+					content.uid.trim(),
+					content.offset ?? 1,
+					style,
+				);
+				return c.json<PreviewResponse>({
+					ok: true,
+					dataUrl: `data:image/jpeg;base64,${buffer.toString("base64")}`,
+				});
+			}
+		} catch (err) {
+			const msg = err instanceof Error ? err.message : String(err);
+			log.warn(`[cards] real-data preview failed (${kind}): ${msg}`);
+			return c.json<PreviewResponse>({ ok: false, err: msg }, 502);
+		}
+
+		// Mock pipeline (fall-through): empty content, or sc/guard which only
+		// supports the text override.
 		try {
 			const { component, props, title, htmlWidth } = buildPreviewSpec(kind, style, content);
 			const html = await renderCard(component, props, {
@@ -116,6 +197,91 @@ export function createCardsRoute(opts: CardsRouteOptions): Hono {
 	return app;
 }
 
+// ── Real-fetch renderers ─────────────────────────────────────────────────────
+
+interface BilibiliEnvelope<T> {
+	code: number;
+	message?: string;
+	msg?: string;
+	data?: T;
+}
+
+async function renderRealLive(
+	api: BilibiliAPI,
+	renderer: ImageRenderer,
+	roomId: string,
+	style: PreviewStyle,
+): Promise<Buffer> {
+	if (!/^\d+$/.test(roomId)) throw new Error("直播间号必须是纯数字");
+
+	const room = (await api.getLiveRoomInfo(roomId)) as BilibiliEnvelope<{
+		uid: number;
+		live_status: number;
+		short_id?: number;
+		room_id?: number;
+		[k: string]: unknown;
+	}>;
+	if (room.code !== 0 || !room.data) {
+		throw new Error(`getLiveRoomInfo 失败：${room.message ?? room.msg ?? `code=${room.code}`}`);
+	}
+	const uid = String(room.data.uid);
+	if (!uid || uid === "0") throw new Error("直播间 uid 缺失，可能是无效房间号");
+
+	const master = (await api.getMasterInfo(uid)) as BilibiliEnvelope<{
+		info: { uname: string; face: string };
+		[k: string]: unknown;
+	}>;
+	if (master.code !== 0 || !master.data) {
+		throw new Error(`getMasterInfo 失败：${master.message ?? master.msg ?? `code=${master.code}`}`);
+	}
+
+	// liveStatus 2 (LiveBroadcast) — render the "正在直播" badge regardless of
+	// real status, so a closed room still renders something visible. The
+	// renderer normalises liveStatus internally; using 2 = LiveBroadcast keeps
+	// us aligned with what the periodic ongoing-tick passes in production.
+	return renderer.generateLiveCard(
+		room.data,
+		master.data.info.uname,
+		master.data.info.face,
+		{}, // liveData — no danmaku context in preview, watched/liked left blank
+		2,
+		{ cardColorStart: style.cardColorStart, cardColorEnd: style.cardColorEnd },
+	);
+}
+
+async function renderRealDynamic(
+	api: BilibiliAPI,
+	renderer: ImageRenderer,
+	uid: string,
+	offset: number,
+	style: PreviewStyle,
+): Promise<Buffer> {
+	if (!/^\d+$/.test(uid)) throw new Error("UID 必须是纯数字");
+
+	const feed = (await api.getUserSpaceDynamic(uid)) as BilibiliEnvelope<{
+		// biome-ignore lint/suspicious/noExplicitAny: Bilibili 动态接口返回原样透传给渲染器
+		items?: any[];
+	}>;
+	if (feed.code !== 0 || !feed.data) {
+		throw new Error(`getUserSpaceDynamic 失败：${feed.message ?? feed.msg ?? `code=${feed.code}`}`);
+	}
+	const items = Array.isArray(feed.data.items) ? feed.data.items : [];
+	if (items.length === 0) throw new Error("该 UP 主暂无动态");
+	const idx = offset - 1; // offset is 1-based
+	if (idx >= items.length) {
+		throw new Error(`动态序号 ${offset} 超出范围（仅有 ${items.length} 条）`);
+	}
+	const item = items[idx];
+	if (!item) throw new Error(`第 ${offset} 条动态为空`);
+
+	return renderer.generateDynamicCard(item, {
+		cardColorStart: style.cardColorStart,
+		cardColorEnd: style.cardColorEnd,
+	});
+}
+
+// ── Mock pipeline (fall-through path) ────────────────────────────────────────
+
 interface PreviewSpec {
 	component: Component;
 	props: Record<string, unknown>;
@@ -125,7 +291,7 @@ interface PreviewSpec {
 
 function buildPreviewSpec(
 	kind: "live" | "dyn" | "sc" | "guard",
-	style: z.infer<typeof StyleSchema>,
+	style: PreviewStyle,
 	content: PreviewContent,
 ): PreviewSpec {
 	if (kind === "live") {
@@ -172,7 +338,7 @@ const SVG_AVATAR_BLUE =
 const SVG_AVATAR_FAN =
 	"data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='32' fill='%23fdcb6e'/%3E%3Ctext x='50%25' y='52%25' fill='white' font-size='28' text-anchor='middle' dominant-baseline='middle'%3E粉%3C/text%3E%3C/svg%3E";
 
-function buildLivePreviewProps(style: z.infer<typeof StyleSchema>): LiveCardProps {
+function buildLivePreviewProps(style: PreviewStyle): LiveCardProps {
 	return {
 		hideDesc: style.hideDesc ?? false,
 		followerDisplay: style.followerDisplay ?? true,
@@ -200,7 +366,7 @@ function buildLivePreviewProps(style: z.infer<typeof StyleSchema>): LiveCardProp
 	};
 }
 
-function buildDynamicPreviewProps(style: z.infer<typeof StyleSchema>): DynamicCardProps {
+function buildDynamicPreviewProps(style: PreviewStyle): DynamicCardProps {
 	const mainContent = h(
 		"div",
 		{
@@ -226,7 +392,7 @@ function buildDynamicPreviewProps(style: z.infer<typeof StyleSchema>): DynamicCa
 	};
 }
 
-function buildScPreviewProps(style: z.infer<typeof StyleSchema>, text?: string): SCCardProps {
+function buildScPreviewProps(style: PreviewStyle, text?: string): SCCardProps {
 	return {
 		senderFace: SVG_AVATAR_FAN,
 		senderName: "示例粉丝",
@@ -239,7 +405,7 @@ function buildScPreviewProps(style: z.infer<typeof StyleSchema>, text?: string):
 	};
 }
 
-function buildGuardPreviewProps(style: z.infer<typeof StyleSchema>, text?: string): GuardCardProps {
+function buildGuardPreviewProps(style: PreviewStyle, text?: string): GuardCardProps {
 	return {
 		captainImgUrl: SVG_AVATAR_PINK,
 		guardLevel: 3 as GuardCardProps["guardLevel"],

@@ -258,8 +258,8 @@ export default function Cards() {
 									placeholder="留空则使用示例数据"
 								/>
 							</Field>
-							<div className="rounded border border-dashed bg-amber-50/60 p-2.5 text-[11px] text-amber-800">
-								需要后端登录 B 站账号；该字段下一阶段接入真实拉取，目前仍走示例数据。
+							<div className="rounded border border-dashed bg-emerald-50/60 p-2.5 text-[11px] text-emerald-800">
+								需要后端账号已登录 B 站；填入后将真实拉取该直播间数据并渲染。留空则继续使用示例数据。
 							</div>
 						</>
 					) : kind === "dyn" ? (
@@ -281,8 +281,8 @@ export default function Cards() {
 									placeholder="1"
 								/>
 							</Field>
-							<div className="rounded border border-dashed bg-amber-50/60 p-2.5 text-[11px] text-amber-800">
-								需要后端登录 B 站账号；该字段下一阶段接入真实拉取，目前仍走示例数据。
+							<div className="rounded border border-dashed bg-emerald-50/60 p-2.5 text-[11px] text-emerald-800">
+								需要后端账号已登录 B 站；填入后将拉取该 UP 的 space 动态列表，按 offset 选取并渲染。
 							</div>
 						</>
 					) : kind === "sc" ? (
