@@ -1,15 +1,13 @@
 /**
- * Per-UP overrides editor — Subscription.overrides bound to /api/subs PATCH.
+ * Per-UP overrides editor — Subscription.overrides + Subscription.specialUsers
+ * bound to /api/subs PATCH.
  *
- * Each override family (filters / schedule / templates / cardStyle / ai) is
- * gated by a "覆盖全局" toggle. Off → undefined (inherit). On → seeded with
- * the corresponding global default so the user starts editing from a real
- * baseline rather than empty fields.
+ * Each override family is gated by a "覆盖全局" toggle. Off → undefined
+ * (inherit). On → seeded with the corresponding global default so the user
+ * starts editing from a real baseline rather than empty fields.
  *
- * Mirrors `.bn-design/variation-ac-plugins.jsx`'s AdvancedRulesContent per-UP
- * scope without 1:1 importing every legacy field — fields not in the canonical
- * Subscription.overrides schema are intentionally dropped (the design's
- * customSpecialDanmaku UID list etc. lives on Subscription.specialUsers).
+ * Driven by a `section` prop from the parent so only ONE section box renders
+ * at a time — matching the design's "侧栏选 section · 主体只看一项" pattern.
  */
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
@@ -25,19 +23,30 @@ import type {
 	ContentFiltersOverride,
 	OverridesShape,
 	ScheduleOverride,
+	SpecialUser,
 	Subscription,
 	TemplateOverride,
 } from "../../types/domain";
-import type { GlobalDefaults, GuardEntry } from "../../types/globals";
+import type { GlobalDefaults, GuardEntry, TemplateBundle } from "../../types/globals";
 import { colorFromUid, displayName } from "../up/helpers";
+import type { SectionId } from "./sections";
 
 /* -------------------------------------------------------------------------- */
+
+/** Override 切片名;Rules.tsx 用它判定 sub 是否"已定制"。 */
+export const perUpOverrideKeys = ["filters", "schedule", "templates", "cardStyle", "ai"] as const;
+export type PerUpOverrideKey = (typeof perUpOverrideKeys)[number];
 
 function deepEqual(a: unknown, b: unknown): boolean {
 	return JSON.stringify(a) === JSON.stringify(b);
 }
 
-function patchSub(id: string, body: { overrides: Subscription["overrides"] }) {
+interface SubPatch {
+	overrides?: Subscription["overrides"];
+	specialUsers?: SpecialUser[];
+}
+
+function patchSub(id: string, body: SubPatch) {
 	return api.patch<Subscription>(`/api/subs/${id}`, body);
 }
 
@@ -46,24 +55,41 @@ function patchSub(id: string, body: { overrides: Subscription["overrides"] }) {
 export interface PerUpEditorProps {
 	sub: Subscription;
 	defaults: GlobalDefaults;
+	section: SectionId;
 }
 
-export function PerUpEditor({ sub, defaults }: PerUpEditorProps) {
+interface PerUpDraft {
+	overrides: Subscription["overrides"];
+	specialUsers: SpecialUser[];
+}
+
+export function PerUpEditor({ sub, defaults, section }: PerUpEditorProps) {
 	const qc = useQueryClient();
-	const [draft, setDraft] = useState<Subscription["overrides"]>(sub.overrides);
+	const [draft, setDraft] = useState<PerUpDraft>({
+		overrides: sub.overrides,
+		specialUsers: sub.specialUsers,
+	});
 	const [error, setError] = useState<string | null>(null);
 
 	useEffect(() => {
-		setDraft(sub.overrides);
-	}, [sub.overrides]);
+		setDraft({ overrides: sub.overrides, specialUsers: sub.specialUsers });
+	}, [sub.overrides, sub.specialUsers]);
 
-	const dirty = useMemo(() => !deepEqual(draft, sub.overrides), [draft, sub.overrides]);
+	const dirty = useMemo(
+		() =>
+			!deepEqual(draft.overrides, sub.overrides) ||
+			!deepEqual(draft.specialUsers, sub.specialUsers),
+		[draft, sub.overrides, sub.specialUsers],
+	);
 
 	const save = useMutation({
 		mutationFn: async () => {
 			setError(null);
 			try {
-				return await patchSub(sub.id, { overrides: draft });
+				return await patchSub(sub.id, {
+					overrides: draft.overrides,
+					specialUsers: draft.specialUsers,
+				});
 			} catch (err) {
 				if (err instanceof ApiError) setError(err.message);
 				else setError(String(err));
@@ -74,7 +100,7 @@ export function PerUpEditor({ sub, defaults }: PerUpEditorProps) {
 	});
 
 	function discard(): void {
-		setDraft(sub.overrides);
+		setDraft({ overrides: sub.overrides, specialUsers: sub.specialUsers });
 		setError(null);
 	}
 
@@ -83,14 +109,15 @@ export function PerUpEditor({ sub, defaults }: PerUpEditorProps) {
 		value: OverridesShape[K] | undefined,
 	): void {
 		setDraft((d) => {
-			const next = { ...d };
-			if (value === undefined) {
-				delete next[key];
-			} else {
-				next[key] = value;
-			}
-			return next;
+			const next: Subscription["overrides"] = { ...d.overrides };
+			if (value === undefined) delete next[key];
+			else next[key] = value;
+			return { ...d, overrides: next };
 		});
+	}
+
+	function setSpecialUsers(next: SpecialUser[]): void {
+		setDraft((d) => ({ ...d, specialUsers: next }));
 	}
 
 	const color = colorFromUid(sub.uid);
@@ -108,7 +135,7 @@ export function PerUpEditor({ sub, defaults }: PerUpEditorProps) {
 				<div className="min-w-0 flex-1">
 					<div className="text-base font-bold text-bn-text-primary">{displayName(sub)}</div>
 					<div className="text-[12px] text-bn-text-secondary">
-						UID {sub.uid} · per-UP overrides 编辑器；关闭一个分组 = 恢复继承全局默认
+						UID {sub.uid} · 关闭一个分组 = 恢复继承全局默认
 					</div>
 				</div>
 				<div className="flex items-center gap-2">
@@ -139,27 +166,88 @@ export function PerUpEditor({ sub, defaults }: PerUpEditorProps) {
 				</div>
 			) : null}
 
-			<FilterOverrideBox
-				value={draft.filters}
-				onChange={(v) => setSlice("filters", v)}
-				baseline={defaults.filters}
-			/>
-			<ScheduleOverrideBox
-				value={draft.schedule}
-				onChange={(v) => setSlice("schedule", v)}
-				baseline={defaults.schedule}
-			/>
-			<TemplateOverrideBox
-				value={draft.templates}
-				onChange={(v) => setSlice("templates", v)}
-				baseline={defaults.templates}
-			/>
-			<CardStyleOverrideBox
-				value={draft.cardStyle}
-				onChange={(v) => setSlice("cardStyle", v)}
-				baseline={defaults.cardStyle}
-			/>
-			<AiOverrideBox value={draft.ai} onChange={(v) => setSlice("ai", v)} baseline={defaults.ai} />
+			{section === "filter" ? (
+				<FilterOverrideBox
+					value={draft.overrides.filters}
+					onChange={(v) => setSlice("filters", v)}
+					baseline={defaults.filters}
+				/>
+			) : null}
+			{section === "live" ? (
+				<LiveOverrideBox
+					filters={draft.overrides.filters}
+					schedule={draft.overrides.schedule}
+					onFilters={(v) => setSlice("filters", v)}
+					onSchedule={(v) => setSlice("schedule", v)}
+					baselineFilters={defaults.filters}
+					baselineSchedule={defaults.schedule}
+				/>
+			) : null}
+			{section === "summary" ? (
+				<SummaryOverrideBox
+					value={draft.overrides.templates}
+					onChange={(v) => setSlice("templates", v)}
+					baseline={defaults.templates}
+				/>
+			) : null}
+			{section === "msg" ? (
+				<MsgOverrideBox
+					value={draft.overrides.templates}
+					onChange={(v) => setSlice("templates", v)}
+					baseline={defaults.templates}
+				/>
+			) : null}
+			{section === "guard" ? (
+				<GuardOverrideBox
+					value={draft.overrides.templates}
+					onChange={(v) => setSlice("templates", v)}
+					baseline={defaults.templates}
+				/>
+			) : null}
+			{section === "specialDanmaku" ? (
+				<SpecialUserBox
+					kind="danmaku"
+					title="特别关注弹幕"
+					subtitle="UID 进入直播间时弹幕高亮 · specialUsers + overrides.templates.specialDanmaku"
+					accent="#fdcb6e"
+					icon={<Icon.star size={14} />}
+					users={draft.specialUsers}
+					onUsersChange={setSpecialUsers}
+					template={draft.overrides.templates}
+					onTemplateChange={(v) => setSlice("templates", v)}
+					baselineTemplate={defaults.templates.specialDanmaku}
+					templateField="specialDanmaku"
+				/>
+			) : null}
+			{section === "specialEnter" ? (
+				<SpecialUserBox
+					kind="enter"
+					title="特别关注进房"
+					subtitle="特定 UID 进入直播间时单独提醒 · specialUsers + overrides.templates.specialUserEnter"
+					accent="#00AEEC"
+					icon={<Icon.user size={14} />}
+					users={draft.specialUsers}
+					onUsersChange={setSpecialUsers}
+					template={draft.overrides.templates}
+					onTemplateChange={(v) => setSlice("templates", v)}
+					baselineTemplate={defaults.templates.specialUserEnter}
+					templateField="specialUserEnter"
+				/>
+			) : null}
+			{section === "cardStyle" ? (
+				<CardStyleOverrideBox
+					value={draft.overrides.cardStyle}
+					onChange={(v) => setSlice("cardStyle", v)}
+					baseline={defaults.cardStyle}
+				/>
+			) : null}
+			{section === "ai" ? (
+				<AiOverrideBox
+					value={draft.overrides.ai}
+					onChange={(v) => setSlice("ai", v)}
+					baseline={defaults.ai}
+				/>
+			) : null}
 		</div>
 	);
 }
@@ -218,22 +306,13 @@ function FilterOverrideBox({
 						]}
 					/>
 				</Field>
-				<Field label="SC 最小金额" code="minScPrice">
-					<TNum
-						value={get("minScPrice")}
-						onChange={(v) => set("minScPrice", v)}
-						min={0}
-						suffix="¥"
-					/>
-				</Field>
-				<Field label="上舰最低等级" code="minGuardLevel">
+				<Field label="屏蔽专栏" code="blockArticle">
 					<TSelect
-						value={String(get("minGuardLevel")) as "1" | "2" | "3"}
-						onChange={(v) => set("minGuardLevel", Number(v) as 1 | 2 | 3)}
+						value={get("blockArticle") ? "true" : "false"}
+						onChange={(v) => set("blockArticle", v === "true")}
 						options={[
-							{ value: "3", label: "舰长（含以上）" },
-							{ value: "2", label: "提督（含以上）" },
-							{ value: "1", label: "仅总督" },
+							{ value: "false", label: "不屏蔽" },
+							{ value: "true", label: "屏蔽" },
 						]}
 					/>
 				</Field>
@@ -242,46 +321,83 @@ function FilterOverrideBox({
 	);
 }
 
-/* -------- Schedule -------------------------------------------------------- */
+/* -------- Live thresholds (filters.minScPrice/minGuardLevel + schedule) -- */
 
-function ScheduleOverrideBox({
-	value,
-	onChange,
-	baseline,
+function LiveOverrideBox({
+	filters,
+	schedule,
+	onFilters,
+	onSchedule,
+	baselineFilters,
+	baselineSchedule,
 }: {
-	value: ScheduleOverride | undefined;
-	onChange: (next: ScheduleOverride | undefined) => void;
-	baseline: GlobalDefaults["schedule"];
+	filters: ContentFiltersOverride | undefined;
+	schedule: ScheduleOverride | undefined;
+	onFilters: (next: ContentFiltersOverride | undefined) => void;
+	onSchedule: (next: ScheduleOverride | undefined) => void;
+	baselineFilters: GlobalDefaults["filters"];
+	baselineSchedule: GlobalDefaults["schedule"];
 }) {
-	const enabled = value !== undefined;
-	const cur = value ?? {};
+	const enabled = filters !== undefined || schedule !== undefined;
+	const fCur = filters ?? {};
+	const sCur = schedule ?? {};
 	return (
 		<GlassBox
-			title="调度覆盖"
-			subtitle="overrides.schedule · 推送时段 / 启动补推"
-			accent="#00AEEC"
+			title="直播阈值覆盖"
+			subtitle="overrides.{filters,schedule} · SC / 上舰 / 推送频率"
+			accent="#FF6699"
 			icon={<Icon.mic size={14} />}
 			badge={enabled ? "覆盖中" : "继承"}
 		>
 			<CollapseBlock
-				label="启用 per-UP 调度覆盖"
+				label="启用 per-UP 直播阈值覆盖"
 				enabled={enabled}
-				onToggle={(on) => onChange(on ? { ...baseline } : undefined)}
-				accent="#00AEEC"
+				onToggle={(on) => {
+					if (on) {
+						onFilters({
+							minScPrice: baselineFilters.minScPrice,
+							minGuardLevel: baselineFilters.minGuardLevel,
+						});
+						onSchedule({ ...baselineSchedule });
+					} else {
+						onFilters(undefined);
+						onSchedule(undefined);
+					}
+				}}
+				accent="#FF6699"
 			>
-				<Field label="推送时段开始" code="pushTime" hint="0=全天">
+				<Field label="SC 最小金额" code="minScPrice">
 					<TNum
-						value={cur.pushTime ?? baseline.pushTime}
-						onChange={(v) => onChange({ ...cur, pushTime: v })}
+						value={fCur.minScPrice ?? baselineFilters.minScPrice}
+						onChange={(v) => onFilters({ ...fCur, minScPrice: v })}
+						min={0}
+						suffix="元"
+					/>
+				</Field>
+				<Field label="上舰最低等级" code="minGuardLevel">
+					<TSelect
+						value={String(fCur.minGuardLevel ?? baselineFilters.minGuardLevel) as "1" | "2" | "3"}
+						onChange={(v) => onFilters({ ...fCur, minGuardLevel: Number(v) as 1 | 2 | 3 })}
+						options={[
+							{ value: "3", label: "舰长（含以上）" },
+							{ value: "2", label: "提督（含以上）" },
+							{ value: "1", label: "仅总督" },
+						]}
+					/>
+				</Field>
+				<Field label="推送时段开始" code="schedule.pushTime" hint="0 = 全天">
+					<TNum
+						value={sCur.pushTime ?? baselineSchedule.pushTime}
+						onChange={(v) => onSchedule({ ...sCur, pushTime: v })}
 						min={0}
 						max={23}
 						suffix="时"
 					/>
 				</Field>
-				<Field label="启动补推" code="restartPush">
+				<Field label="启动补推" code="schedule.restartPush">
 					<TSelect
-						value={(cur.restartPush ?? baseline.restartPush) ? "true" : "false"}
-						onChange={(v) => onChange({ ...cur, restartPush: v === "true" })}
+						value={(sCur.restartPush ?? baselineSchedule.restartPush) ? "true" : "false"}
+						onChange={(v) => onSchedule({ ...sCur, restartPush: v === "true" })}
 						options={[
 							{ value: "false", label: "关" },
 							{ value: "true", label: "开" },
@@ -293,9 +409,9 @@ function ScheduleOverrideBox({
 	);
 }
 
-/* -------- Templates ------------------------------------------------------- */
+/* -------- Summary template (overrides.templates.liveSummary) ------------- */
 
-function TemplateOverrideBox({
+function SummaryOverrideBox({
 	value,
 	onChange,
 	baseline,
@@ -304,11 +420,125 @@ function TemplateOverrideBox({
 	onChange: (next: TemplateOverride | undefined) => void;
 	baseline: GlobalDefaults["templates"];
 }) {
-	const enabled = value !== undefined;
+	const enabled = Boolean(value?.liveSummary);
 	const cur = value ?? {};
-	function set<K extends keyof typeof baseline>(k: K, v: (typeof baseline)[K]): void {
+	return (
+		<GlassBox
+			title="直播总结覆盖"
+			subtitle="overrides.templates.liveSummary"
+			accent="#a29bfe"
+			icon={<Icon.list size={14} />}
+			badge={enabled ? "覆盖中" : "继承"}
+		>
+			<CollapseBlock
+				label="启用 per-UP 总结模板覆盖"
+				enabled={enabled}
+				onToggle={(on) => {
+					if (on) onChange({ ...cur, liveSummary: baseline.liveSummary });
+					else {
+						const { liveSummary: _, ...rest } = cur;
+						onChange(Object.keys(rest).length > 0 ? rest : undefined);
+					}
+				}}
+				accent="#a29bfe"
+			>
+				<Field label="总结正文" code="templates.liveSummary" full>
+					<TArea
+						value={cur.liveSummary ?? baseline.liveSummary}
+						onChange={(v) => onChange({ ...cur, liveSummary: v })}
+						rows={6}
+						mono
+					/>
+				</Field>
+			</CollapseBlock>
+		</GlassBox>
+	);
+}
+
+/* -------- Msg templates (liveStart / liveOngoing / liveEnd) ------------- */
+
+function MsgOverrideBox({
+	value,
+	onChange,
+	baseline,
+}: {
+	value: TemplateOverride | undefined;
+	onChange: (next: TemplateOverride | undefined) => void;
+	baseline: GlobalDefaults["templates"];
+}) {
+	const enabled = Boolean(value?.liveStart || value?.liveOngoing || value?.liveEnd);
+	const cur = value ?? {};
+	function set<K extends "liveStart" | "liveOngoing" | "liveEnd">(k: K, v: string): void {
 		onChange({ ...cur, [k]: v });
 	}
+	return (
+		<GlassBox
+			title="直播消息覆盖"
+			subtitle="overrides.templates.live{Start,Ongoing,End}"
+			accent="#FB7299"
+			icon={<Icon.chat size={14} />}
+			badge={enabled ? "覆盖中" : "继承"}
+		>
+			<CollapseBlock
+				label="启用 per-UP 直播消息覆盖"
+				enabled={enabled}
+				onToggle={(on) => {
+					if (on) {
+						onChange({
+							...cur,
+							liveStart: baseline.liveStart,
+							liveOngoing: baseline.liveOngoing,
+							liveEnd: baseline.liveEnd,
+						});
+					} else {
+						const { liveStart: _a, liveOngoing: _b, liveEnd: _c, ...rest } = cur;
+						onChange(Object.keys(rest).length > 0 ? rest : undefined);
+					}
+				}}
+				accent="#FB7299"
+			>
+				<Field label="开播" code="templates.liveStart" full>
+					<TArea
+						value={cur.liveStart ?? baseline.liveStart}
+						onChange={(v) => set("liveStart", v)}
+						rows={3}
+						mono
+					/>
+				</Field>
+				<Field label="直播中" code="templates.liveOngoing" full>
+					<TArea
+						value={cur.liveOngoing ?? baseline.liveOngoing}
+						onChange={(v) => set("liveOngoing", v)}
+						rows={3}
+						mono
+					/>
+				</Field>
+				<Field label="下播" code="templates.liveEnd" full>
+					<TArea
+						value={cur.liveEnd ?? baseline.liveEnd}
+						onChange={(v) => set("liveEnd", v)}
+						rows={2}
+						mono
+					/>
+				</Field>
+			</CollapseBlock>
+		</GlassBox>
+	);
+}
+
+/* -------- Guard (overrides.templates.guardBuy) ---------------------------- */
+
+function GuardOverrideBox({
+	value,
+	onChange,
+	baseline,
+}: {
+	value: TemplateOverride | undefined;
+	onChange: (next: TemplateOverride | undefined) => void;
+	baseline: GlobalDefaults["templates"];
+}) {
+	const enabled = Boolean(value?.guardBuy);
+	const cur = value ?? {};
 	const guardOf = (role: keyof typeof baseline.guardBuy): GuardEntry =>
 		cur.guardBuy?.[role] ?? baseline.guardBuy[role];
 	function setGuard(role: keyof typeof baseline.guardBuy, entry: GuardEntry): void {
@@ -319,51 +549,25 @@ function TemplateOverrideBox({
 	}
 	return (
 		<GlassBox
-			title="模板覆盖"
-			subtitle="overrides.templates · 开播 / 直播中 / 下播 / 总结 / 上舰"
-			accent="#a29bfe"
-			icon={<Icon.chat size={14} />}
+			title="上舰提示覆盖"
+			subtitle="overrides.templates.guardBuy.{captain,commander,governor}"
+			accent="#f2a053"
+			icon={<Icon.anchor size={14} />}
 			badge={enabled ? "覆盖中" : "继承"}
 		>
 			<CollapseBlock
-				label="启用 per-UP 模板覆盖"
+				label="启用 per-UP 上舰提示覆盖"
 				enabled={enabled}
-				onToggle={(on) => onChange(on ? { ...baseline } : undefined)}
-				accent="#a29bfe"
+				onToggle={(on) => {
+					if (on) onChange({ ...cur, guardBuy: baseline.guardBuy });
+					else {
+						const { guardBuy: _, ...rest } = cur;
+						onChange(Object.keys(rest).length > 0 ? rest : undefined);
+					}
+				}}
+				accent="#f2a053"
 			>
-				<Field label="开播" code="liveStart" full>
-					<TArea
-						value={cur.liveStart ?? baseline.liveStart}
-						onChange={(v) => set("liveStart", v)}
-						rows={2}
-						mono
-					/>
-				</Field>
-				<Field label="直播中" code="liveOngoing" full>
-					<TArea
-						value={cur.liveOngoing ?? baseline.liveOngoing}
-						onChange={(v) => set("liveOngoing", v)}
-						rows={2}
-						mono
-					/>
-				</Field>
-				<Field label="下播" code="liveEnd" full>
-					<TArea
-						value={cur.liveEnd ?? baseline.liveEnd}
-						onChange={(v) => set("liveEnd", v)}
-						rows={2}
-						mono
-					/>
-				</Field>
-				<Field label="直播总结" code="liveSummary" full>
-					<TArea
-						value={cur.liveSummary ?? baseline.liveSummary}
-						onChange={(v) => set("liveSummary", v)}
-						rows={5}
-						mono
-					/>
-				</Field>
-				<div className="mt-2 grid grid-cols-1 gap-2 lg:grid-cols-3">
+				<div className="grid grid-cols-1 gap-2 lg:grid-cols-3">
 					{(["captain", "commander", "governor"] as const).map((role) => {
 						const e = guardOf(role);
 						const label = role === "captain" ? "舰长" : role === "commander" ? "提督" : "总督";
@@ -396,6 +600,119 @@ function TemplateOverrideBox({
 	);
 }
 
+/* -------- Special user (UID list + template) ----------------------------- */
+
+function SpecialUserBox({
+	kind,
+	title,
+	subtitle,
+	accent,
+	icon,
+	users,
+	onUsersChange,
+	template,
+	onTemplateChange,
+	baselineTemplate,
+	templateField,
+}: {
+	kind: "danmaku" | "enter";
+	title: string;
+	subtitle: string;
+	accent: string;
+	icon: React.ReactNode;
+	users: SpecialUser[];
+	onUsersChange: (next: SpecialUser[]) => void;
+	template: TemplateOverride | undefined;
+	onTemplateChange: (next: TemplateOverride | undefined) => void;
+	baselineTemplate: string;
+	templateField: keyof Pick<TemplateBundle, "specialDanmaku" | "specialUserEnter">;
+}) {
+	// 把 specialUsers 投影成"该 kind 的 UID 列表",编辑时再写回完整 specialUsers。
+	const uids = useMemo(
+		() => users.filter((u) => u.kinds.includes(kind)).map((u) => u.uid),
+		[users, kind],
+	);
+
+	function setUids(nextUids: string[]): void {
+		// 同步:删去本 kind 不在 nextUids 里的;加上 nextUids 里没出现过的。
+		const set = new Set(nextUids.filter((u) => u.trim() !== ""));
+		const next: SpecialUser[] = [];
+		const seen = new Set<string>();
+		for (const u of users) {
+			if (set.has(u.uid)) {
+				const kinds = u.kinds.includes(kind) ? u.kinds : [...u.kinds, kind];
+				next.push({ ...u, kinds });
+				seen.add(u.uid);
+			} else if (u.kinds.includes(kind)) {
+				const kinds = u.kinds.filter((k) => k !== kind);
+				if (kinds.length > 0) next.push({ ...u, kinds });
+				// kinds 为空 → 整个用户从 specialUsers 里去掉
+			} else {
+				next.push(u);
+			}
+		}
+		for (const uid of set) {
+			if (!seen.has(uid)) next.push({ uid, kinds: [kind] });
+		}
+		onUsersChange(next);
+	}
+
+	const curTemplate = template ?? {};
+	const tplValue = curTemplate[templateField] ?? baselineTemplate;
+	const tplOverridden = curTemplate[templateField] !== undefined;
+
+	function setTemplate(v: string | undefined): void {
+		const next = { ...curTemplate };
+		if (v === undefined) delete next[templateField];
+		else next[templateField] = v;
+		onTemplateChange(Object.keys(next).length > 0 ? next : undefined);
+	}
+
+	const enabled = uids.length > 0 || tplOverridden;
+
+	return (
+		<GlassBox
+			title={title}
+			subtitle={subtitle}
+			accent={accent}
+			icon={icon}
+			badge={enabled ? "已设置" : "未启用"}
+		>
+			<Field
+				label="UID 列表"
+				code="specialUsers"
+				hint={kind === "danmaku" ? "命中后该 UID 的弹幕会单独提醒" : "命中后该 UID 进房会单独提醒"}
+				full
+			>
+				<ArrayEditor value={uids} onChange={setUids} placeholder="纯数字 UID" />
+			</Field>
+			<Field
+				label="模板"
+				code={`templates.${templateField}`}
+				hint={tplOverridden ? "已覆盖全局" : "继承全局模板"}
+				full
+			>
+				<TArea
+					value={tplValue}
+					onChange={(v) => setTemplate(v)}
+					rows={2}
+					mono
+					placeholder={baselineTemplate}
+				/>
+				{tplOverridden ? (
+					<button
+						type="button"
+						onClick={() => setTemplate(undefined)}
+						className="mt-1 text-[11px] text-bn-text-tertiary underline-offset-2 hover:text-bn-pink hover:underline"
+					>
+						恢复继承全局模板
+					</button>
+				) : null}
+			</Field>
+		</GlassBox>
+	);
+}
+
 /* -------- Card style ------------------------------------------------------ */
 
 function CardStyleOverrideBox({
@@ -415,7 +732,7 @@ function CardStyleOverrideBox({
 	return (
 		<GlassBox
 			title="卡片样式覆盖"
-			subtitle="overrides.cardStyle · 4 个颜色字段"
+			subtitle="overrides.cardStyle · 渐变 / 底板"
 			accent="#FB7299"
 			icon={<Icon.sparkle size={14} />}
 			badge={enabled ? "覆盖中" : "继承"}
@@ -476,8 +793,8 @@ function AiOverrideBox({
 	const isCustom = cur.preset === "custom";
 	return (
 		<GlassBox
-			title="AI 覆盖"
-			subtitle="overrides.ai · preset / persona / prompts / temperature"
+			title="AI 人格塑造覆盖"
+			subtitle="overrides.ai · preset / persona / prompt / temperature"
 			accent="#6c5ce7"
 			icon={<Icon.ai size={14} />}
 			badge={enabled ? "覆盖中" : "继承"}
@@ -528,7 +845,7 @@ function AiOverrideBox({
 						</Field>
 					</>
 				) : null}
-				<Field label="temperature" code="ai.temperature" hint="0–2，越高越发散">
+				<Field label="temperature" code="ai.temperature" hint="0–2,越高越发散">
 					<TNum
 						value={cur.temperature ?? baseline.temperature}
 						onChange={(v) => onChange({ ...cur, temperature: v })}

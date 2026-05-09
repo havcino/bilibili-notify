@@ -33,15 +33,16 @@ import type {
 } from "../../types/globals";
 
 export type SectionId =
-	| "core"
 	| "filter"
 	| "live"
 	| "summary"
 	| "msg"
 	| "guard"
-	| "cardStyle"
 	| "specialDanmaku"
-	| "specialEnter";
+	| "specialEnter"
+	| "cardStyle"
+	| "ai"
+	| "core";
 
 export interface SectionMeta {
 	id: SectionId;
@@ -50,13 +51,11 @@ export interface SectionMeta {
 	desc: string;
 }
 
+/**
+ * 全局 5 个分类(对照设计稿:动态过滤 / 直播阈值 / 直播总结模板 / 直播消息模板 / 上舰提示)。
+ * cardStyle 在 /cards,ai 主体在 /ai,app + master 由独立入口承载。
+ */
 export const GLOBAL_SECTIONS: SectionMeta[] = [
-	{
-		id: "core",
-		label: "Core · 应用",
-		icon: <Icon.sparkle size={14} />,
-		desc: "抓取频率 / 日志 / Master 账号 · app + master",
-	},
 	{
 		id: "filter",
 		label: "动态过滤",
@@ -73,7 +72,7 @@ export const GLOBAL_SECTIONS: SectionMeta[] = [
 		id: "summary",
 		label: "直播总结模板",
 		icon: <Icon.list size={14} />,
-		desc: "弹幕变量 -dmc / -un1~5 · defaults.templates.liveSummary",
+		desc: "弹幕变量 / 特别弹幕 / 进房 · defaults.templates.{liveSummary,specialDanmaku,specialUserEnter}",
 	},
 	{
 		id: "msg",
@@ -87,11 +86,66 @@ export const GLOBAL_SECTIONS: SectionMeta[] = [
 		icon: <Icon.anchor size={14} />,
 		desc: "舰长 / 提督 / 总督 · defaults.templates.guardBuy",
 	},
+];
+
+/**
+ * per-UP 9 个分类:全局 5 个 + 特别关注弹幕 / 进房 / 卡片样式 / AI 人格塑造。
+ * 每项独立 toggle 到「覆盖中」才会写入 Subscription.overrides;关闭即继承全局。
+ */
+export const PERUP_SECTIONS: SectionMeta[] = [
+	{
+		id: "filter",
+		label: "动态过滤",
+		icon: <Icon.filter size={14} />,
+		desc: "覆盖关键词 / 正则 / 白名单 · overrides.filters",
+	},
+	{
+		id: "live",
+		label: "直播阈值",
+		icon: <Icon.mic size={14} />,
+		desc: "覆盖 SC / 上舰 / 推送频率 · overrides.{filters,schedule}",
+	},
+	{
+		id: "summary",
+		label: "直播总结",
+		icon: <Icon.list size={14} />,
+		desc: "覆盖总结模板 · overrides.templates.liveSummary",
+	},
+	{
+		id: "msg",
+		label: "直播消息",
+		icon: <Icon.chat size={14} />,
+		desc: "覆盖开播/下播文案 · overrides.templates.live{Start,Ongoing,End}",
+	},
+	{
+		id: "guard",
+		label: "上舰提示",
+		icon: <Icon.anchor size={14} />,
+		desc: "覆盖上舰图片/文案 · overrides.templates.guardBuy",
+	},
+	{
+		id: "specialDanmaku",
+		label: "特别关注弹幕",
+		icon: <Icon.star size={14} />,
+		desc: "UID 高亮 + 模板 · specialUsers + overrides.templates.specialDanmaku",
+	},
+	{
+		id: "specialEnter",
+		label: "特别关注进房",
+		icon: <Icon.user size={14} />,
+		desc: "UID 进入提醒 · specialUsers + overrides.templates.specialUserEnter",
+	},
 	{
 		id: "cardStyle",
 		label: "卡片样式",
 		icon: <Icon.sparkle size={14} />,
-		desc: "渐变 / 底板 / 边框 · defaults.cardStyle",
+		desc: "覆盖卡片渐变 / 底板 · overrides.cardStyle",
+	},
+	{
+		id: "ai",
+		label: "AI 人格塑造",
+		icon: <Icon.ai size={14} />,
+		desc: "覆盖 AI 人设 / 口吻 / prompt · overrides.ai",
 	},
 ];
 
