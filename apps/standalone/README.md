@@ -7,7 +7,7 @@ Standalone product form: Hono HTTP server + React dashboard. The Koishi sub-plug
 ```
 apps/standalone/
   pnpm-workspace.yaml        # this is its OWN pnpm workspace, invisible to the root yarn workspace
-  package.json               # @bilibili-notify/standalone-root (private)
+  package.json               # @bilibili-notify/root (private)
   server/                    # Hono + Node 20 backend
   web/                       # React + Vite dashboard
   Dockerfile                 # multi-stage; build context = repo root
@@ -45,10 +45,10 @@ The image bundles the built React dashboard at `/app/web-dist`; the Hono server 
 
 ```bash
 # From the repo root (build context must be the parent of apps/standalone):
-docker build -f apps/standalone/Dockerfile -t bilibili-notify-standalone:dev .
+docker build -f apps/standalone/Dockerfile -t bilibili-notify:dev .
 
 # Or pull the prebuilt image (CI publishes from refactor + main):
-docker pull ghcr.io/<owner>/<repo>-standalone:latest
+docker pull ghcr.io/<owner>/bilibili-notify:latest
 
 docker run -d \
   --name bilibili-notify \
@@ -57,7 +57,7 @@ docker run -d \
   -v "$(pwd)/bn.config.yaml:/app/apps/standalone/server/bn.config.yaml:ro" \
   -e BN_DASHBOARD_USER=admin \
   -e BN_DASHBOARD_PASS='change-me' \
-  bilibili-notify-standalone:dev
+  bilibili-notify:dev
 ```
 
 `docker-compose.example.yaml` ships a copy-paste starter, including a commented NapCat sidecar block for OneBot v11 → QQ delivery on the same docker network.

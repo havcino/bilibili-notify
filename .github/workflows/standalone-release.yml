@@ -1,6 +1,6 @@
-name: Standalone — build + publish
+name: bilibili-notify — build + publish
 
-# Builds the standalone Hono+React docker image and pushes it to GHCR.
+# Builds the Hono+React docker image and pushes it to GHCR.
 # Triggered when:
 #   • code under apps/standalone/** or packages/** lands on refactor / main
 #     (the standalone end consumes packages/* via pnpm link:, so any business-core
@@ -49,12 +49,14 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # Image name = ghcr.io/<owner>/<repo>-standalone (lowercased by metadata-action).
+      # Image name = ghcr.io/<owner>/bilibili-notify (lowercased by metadata-action).
+      # github.repository_owner is used so the image stays at a stable path even
+      # if the repo is later renamed.
       - name: Compute image metadata
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ghcr.io/${{ github.repository }}-standalone
+          images: ghcr.io/${{ github.repository_owner }}/bilibili-notify
           tags: |
             type=ref,event=branch
             type=ref,event=tag

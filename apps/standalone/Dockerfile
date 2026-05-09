@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.7
 #
-# Standalone bilibili-notify image (Hono server + bundled React dashboard).
+# bilibili-notify image (Hono server + bundled React dashboard).
 #
 # Build context MUST be the repo root, not apps/standalone, because the
 # pnpm sub-workspace's `link:` deps point at ../../../packages/*. The
@@ -9,7 +9,7 @@
 #   file: ./apps/standalone/Dockerfile
 #
 # Manual build from the repo root:
-#   docker build -f apps/standalone/Dockerfile -t bilibili-notify-standalone:dev .
+#   docker build -f apps/standalone/Dockerfile -t bilibili-notify:dev .
 # or via compose (apps/standalone/docker-compose.example.yaml).
 #
 # Plan deviates from the original "distroless runtime" idea — puppeteer-core

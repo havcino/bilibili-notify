@@ -7,8 +7,8 @@ React 18 + Vite + Tailwind 4 + TanStack Query + Zustand + React Router 7. Lives 
 ```bash
 # from apps/standalone
 pnpm install                 # picks up server/ + web/ together
-pnpm --filter @bilibili-notify/standalone-server dev    # backend on :8787
-pnpm --filter @bilibili-notify/standalone-web dev       # frontend on :5173
+pnpm --filter @bilibili-notify/server dev    # backend on :8787
+pnpm --filter @bilibili-notify/web dev       # frontend on :5173
 ```
 
 Vite dev server proxies `/api` and `/ws` to `127.0.0.1:8787`, so you load `http://localhost:5173` and the network panel still shows clean same-origin requests. Backend stays a separate process — restart it independently.

@@ -1,5 +1,5 @@
 {
-	"name": "@bilibili-notify/standalone-web",
+	"name": "@bilibili-notify/web",
 	"version": "0.0.0",
 	"private": true,
 	"type": "module",

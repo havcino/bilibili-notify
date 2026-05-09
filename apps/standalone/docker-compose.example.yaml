@@ -13,7 +13,7 @@
 
 services:
   bilibili-notify:
-    image: ghcr.io/akokko/bilibili-notify-standalone:latest
+    image: ghcr.io/akokko/bilibili-notify:latest
     # Or build locally from the repo root (parent of apps/standalone):
     # build:
     #   context: ../..
