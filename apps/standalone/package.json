@@ -4,9 +4,11 @@
 	"private": true,
 	"description": "Root for the standalone Bilibili-Notify product (Hono server + React dashboard). pnpm sub-workspace; not part of the root yarn workspace.",
 	"scripts": {
-		"dev": "pnpm --filter @bilibili-notify/standalone-server dev",
-		"build": "pnpm --filter @bilibili-notify/standalone-server build",
-		"typecheck": "pnpm --filter @bilibili-notify/standalone-server typecheck",
+		"dev": "pnpm -r --parallel --stream dev",
+		"dev:server": "pnpm --filter @bilibili-notify/standalone-server dev",
+		"dev:web": "pnpm --filter @bilibili-notify/standalone-web dev",
+		"build": "pnpm -r build",
+		"typecheck": "pnpm -r typecheck",
 		"start": "pnpm --filter @bilibili-notify/standalone-server start"
 	},
 	"engines": {
