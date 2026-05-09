@@ -54,37 +54,40 @@ export interface SectionMeta {
 /**
  * 全局 5 个分类(对照设计稿:动态过滤 / 直播阈值 / 直播总结模板 / 直播消息模板 / 上舰提示)。
  * cardStyle 在 /cards,ai 主体在 /ai,app + master 由独立入口承载。
+ *
+ * desc 全部用纯中文短语,避开 `defaults.templates.{a,b,c}` 这种不可换行的长串。
+ * 220px 侧栏文字列只有 ~140px,英文 code path 无法断词会撑出容器。
  */
 export const GLOBAL_SECTIONS: SectionMeta[] = [
 	{
 		id: "filter",
 		label: "动态过滤",
 		icon: <Icon.filter size={14} />,
-		desc: "关键词 / 正则 / 白名单 · defaults.filters",
+		desc: "关键词 / 正则 / 白名单",
 	},
 	{
 		id: "live",
 		label: "直播阈值",
 		icon: <Icon.mic size={14} />,
-		desc: "SC / 上舰 / 推送时段 · defaults.{filters,schedule}",
+		desc: "SC 金额 / 上舰等级 / 推送频率",
 	},
 	{
 		id: "summary",
 		label: "直播总结模板",
 		icon: <Icon.list size={14} />,
-		desc: "弹幕变量 / 特别弹幕 / 进房 · defaults.templates.{liveSummary,specialDanmaku,specialUserEnter}",
+		desc: "弹幕变量 / 总结正文",
 	},
 	{
 		id: "msg",
 		label: "直播消息模板",
 		icon: <Icon.chat size={14} />,
-		desc: "开播 / 直播中 / 下播 · defaults.templates.live{Start,Ongoing,End}",
+		desc: "开播 / 直播中 / 下播文案",
 	},
 	{
 		id: "guard",
 		label: "上舰提示",
 		icon: <Icon.anchor size={14} />,
-		desc: "舰长 / 提督 / 总督 · defaults.templates.guardBuy",
+		desc: "舰长 / 提督 / 总督文案与图片",
 	},
 ];
 
@@ -97,55 +100,55 @@ export const PERUP_SECTIONS: SectionMeta[] = [
 		id: "filter",
 		label: "动态过滤",
 		icon: <Icon.filter size={14} />,
-		desc: "覆盖关键词 / 正则 / 白名单 · overrides.filters",
+		desc: "覆盖关键词 / 白名单",
 	},
 	{
 		id: "live",
 		label: "直播阈值",
 		icon: <Icon.mic size={14} />,
-		desc: "覆盖 SC / 上舰 / 推送频率 · overrides.{filters,schedule}",
+		desc: "覆盖 SC / 上舰 / 频率",
 	},
 	{
 		id: "summary",
 		label: "直播总结",
 		icon: <Icon.list size={14} />,
-		desc: "覆盖总结模板 · overrides.templates.liveSummary",
+		desc: "覆盖总结模板",
 	},
 	{
 		id: "msg",
 		label: "直播消息",
 		icon: <Icon.chat size={14} />,
-		desc: "覆盖开播/下播文案 · overrides.templates.live{Start,Ongoing,End}",
+		desc: "覆盖开播 / 下播文案",
 	},
 	{
 		id: "guard",
 		label: "上舰提示",
 		icon: <Icon.anchor size={14} />,
-		desc: "覆盖上舰图片/文案 · overrides.templates.guardBuy",
+		desc: "覆盖上舰图片与文案",
 	},
 	{
 		id: "specialDanmaku",
 		label: "特别关注弹幕",
 		icon: <Icon.star size={14} />,
-		desc: "UID 高亮 + 模板 · specialUsers + overrides.templates.specialDanmaku",
+		desc: "UID 高亮 + 弹幕模板",
 	},
 	{
 		id: "specialEnter",
 		label: "特别关注进房",
 		icon: <Icon.user size={14} />,
-		desc: "UID 进入提醒 · specialUsers + overrides.templates.specialUserEnter",
+		desc: "UID 进入提醒",
 	},
 	{
 		id: "cardStyle",
 		label: "卡片样式",
 		icon: <Icon.sparkle size={14} />,
-		desc: "覆盖卡片渐变 / 底板 · overrides.cardStyle",
+		desc: "覆盖卡片渐变 / 底板",
 	},
 	{
 		id: "ai",
 		label: "AI 人格塑造",
 		icon: <Icon.ai size={14} />,
-		desc: "覆盖 AI 人设 / 口吻 / prompt · overrides.ai",
+		desc: "覆盖人设 / 口吻 / prompt",
 	},
 ];
 

@@ -280,7 +280,7 @@ function SectionList({
 	customizedIds?: Set<SectionId>;
 }) {
 	return (
-		<aside className="bn-glass sticky top-[120px] h-fit rounded-bn-card p-3 shadow-bn-card">
+		<aside className="sticky top-[120px] h-fit min-w-0">
 			<div className="mb-2 px-1 text-[11px] font-bold uppercase tracking-wider text-bn-text-tertiary">
 				{heading}
 			</div>
@@ -293,10 +293,10 @@ function SectionList({
 							type="button"
 							key={s.id}
 							onClick={() => onPick(s.id)}
-							className={`flex w-full items-start gap-2.5 rounded-[9px] border px-3 py-2.5 text-left transition ${
+							className={`flex w-full min-w-0 items-start gap-2.5 rounded-[9px] border px-3 py-2.5 text-left transition ${
 								active
-									? "border-bn-pink/35 bg-white shadow-[0_2px_8px_rgba(0,0,0,0.04)]"
-									: "border-transparent hover:bg-white/70"
+									? "border-bn-pink/35 bg-white/90 shadow-[0_2px_8px_rgba(0,0,0,0.04)]"
+									: "border-transparent hover:bg-white/55"
 							}`}
 						>
 							<span
@@ -306,7 +306,7 @@ function SectionList({
 							>
 								{s.icon}
 							</span>
-							<span className="min-w-0 flex-1">
+							<span className="block min-w-0 flex-1">
 								<span
 									className={`flex items-center gap-1.5 text-[12.5px] font-bold ${
 										active ? "text-bn-pink" : "text-bn-text-primary"
@@ -320,7 +320,7 @@ function SectionList({
 										/>
 									) : null}
 								</span>
-								<span className="mt-0.5 block text-[10.5px] leading-snug text-bn-text-tertiary">
+								<span className="mt-0.5 block break-words text-[10.5px] leading-snug text-bn-text-tertiary">
 									{s.desc}
 								</span>
 							</span>
