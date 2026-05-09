@@ -212,6 +212,47 @@ export function TColor({ value, onChange }: TColorProps) {
 	);
 }
 
+// ── Picker — generic button-group, prefer over TSelect when options ≤ ~5 ─────
+
+export interface PickerOption<T> {
+	value: T;
+	label: ReactNode;
+	color?: string;
+}
+
+export interface PickerProps<T> {
+	value: T;
+	onChange: (next: T) => void;
+	options: PickerOption<T>[];
+}
+
+export function Picker<T extends string | number | boolean>({
+	value,
+	onChange,
+	options,
+}: PickerProps<T>) {
+	return (
+		<div className="inline-flex flex-wrap gap-1 rounded-md bg-gray-100 p-[3px]">
+			{options.map((o) => {
+				const active = value === o.value;
+				return (
+					<button
+						type="button"
+						key={String(o.value)}
+						onClick={() => onChange(o.value)}
+						className={`rounded px-3 py-1 text-[11.5px] font-semibold transition ${
+							active ? "bg-white shadow-sm" : "text-bn-text-tertiary"
+						}`}
+						style={active && o.color ? { color: o.color } : undefined}
+					>
+						{o.label}
+					</button>
+				);
+			})}
+		</div>
+	);
+}
+
 export type LogLevelValue = 1 | 2 | 3;
 
 export interface LogLevelPickerProps {

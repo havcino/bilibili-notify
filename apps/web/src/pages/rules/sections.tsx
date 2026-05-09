@@ -4,19 +4,20 @@
  * delta for /api/globals.
  */
 
-import type { ReactNode } from "react";
+import { type ReactNode, useState } from "react";
 import { Toggle } from "../../components/atoms";
 import {
 	ArrayEditor,
 	Field,
 	type FieldProps,
+	Picker,
 	TArea,
 	TColor,
 	TInput,
 	TNum,
 	TSelect,
 } from "../../components/forms";
-import { GlassBox } from "../../components/glass-box";
+import { CollapseBlock, GlassBox } from "../../components/glass-box";
 import { Icon } from "../../components/icons";
 import type { PushTarget } from "../../types/domain";
 import type {
@@ -167,58 +168,69 @@ export function FilterSection({
 	const set = <K extends keyof ContentFilters>(key: K, v: ContentFilters[K]) => {
 		onPatch({ defaults: { filters: { [key]: v } as Partial<ContentFilters> } });
 	};
+	// schema 里没有独立的 whitelistEnabled 字段,所以本地 forceOpen 状态 + 数组非空双取 OR。
+	// toggle on → forceOpen=true 立即展开;关闭 → 清空两数组 + 复位 forceOpen。
+	const [forceOpenWhitelist, setForceOpenWhitelist] = useState(false);
+	const whitelistEnabled =
+		forceOpenWhitelist || value.whitelistKeywords.length > 0 || value.whitelistRegex.length > 0;
+	function toggleWhitelist(on: boolean): void {
+		if (on) {
+			setForceOpenWhitelist(true);
+		} else {
+			setForceOpenWhitelist(false);
+			onPatch({ defaults: { filters: { whitelistKeywords: [], whitelistRegex: [] } } });
+		}
+	}
 	return (
 		<GlassBox
-			title="动态过滤"
-			subtitle="命中黑名单的内容会被静默；白名单内容必发。两者均空 = 不过滤。"
+			title="动态过滤规则"
+			subtitle="filters · 屏蔽不想推送的动态"
 			accent="#FB7299"
 			icon={<Icon.filter size={14} />}
 			badge="filters"
 		>
-			<FieldRow label="关键词黑名单" code="blockKeywords" hint="任一命中即过滤；不区分大小写" full>
+			<FieldRow label="屏蔽关键词" code="blockKeywords" hint="任一命中即屏蔽" full>
 				<ArrayEditor
 					value={value.blockKeywords}
 					onChange={(n) => set("blockKeywords", n)}
-					placeholder="如：抽奖"
+					placeholder="关键词"
 				/>
 			</FieldRow>
-			<FieldRow label="正则黑名单" code="blockRegex" hint="JavaScript RegExp 字面值" full>
+			<FieldRow label="屏蔽正则" code="blockRegex" hint="正则表达式 · 命中的动态被屏蔽" full>
 				<ArrayEditor
 					value={value.blockRegex}
 					onChange={(n) => set("blockRegex", n)}
-					placeholder="如：^广告.*"
+					placeholder="例如:^广告.*"
 				/>
 			</FieldRow>
-			<FieldRow label="关键词白名单" code="whitelistKeywords" hint="非空时仅命中条目会被推送" full>
-				<ArrayEditor
-					value={value.whitelistKeywords}
-					onChange={(n) => set("whitelistKeywords", n)}
-					placeholder="如：开播"
-				/>
-			</FieldRow>
-			<FieldRow label="正则白名单" code="whitelistRegex" full>
-				<ArrayEditor value={value.whitelistRegex} onChange={(n) => set("whitelistRegex", n)} />
-			</FieldRow>
-			<FieldRow label="屏蔽转发动态" code="blockForward">
-				<TSelect
-					value={value.blockForward ? "true" : "false"}
-					onChange={(v) => set("blockForward", v === "true")}
-					options={[
-						{ value: "false", label: "不屏蔽" },
-						{ value: "true", label: "屏蔽" },
-					]}
-				/>
-			</FieldRow>
-			<FieldRow label="屏蔽专栏" code="blockArticle">
-				<TSelect
-					value={value.blockArticle ? "true" : "false"}
-					onChange={(v) => set("blockArticle", v === "true")}
-					options={[
-						{ value: "false", label: "不屏蔽" },
-						{ value: "true", label: "屏蔽" },
-					]}
-				/>
-			</FieldRow>
+			<div className="mt-1.5 grid grid-cols-1 gap-2 sm:grid-cols-2">
+				<FieldRow label="屏蔽转发动态" code="blockForward">
+					<div className="flex h-[30px] items-center">
+						<Toggle value={value.blockForward} onChange={(v) => set("blockForward", v)} size="sm" />
+					</div>
+				</FieldRow>
+				<FieldRow label="屏蔽专栏动态" code="blockArticle">
+					<div className="flex h-[30px] items-center">
+						<Toggle value={value.blockArticle} onChange={(v) => set("blockArticle", v)} size="sm" />
+					</div>
+				</FieldRow>
+			</div>
+			<CollapseBlock
+				label="启用白名单 · 仅推送命中条目"
+				enabled={whitelistEnabled}
+				onToggle={toggleWhitelist}
+				accent="#FB7299"
+			>
+				<FieldRow label="白名单关键词" code="whitelistKeywords" hint="开启后仅推送命中的动态" full>
+					<ArrayEditor
+						value={value.whitelistKeywords}
+						onChange={(n) => set("whitelistKeywords", n)}
+					/>
+				</FieldRow>
+				<FieldRow label="白名单正则" code="whitelistRegex" full>
+					<ArrayEditor value={value.whitelistRegex} onChange={(n) => set("whitelistRegex", n)} />
+				</FieldRow>
+			</CollapseBlock>
 		</GlassBox>
 	);
 }
@@ -240,51 +252,52 @@ export function LiveThresholdsSection({
 		onPatch({ defaults: { schedule: { [k]: v } as Partial<ScheduleConfig> } });
 	return (
 		<GlassBox
-			title="直播阈值与调度"
-			subtitle="SC / 上舰阈值，启动时是否补推，每日推送窗口"
+			title="直播推送阈值"
+			subtitle="filters / schedule · 控制 SC 金额 / 上舰等级 / 推送频率"
 			accent="#00AEEC"
 			icon={<Icon.mic size={14} />}
 			badge="live"
 		>
-			<FieldRow label="SC 最小金额" code="minScPrice" hint="低于该价位的 SC 不推送（元）">
-				<TNum
-					value={filters.minScPrice}
-					onChange={(v) => setF("minScPrice", v)}
-					min={0}
-					max={9999}
-					suffix="¥"
-				/>
-			</FieldRow>
-			<FieldRow label="上舰最低等级" code="minGuardLevel" hint="1=总督 / 2=提督 / 3=舰长">
-				<TSelect
-					value={String(filters.minGuardLevel) as "1" | "2" | "3"}
-					onChange={(v) => setF("minGuardLevel", Number(v) as 1 | 2 | 3)}
-					options={[
-						{ value: "3", label: "舰长（含以上）" },
-						{ value: "2", label: "提督（含以上）" },
-						{ value: "1", label: "仅总督" },
-					]}
-				/>
-			</FieldRow>
-			<FieldRow label="启动补推" code="restartPush" hint="开启后会回放重启期间错过的开播事件">
-				<TSelect
-					value={schedule.restartPush ? "true" : "false"}
-					onChange={(v) => setS("restartPush", v === "true")}
-					options={[
-						{ value: "false", label: "关" },
-						{ value: "true", label: "开" },
-					]}
-				/>
-			</FieldRow>
-			<FieldRow label="推送时段开始" code="schedule.pushTime" hint="0 = 全天">
-				<TNum
-					value={schedule.pushTime}
-					onChange={(v) => setS("pushTime", v)}
-					min={0}
-					max={23}
-					suffix="时"
-				/>
-			</FieldRow>
+			<div className="grid grid-cols-1 gap-0 sm:grid-cols-2">
+				<FieldRow label="SC 最低金额" code="minScPrice" hint="低于此金额不推送 · 0 = 全推">
+					<TNum
+						value={filters.minScPrice}
+						onChange={(v) => setF("minScPrice", v)}
+						min={0}
+						max={9999}
+						suffix="元"
+					/>
+				</FieldRow>
+				<FieldRow label="上舰最低等级" code="minGuardLevel" hint="3 = 全部 · 1 = 仅总督">
+					<Picker<1 | 2 | 3>
+						value={filters.minGuardLevel}
+						onChange={(v) => setF("minGuardLevel", v)}
+						options={[
+							{ value: 3, label: "舰长" },
+							{ value: 2, label: "提督" },
+							{ value: 1, label: "总督" },
+						]}
+					/>
+				</FieldRow>
+				<FieldRow label="状态推送间隔" code="schedule.pushTime" hint="0 = 不推送">
+					<TNum
+						value={schedule.pushTime}
+						onChange={(v) => setS("pushTime", v)}
+						min={0}
+						max={23}
+						suffix="小时"
+					/>
+				</FieldRow>
+				<FieldRow label="启动后立即推送" code="restartPush" hint="重启时若 UP 在播则立即推送一次">
+					<div className="flex h-[30px] items-center">
+						<Toggle
+							value={schedule.restartPush}
+							onChange={(v) => setS("restartPush", v)}
+							size="sm"
+						/>
+					</div>
+				</FieldRow>
+			</div>
 		</GlassBox>
 	);
 }
@@ -303,30 +316,46 @@ export function SummarySection({
 	return (
 		<GlassBox
 			title="直播总结模板"
-			subtitle="支持变量：{summary} {duration} {watched} {follower}"
+			subtitle="templates.liveSummary · 弹幕情报站文案"
 			accent="#a29bfe"
 			icon={<Icon.list size={14} />}
 			badge="liveSummary"
 		>
-			<FieldRow label="总结正文" code="templates.liveSummary" hint="按行展开；保留换行" full>
+			<SummaryVariableHints />
+			<FieldRow label="总结正文" code="templates.liveSummary" full>
 				<TArea
 					value={templates.liveSummary}
 					onChange={(v) => setT("liveSummary", v)}
-					rows={6}
-					mono
-				/>
-			</FieldRow>
-			<FieldRow label="特别关注弹幕" code="templates.specialDanmaku" full>
-				<TInput value={templates.specialDanmaku} onChange={(v) => setT("specialDanmaku", v)} mono />
-			</FieldRow>
-			<FieldRow label="特别关注进房" code="templates.specialUserEnter" full>
-				<TInput
-					value={templates.specialUserEnter}
-					onChange={(v) => setT("specialUserEnter", v)}
+					rows={8}
 					mono
 				/>
 			</FieldRow>
 		</GlassBox>
+	);
+}
+
+const SUMMARY_VARS: { code: string; desc: string }[] = [
+	{ code: "-dmc", desc: "弹幕人数" },
+	{ code: "-mdn", desc: "勋章名" },
+	{ code: "-dca", desc: "弹幕数" },
+	{ code: "-un1~5", desc: "用户名" },
+	{ code: "-dc1~5", desc: "弹幕数" },
+];
+
+export function SummaryVariableHints() {
+	return (
+		<div className="mb-2 rounded-lg border border-[#a29bfe]/40 bg-[#a29bfe]/10 px-3 py-2 text-[11.5px] leading-7 text-bn-text-secondary">
+			<span className="font-bold text-[#5b4fcc]">可用变量:</span>{" "}
+			{SUMMARY_VARS.map((v, i) => (
+				<span key={v.code}>
+					<code className="mx-0.5 rounded bg-white/70 px-1.5 py-px font-mono text-[11px]">
+						{v.code}
+					</code>{" "}
+					{v.desc}
+					{i < SUMMARY_VARS.length - 1 ? " · " : ""}
+				</span>
+			))}
+		</div>
 	);
 }
 

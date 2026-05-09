@@ -90,7 +90,16 @@ const DEFAULT_TEMPLATES = {
 	liveEnd: "{name} 下播了，直播时长 {duration}",
 	// false = builtin 简短文案；true = 启用上面三段自定义模板
 	liveMsgEnabled: false,
-	liveSummary: "本场直播总结：\n{summary}",
+	liveSummary: `🔍【弹幕情报站】本场直播数据如下：
+🧍‍♂️ 总共 -dmc 位-mdn上线
+💬 共计 -dca 条弹幕飞驰而过
+📊 热词云图已生成，快来看看你有没有上榜！
+👑 本场顶级输出选手：
+🥇 -un1 - 弹幕输出 -dc1 条
+🥈 -un2 - 弹幕 -dc2 条，萌力惊人
+🥉 -un3 - -dc3 条精准狙击
+🎖️ 特别嘉奖：-un4 & -un5
+你们的弹幕，我们都记录在案！🕵️‍♀️`,
 	specialDanmaku: "{mastername} 的关注用户 {uname} 发送弹幕：{msg}",
 	specialUserEnter: "{uname} 进入了 {mastername} 的直播间",
 	guardBuy: {

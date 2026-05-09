@@ -13,7 +13,16 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { Avatar, Btn, Toggle } from "../../components/atoms";
-import { ArrayEditor, Field, TArea, TColor, TInput, TNum, TSelect } from "../../components/forms";
+import {
+	ArrayEditor,
+	Field,
+	Picker,
+	TArea,
+	TColor,
+	TInput,
+	TNum,
+	TSelect,
+} from "../../components/forms";
 import { GlassBox } from "../../components/glass-box";
 import { Icon } from "../../components/icons";
 import { ApiError, api } from "../../services/api";
@@ -29,7 +38,7 @@ import type {
 } from "../../types/domain";
 import type { GlobalDefaults, GuardEntry, TemplateBundle } from "../../types/globals";
 import { colorFromUid, displayName } from "../up/helpers";
-import type { SectionId } from "./sections";
+import { type SectionId, SummaryVariableHints } from "./sections";
 
 /* -------------------------------------------------------------------------- */
 
@@ -292,38 +301,38 @@ function FilterOverrideBox({
 		>
 			{enabled ? (
 				<>
-					<Field label="关键词黑名单" code="blockKeywords" full>
+					<Field label="屏蔽关键词" code="blockKeywords" hint="任一命中即屏蔽" full>
 						<ArrayEditor value={get("blockKeywords")} onChange={(n) => set("blockKeywords", n)} />
 					</Field>
-					<Field label="正则黑名单" code="blockRegex" full>
+					<Field label="屏蔽正则" code="blockRegex" hint="正则表达式 · 命中的动态被屏蔽" full>
 						<ArrayEditor value={get("blockRegex")} onChange={(n) => set("blockRegex", n)} />
 					</Field>
-					<Field label="关键词白名单" code="whitelistKeywords" full>
+					<Field label="白名单关键词" code="whitelistKeywords" hint="非空时仅命中条目会被推送" full>
 						<ArrayEditor
 							value={get("whitelistKeywords")}
 							onChange={(n) => set("whitelistKeywords", n)}
 						/>
 					</Field>
-					<Field label="屏蔽转发" code="blockForward">
-						<TSelect
-							value={get("blockForward") ? "true" : "false"}
-							onChange={(v) => set("blockForward", v === "true")}
-							options={[
-								{ value: "false", label: "不屏蔽" },
-								{ value: "true", label: "屏蔽" },
-							]}
-						/>
-					</Field>
-					<Field label="屏蔽专栏" code="blockArticle">
-						<TSelect
-							value={get("blockArticle") ? "true" : "false"}
-							onChange={(v) => set("blockArticle", v === "true")}
-							options={[
-								{ value: "false", label: "不屏蔽" },
-								{ value: "true", label: "屏蔽" },
-							]}
-						/>
-					</Field>
+					<div className="mt-1.5 grid grid-cols-1 gap-2 sm:grid-cols-2">
+						<Field label="屏蔽转发动态" code="blockForward">
+							<div className="flex h-[30px] items-center">
+								<Toggle
+									value={get("blockForward")}
+									onChange={(v) => set("blockForward", v)}
+									size="sm"
+								/>
+							</div>
+						</Field>
+						<Field label="屏蔽专栏动态" code="blockArticle">
+							<div className="flex h-[30px] items-center">
+								<Toggle
+									value={get("blockArticle")}
+									onChange={(v) => set("blockArticle", v)}
+									size="sm"
+								/>
+							</div>
+						</Field>
+					</div>
 				</>
 			) : (
 				<InheritHint>该 UP 将继承全局动态过滤规则</InheritHint>
@@ -374,8 +383,8 @@ function LiveOverrideBox({
 			right={<Toggle value={enabled} onChange={toggle} />}
 		>
 			{enabled ? (
-				<>
-					<Field label="SC 最小金额" code="minScPrice">
+				<div className="grid grid-cols-1 gap-0 sm:grid-cols-2">
+					<Field label="SC 最低金额" code="minScPrice" hint="低于此金额不推送 · 0 = 全推">
 						<TNum
 							value={fCur.minScPrice ?? baselineFilters.minScPrice}
 							onChange={(v) => onFilters({ ...fCur, minScPrice: v })}
@@ -383,37 +392,40 @@ function LiveOverrideBox({
 							suffix="元"
 						/>
 					</Field>
-					<Field label="上舰最低等级" code="minGuardLevel">
-						<TSelect
-							value={String(fCur.minGuardLevel ?? baselineFilters.minGuardLevel) as "1" | "2" | "3"}
-							onChange={(v) => onFilters({ ...fCur, minGuardLevel: Number(v) as 1 | 2 | 3 })}
+					<Field label="上舰最低等级" code="minGuardLevel" hint="3 = 全部 · 1 = 仅总督">
+						<Picker<1 | 2 | 3>
+							value={fCur.minGuardLevel ?? baselineFilters.minGuardLevel}
+							onChange={(v) => onFilters({ ...fCur, minGuardLevel: v })}
 							options={[
-								{ value: "3", label: "舰长（含以上）" },
-								{ value: "2", label: "提督（含以上）" },
-								{ value: "1", label: "仅总督" },
+								{ value: 3, label: "舰长" },
+								{ value: 2, label: "提督" },
+								{ value: 1, label: "总督" },
 							]}
 						/>
 					</Field>
-					<Field label="推送时段开始" code="schedule.pushTime" hint="0 = 全天">
+					<Field label="状态推送间隔" code="schedule.pushTime" hint="0 = 不推送">
 						<TNum
 							value={sCur.pushTime ?? baselineSchedule.pushTime}
 							onChange={(v) => onSchedule({ ...sCur, pushTime: v })}
 							min={0}
 							max={23}
-							suffix="时"
+							suffix="小时"
 						/>
 					</Field>
-					<Field label="启动补推" code="schedule.restartPush">
-						<TSelect
-							value={(sCur.restartPush ?? baselineSchedule.restartPush) ? "true" : "false"}
-							onChange={(v) => onSchedule({ ...sCur, restartPush: v === "true" })}
-							options={[
-								{ value: "false", label: "关" },
-								{ value: "true", label: "开" },
-							]}
-						/>
+					<Field
+						label="启动后立即推送"
+						code="schedule.restartPush"
+						hint="重启时若 UP 在播则立即推送一次"
+					>
+						<div className="flex h-[30px] items-center">
+							<Toggle
+								value={sCur.restartPush ?? baselineSchedule.restartPush}
+								onChange={(v) => onSchedule({ ...sCur, restartPush: v })}
+								size="sm"
+							/>
+						</div>
 					</Field>
-				</>
+				</div>
 			) : (
 				<InheritHint>该 UP 将继承全局直播阈值与调度</InheritHint>
 			)}
@@ -451,14 +463,17 @@ function SummaryOverrideBox({
 			right={<Toggle value={enabled} onChange={toggle} />}
 		>
 			{enabled ? (
-				<Field label="总结正文" code="templates.liveSummary" full>
-					<TArea
-						value={cur.liveSummary ?? baseline.liveSummary}
-						onChange={(v) => onChange({ ...cur, liveSummary: v })}
-						rows={6}
-						mono
-					/>
-				</Field>
+				<>
+					<SummaryVariableHints />
+					<Field label="总结正文" code="templates.liveSummary" full>
+						<TArea
+							value={cur.liveSummary ?? baseline.liveSummary}
+							onChange={(v) => onChange({ ...cur, liveSummary: v })}
+							rows={8}
+							mono
+						/>
+					</Field>
+				</>
 			) : (
 				<InheritHint>该 UP 将继承全局直播总结模板</InheritHint>
 			)}
