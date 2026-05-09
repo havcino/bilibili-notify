@@ -12,12 +12,12 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
-import { Btn } from "../components/atoms";
-import { Field, TArea, TColor, TInput } from "../components/forms";
+import { Btn, Pill } from "../components/atoms";
+import { Field, TArea, TColor, TInput, TSelect } from "../components/forms";
 import { GlassBox } from "../components/glass-box";
 import { Icon } from "../components/icons";
 import { ApiError, api } from "../services/api";
-import type { CardStyle, GlobalConfig } from "../types/globals";
+import type { CardStyle, GlobalConfig, LogLevel } from "../types/globals";
 
 type CardKind = "live" | "dyn" | "sc" | "guard";
 
@@ -143,6 +143,15 @@ function CardPreview({
 	return <PreviewImage kind={kind} style={style} content={content} />;
 }
 
+type ImageLogLevel = LogLevel | "";
+
+const LOG_LEVEL_OPTIONS: { value: ImageLogLevel; label: string }[] = [
+	{ value: "", label: "（跟随全局）" },
+	{ value: "error", label: "ERROR" },
+	{ value: "info", label: "INFO" },
+	{ value: "debug", label: "DEBUG" },
+];
+
 export default function Cards() {
 	const qc = useQueryClient();
 	const globalsQuery = useQuery({
@@ -150,6 +159,7 @@ export default function Cards() {
 		queryFn: () => api.get<GlobalConfig>("/api/globals"),
 	});
 	const [draft, setDraft] = useState<CardStyle | null>(null);
+	const [imageLogLevel, setImageLogLevel] = useState<ImageLogLevel>("");
 	const [kind, setKind] = useState<CardKind>("live");
 	const [content, setContent] = useState<PreviewContent>(DEFAULT_PREVIEW_CONTENT);
 	const [error, setError] = useState<string | null>(null);
@@ -164,19 +174,38 @@ export default function Cards() {
 		setContent((c) => ({ ...c, guard: { ...c.guard, ...next } }));
 
 	useEffect(() => {
-		if (globalsQuery.data) setDraft(globalsQuery.data.defaults.cardStyle);
+		if (globalsQuery.data) {
+			setDraft(globalsQuery.data.defaults.cardStyle);
+			setImageLogLevel(globalsQuery.data.app.logLevels?.image ?? "");
+		}
 	}, [globalsQuery.data]);
 
+	const serverImageLogLevel = globalsQuery.data?.app.logLevels?.image ?? "";
 	const dirty = useMemo(() => {
 		if (!draft || !globalsQuery.data) return false;
-		return JSON.stringify(draft) !== JSON.stringify(globalsQuery.data.defaults.cardStyle);
-	}, [draft, globalsQuery.data]);
+		return (
+			JSON.stringify(draft) !== JSON.stringify(globalsQuery.data.defaults.cardStyle) ||
+			imageLogLevel !== serverImageLogLevel
+		);
+	}, [draft, globalsQuery.data, imageLogLevel, serverImageLogLevel]);
 
 	const save = useMutation({
-		mutationFn: async (next: CardStyle) => {
+		mutationFn: async (payload: { cardStyle: CardStyle; imageLogLevel: ImageLogLevel }) => {
 			setError(null);
 			try {
-				await api.patch<GlobalConfig>("/api/globals", { defaults: { cardStyle: next } });
+				const existing = globalsQuery.data?.app.logLevels ?? {};
+				// "" → drop the override (fall back to global). Setting to a level
+				// → patch only that key, so other module overrides stay untouched.
+				const nextLogLevels =
+					payload.imageLogLevel === ""
+						? Object.fromEntries(Object.entries(existing).filter(([k]) => k !== "image"))
+						: { ...existing, image: payload.imageLogLevel };
+				await api.patch<GlobalConfig>("/api/globals", {
+					app: {
+						logLevels: Object.keys(nextLogLevels).length === 0 ? undefined : nextLogLevels,
+					},
+					defaults: { cardStyle: payload.cardStyle },
+				});
 			} catch (err) {
 				if (err instanceof ApiError) setError(err.message);
 				else setError(String(err));
@@ -197,54 +226,123 @@ export default function Cards() {
 	const set = <K extends keyof CardStyle>(k: K, v: CardStyle[K]) =>
 		setDraft((d) => (d ? { ...d, [k]: v } : d));
 
+	const enabled = draft.enabled;
+
+	function discard(): void {
+		if (!globalsQuery.data) return;
+		setDraft(globalsQuery.data.defaults.cardStyle);
+		setImageLogLevel(globalsQuery.data.app.logLevels?.image ?? "");
+	}
+
 	return (
-		<div className="bn-anim-fade-in grid gap-3.5 lg:grid-cols-[380px_1fr]">
-			{/* LEFT: image plugin config */}
-			<div className="flex flex-col gap-3">
-				<GlassBox
-					title="卡片渲染样式"
-					subtitle="image plugin · 全局默认 · per-UP 覆盖在「高级规则」"
-					accent="#a29bfe"
-					icon={<Icon.sparkle size={14} />}
-					badge="cardStyle"
-					right={
-						dirty ? (
-							<div className="flex items-center gap-2">
-								<span className="text-[11.5px] font-semibold text-bn-pink">未保存</span>
-								<Btn
-									size="sm"
-									variant="outline"
-									onClick={() =>
-										globalsQuery.data && setDraft(globalsQuery.data.defaults.cardStyle)
-									}
-									disabled={save.isPending}
-								>
-									丢弃
-								</Btn>
-								<Btn
-									size="sm"
-									variant="primary"
-									onClick={() => save.mutate(draft)}
-									disabled={save.isPending}
-								>
-									{save.isPending ? "保存中…" : "保存"}
-								</Btn>
-							</div>
-						) : (
-							<span className="text-[11.5px] text-bn-text-secondary">已同步</span>
-						)
-					}
-				>
-					<Field label="渐变起始" code="cardColorStart">
-						<TColor value={draft.cardColorStart} onChange={(v) => set("cardColorStart", v)} />
-					</Field>
-					<Field label="渐变结束" code="cardColorEnd">
-						<TColor value={draft.cardColorEnd} onChange={(v) => set("cardColorEnd", v)} />
-					</Field>
-					<div className="mt-2 rounded border border-dashed bg-[#a29bfe14] p-2.5 text-[11px] text-bn-text-secondary">
-						per-UP 卡片样式覆盖 → 前往「高级规则」→ 选择 UP 主 → 卡片样式覆盖
+		<div className="bn-anim-fade-in flex flex-col gap-4">
+			{/* Hero strip — mirrors AI page (顶层开关 · 日志等级 · 保存控件) */}
+			<div
+				className="relative rounded-bn-card border p-5"
+				style={{
+					background: "linear-gradient(135deg, rgba(162,155,254,0.18), rgba(0,174,236,0.08))",
+					borderColor: "rgba(162,155,254,0.25)",
+				}}
+			>
+				<div className="flex items-center gap-3.5">
+					<div
+						className="grid shrink-0 place-items-center rounded-2xl text-white"
+						style={{
+							background: "linear-gradient(135deg, #a29bfe, #00AEEC)",
+							boxShadow: "0 6px 18px rgba(108,92,231,0.35)",
+							width: 52,
+							height: 52,
+						}}
+					>
+						<Icon.sparkle size={26} />
 					</div>
-				</GlassBox>
+					<div className="flex-1">
+						<div className="flex items-center gap-2 text-[15.5px] font-bold text-bn-text-primary">
+							卡片预览
+							<Pill color={enabled ? "#a29bfe" : "#94a3b8"} subtle size="sm">
+								{enabled ? "已启用" : "已停用"}
+							</Pill>
+						</div>
+						<div className="mt-1 text-xs text-bn-text-tertiary">
+							puppeteer-core 把 Vue/UnoCSS 模板渲染成 PNG;关闭后 push 流程仅发送文本回退。
+						</div>
+					</div>
+					<div className="flex items-center gap-2">
+						<span className="text-[12px] text-bn-text-secondary">总开关</span>
+						<Btn
+							size="sm"
+							variant={enabled ? "primary" : "outline"}
+							onClick={() => set("enabled", !enabled)}
+						>
+							{enabled ? "已启用" : "未启用"}
+						</Btn>
+					</div>
+				</div>
+
+				{dirty ? (
+					<div className="mt-3.5 flex items-center justify-end gap-2">
+						<span className="text-[11.5px] font-semibold text-bn-pink">未保存</span>
+						<Btn variant="outline" size="sm" onClick={discard} disabled={save.isPending}>
+							丢弃
+						</Btn>
+						<Btn
+							variant="primary"
+							size="sm"
+							onClick={() => draft && save.mutate({ cardStyle: draft, imageLogLevel })}
+							disabled={save.isPending}
+						>
+							{save.isPending ? "保存中…" : "保存"}
+						</Btn>
+					</div>
+				) : null}
+			</div>
+
+			{error ? (
+				<div className="rounded border border-red-200 bg-red-50 p-2 text-xs text-red-700">
+					{error}
+				</div>
+			) : null}
+
+			<div className="grid gap-3.5 lg:grid-cols-[380px_1fr]">
+				{/* LEFT: image plugin config */}
+				<div className="flex flex-col gap-3">
+					<GlassBox
+						title="卡片渲染样式"
+						subtitle="image plugin · 全局默认 · per-UP 覆盖在「高级规则」"
+						accent="#a29bfe"
+						icon={<Icon.sparkle size={14} />}
+						badge="cardStyle"
+					>
+						<Field label="启用 image 渲染" code="cardStyle.enabled" hint="关闭后所有卡片图回退为文本">
+							<Btn
+								size="sm"
+								variant={enabled ? "primary" : "outline"}
+								onClick={() => set("enabled", !enabled)}
+							>
+								{enabled ? "已启用" : "已停用"}
+							</Btn>
+						</Field>
+						<Field label="渐变起始" code="cardColorStart">
+							<TColor value={draft.cardColorStart} onChange={(v) => set("cardColorStart", v)} />
+						</Field>
+						<Field label="渐变结束" code="cardColorEnd">
+							<TColor value={draft.cardColorEnd} onChange={(v) => set("cardColorEnd", v)} />
+						</Field>
+						<Field
+							label="日志等级"
+							code="app.logLevels.image"
+							hint="只影响 image 模块;留「跟随全局」时与 app.logLevel 同步。改完保存后需重启服务。"
+						>
+							<TSelect
+								value={imageLogLevel}
+								onChange={(v) => setImageLogLevel(v as ImageLogLevel)}
+								options={LOG_LEVEL_OPTIONS}
+							/>
+						</Field>
+						<div className="mt-2 rounded border border-dashed bg-[#a29bfe14] p-2.5 text-[11px] text-bn-text-secondary">
+							per-UP 卡片样式覆盖 → 前往「高级规则」→ 选择 UP 主 → 卡片样式覆盖
+						</div>
+					</GlassBox>
 
 				<GlassBox
 					title="预览内容"
@@ -410,12 +508,6 @@ export default function Cards() {
 				</div>
 				<CardPreview kind={kind} style={draft} content={content} />
 
-				{error ? (
-					<div className="rounded border border-red-200 bg-red-50 p-2 text-xs text-red-700">
-						{error}
-					</div>
-				) : null}
-
 				{/* Effective style readout */}
 				<div className="flex flex-wrap gap-3.5 rounded-md border border-black/5 bg-white/60 px-3 py-2 font-mono text-[10.5px] text-bn-text-tertiary">
 					<span>
@@ -428,6 +520,7 @@ export default function Cards() {
 						per-UP 覆盖 → 高级规则 → cardStyleOverride
 					</span>
 				</div>
+			</div>
 			</div>
 		</div>
 	);

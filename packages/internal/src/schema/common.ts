@@ -135,6 +135,12 @@ export const AISettingsSchema = z.object({
 export type AISettings = z.infer<typeof AISettingsSchema>;
 
 export const CardStyleSchema = z.object({
+	/**
+	 * 卡片图片渲染功能总开关。关闭后,push 流程会跳过图片生成,仅发送文本回退。
+	 * 默认 true 以兼容老数据文件;独立端的 puppeteer 适配器仍按 `bootstrap.chromePath`
+	 * 是否注入决定能不能渲染,这个 flag 是 *用户意图* 层。
+	 */
+	enabled: z.boolean().default(true),
 	cardColorStart: z.string(),
 	cardColorEnd: z.string(),
 	cardBasePlateColor: z.string(),

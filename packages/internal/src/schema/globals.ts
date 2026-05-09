@@ -122,6 +122,7 @@ const DEFAULT_AI = {
 } as const;
 
 const DEFAULT_CARD_STYLE = {
+	enabled: true,
 	cardColorStart: "#e0c3fc",
 	cardColorEnd: "#8ec5fc",
 	cardBasePlateColor: "#FFFFFF",

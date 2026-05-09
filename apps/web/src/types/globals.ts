@@ -106,6 +106,7 @@ export interface AISettings {
 }
 
 export interface CardStyle {
+	enabled: boolean;
 	cardColorStart: string;
 	cardColorEnd: string;
 	cardBasePlateColor: string;
