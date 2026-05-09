@@ -111,7 +111,7 @@ export function CollapseBlock({
 				>
 					<span
 						className="absolute top-[2px] h-3 w-3 rounded-full bg-white shadow-[0_1px_3px_rgba(0,0,0,0.2)]"
-						style={{ left: enabled ? 12 : 2, transition: "left 0.18s" }}
+						style={{ left: enabled ? 14 : 2, transition: "left 0.18s" }}
 					/>
 				</button>
 			</div>
