@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import { join as joinPath } from "node:path";
+import { serveStatic } from "@hono/node-server/serve-static";
 import { Hono } from "hono";
 import { basicAuth } from "hono/basic-auth";
 import { HTTPException } from "hono/http-exception";
@@ -37,6 +40,14 @@ export interface CreateAppOptions {
 	 * with an actionable hint.
 	 */
 	puppeteer?: StandalonePuppeteer | null;
+	/**
+	 * Optional directory containing the built React dashboard (`web/dist`). When
+	 * set, non-`/api/*` paths fall through to a static file server backed by
+	 * this directory, with `index.html` as the SPA fallback for unknown routes.
+	 * When omitted, the server is API-only (matches dev mode where vite serves
+	 * the dashboard separately).
+	 */
+	staticDir?: string;
 }
 
 /**
@@ -64,7 +75,18 @@ export function createApp(runtime: AppRuntime, options: CreateAppOptions = {}): 
 		return c.json({ error: "internal_error", message: String(err) }, 500);
 	});
 
-	app.notFound((c) => c.json({ error: "not_found" }, 404));
+	// SPA fallback — when staticDir is configured, any non-`/api/*` GET that
+	// reaches notFound is treated as a client-side route and served the
+	// dashboard's index.html. The static middleware below picks up real assets
+	// (js/css/png/etc.) before this runs. API routes always return JSON 404 so
+	// that fetch errors stay machine-readable.
+	const indexHtml = options.staticDir ? loadIndexHtml(options.staticDir) : null;
+	app.notFound((c) => {
+		if (indexHtml && c.req.method === "GET" && !c.req.path.startsWith("/api/")) {
+			return c.html(indexHtml);
+		}
+		return c.json({ error: "not_found" }, 404);
+	});
 
 	// Basic-auth gate. Mounted BEFORE the route table so every /api/* request
 	// (health probes included — this is a backend service, not anonymous-probe
@@ -87,5 +109,21 @@ export function createApp(runtime: AppRuntime, options: CreateAppOptions = {}): 
 		app.route("/api/auth", createAuthRoute({ ...deps, authSystem: options.authSystem }));
 	}
 
+	// Static dashboard. Mounted last so /api/* always wins routing. Basic-auth
+	// (when configured) applies only to /api/*; the dashboard shell is meant to
+	// be reachable so the operator's browser can prompt for credentials when it
+	// fetches /api/health on first load. Dashboard assets are non-secret.
+	if (options.staticDir) {
+		app.use("/*", serveStatic({ root: options.staticDir }));
+	}
+
 	return app;
+}
+
+function loadIndexHtml(staticDir: string): string | null {
+	try {
+		return readFileSync(joinPath(staticDir, "index.html"), "utf8");
+	} catch {
+		return null;
+	}
 }

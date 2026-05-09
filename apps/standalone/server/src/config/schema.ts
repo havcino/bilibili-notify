@@ -66,6 +66,14 @@ export const BootstrapConfigSchema = z.object({
 	 * it, the cards route reports 503 and the dashboard renders a config hint.
 	 */
 	chromePath: z.string().min(1).optional(),
+	/**
+	 * Directory holding the built React dashboard (`web/dist`). When set, the
+	 * Hono app mounts a static file server for non-`/api/*` paths and falls
+	 * back to `index.html` for SPA routes. When unset, the server is API-only
+	 * (dev mode uses `vite` separately on port 5173). Docker images set this
+	 * to `/app/web-dist` via `BN_WEB_DIST`.
+	 */
+	webDistDir: z.string().min(1).optional(),
 	auth: AuthSchema,
 	logLevel: z.enum(["fatal", "error", "warn", "info", "debug", "trace", "silent"]).default("info"),
 	preset: PresetSchema,

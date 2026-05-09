@@ -98,7 +98,15 @@ async function main(): Promise<void> {
 		);
 	}
 
-	const app = createApp(runtime, { authSystem, basicAuthCredentials, puppeteer });
+	if (bootstrap.webDistDir) {
+		log.info(`serving dashboard static assets from ${bootstrap.webDistDir}`);
+	}
+	const app = createApp(runtime, {
+		authSystem,
+		basicAuthCredentials,
+		puppeteer,
+		staticDir: bootstrap.webDistDir,
+	});
 	let server: ServerType | undefined;
 	await new Promise<void>((resolve) => {
 		server = serve(

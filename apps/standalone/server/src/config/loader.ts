@@ -90,6 +90,7 @@ function readEnv(env: NodeJS.ProcessEnv): Record<string, unknown> {
 	if (env.BN_DATA_DIR) out.dataDir = env.BN_DATA_DIR;
 	if (env.BN_COOKIE_KEY) out.cookieEncryptionKey = env.BN_COOKIE_KEY;
 	if (env.BN_CHROME_PATH) out.chromePath = env.BN_CHROME_PATH;
+	if (env.BN_WEB_DIST) out.webDistDir = env.BN_WEB_DIST;
 	if (env.BN_LOG_LEVEL) out.logLevel = env.BN_LOG_LEVEL;
 	if (env.BN_DASHBOARD_USER && env.BN_DASHBOARD_PASS) {
 		setPath(out, ["auth", "basicAuth", "username"], env.BN_DASHBOARD_USER);
