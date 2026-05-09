@@ -409,7 +409,8 @@ function SystemHealthCard({
 		>
 			{!reachable ? (
 				<div className="mb-2.5 rounded border border-red-200 bg-red-50 p-2 text-[11.5px] text-red-700">
-					后端 API 当前不可达 (apps/server 未运行 或 网络中断),以下数据可能为最后一次成功拉取的快照。
+					后端 API 当前不可达 (apps/server 未运行 或
+					网络中断),以下数据可能为最后一次成功拉取的快照。
 				</div>
 			) : null}
 			<PluginMatrix cells={cells} version={health?.version} />

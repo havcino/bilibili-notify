@@ -313,7 +313,11 @@ export default function Cards() {
 						icon={<Icon.sparkle size={14} />}
 						badge="cardStyle"
 					>
-						<Field label="启用 image 渲染" code="cardStyle.enabled" hint="关闭后所有卡片图回退为文本">
+						<Field
+							label="启用 image 渲染"
+							code="cardStyle.enabled"
+							hint="关闭后所有卡片图回退为文本"
+						>
 							<Btn
 								size="sm"
 								variant={enabled ? "primary" : "outline"}
@@ -344,183 +348,184 @@ export default function Cards() {
 						</div>
 					</GlassBox>
 
-				<GlassBox
-					title="预览内容"
-					subtitle={
-						kind === "live"
-							? "拉取目标直播间的真实数据"
-							: kind === "dyn"
-								? "拉取指定 UP 的某条动态"
-								: "自定义文案 · mock 头像/数值"
-					}
-					accent={KIND_LABELS[kind].tone}
-					icon={<Icon.sparkle size={14} />}
-					badge={kind}
-				>
-					{kind === "live" ? (
-						<>
-							<Field label="直播间号" code="roomId" hint="纯数字，例如 5440">
-								<TInput
-									value={content.live.roomId}
-									onChange={(v) => setLive({ roomId: v })}
-									placeholder="留空则使用示例数据"
-								/>
-							</Field>
-							<div className="rounded border border-dashed bg-emerald-50/60 p-2.5 text-[11px] text-emerald-800">
-								需要后端账号已登录 B
-								站；填入后将真实拉取该直播间数据并渲染。留空则继续使用示例数据。
-							</div>
-						</>
-					) : kind === "dyn" ? (
-						<>
-							<Field label="UP 主 UID" code="uid" hint="目标 UP 主的 UID">
-								<TInput
-									value={content.dyn.uid}
-									onChange={(v) => setDyn({ uid: v })}
-									placeholder="留空则使用示例数据"
-								/>
-							</Field>
-							<Field label="第几条动态" code="offset" hint="1 = 最新，2 = 倒数第二条…">
-								<TInput
-									value={String(content.dyn.offset)}
-									onChange={(v) => {
-										const n = Number.parseInt(v, 10);
-										setDyn({ offset: Number.isFinite(n) && n > 0 ? n : 1 });
-									}}
-									placeholder="1"
-								/>
-							</Field>
-							<div className="rounded border border-dashed bg-emerald-50/60 p-2.5 text-[11px] text-emerald-800">
-								需要后端账号已登录 B 站；填入后将拉取该 UP 的 space 动态列表，按 offset 选取并渲染。
-							</div>
-						</>
-					) : kind === "sc" ? (
-						<>
-							<Field label="SC 文案" code="text" hint="留言内容">
-								<TArea value={content.sc.text} onChange={(v) => setSc({ text: v })} rows={3} />
-							</Field>
-							<Field label="SC 价格" code="price" hint="决定背景色与时长 (30/50/100/500/1000)">
-								<TInput
-									value={String(content.sc.price)}
-									onChange={(v) => {
-										const n = Number.parseInt(v, 10);
-										setSc({ price: Number.isFinite(n) && n > 0 ? n : 30 });
-									}}
-									placeholder="30"
-								/>
-							</Field>
-							<div className="rounded border border-dashed bg-gray-50 p-2.5 text-[11px] text-bn-text-tertiary">
-								左侧渐变色对 SC 不生效；SC 卡片背景色由价格档位自动决定。
-							</div>
-						</>
-					) : (
-						<>
-							<Field label="舰长等级" code="level" hint="决定徽章图与背景色">
-								<div className="flex flex-wrap gap-1.5">
-									{GUARD_LEVELS.map((g) => {
-										const active = content.guard.level === g.v;
-										return (
-											<button
-												type="button"
-												key={g.v}
-												onClick={() => setGuard({ level: g.v })}
-												className="rounded px-3 py-1 text-[11.5px] font-semibold transition"
-												style={
-													active
-														? { background: g.tone, color: "white" }
-														: { background: "rgba(0,0,0,0.04)", color: "#666" }
-												}
-											>
-												{g.label}
-											</button>
-										);
-									})}
+					<GlassBox
+						title="预览内容"
+						subtitle={
+							kind === "live"
+								? "拉取目标直播间的真实数据"
+								: kind === "dyn"
+									? "拉取指定 UP 的某条动态"
+									: "自定义文案 · mock 头像/数值"
+						}
+						accent={KIND_LABELS[kind].tone}
+						icon={<Icon.sparkle size={14} />}
+						badge={kind}
+					>
+						{kind === "live" ? (
+							<>
+								<Field label="直播间号" code="roomId" hint="纯数字，例如 5440">
+									<TInput
+										value={content.live.roomId}
+										onChange={(v) => setLive({ roomId: v })}
+										placeholder="留空则使用示例数据"
+									/>
+								</Field>
+								<div className="rounded border border-dashed bg-emerald-50/60 p-2.5 text-[11px] text-emerald-800">
+									需要后端账号已登录 B
+									站；填入后将真实拉取该直播间数据并渲染。留空则继续使用示例数据。
 								</div>
-							</Field>
-							<Field
-								label="新舰长称呼"
-								code="text"
-								hint="留空时使用当前登录账号的名字（未登录则显示示例新舰长）"
-							>
-								<TArea
-									value={content.guard.text}
-									onChange={(v) => setGuard({ text: v })}
-									placeholder="留空使用登录账号名"
-									rows={2}
-								/>
-							</Field>
-							<div className="rounded border border-dashed bg-gray-50 p-2.5 text-[11px] text-bn-text-tertiary">
-								左侧渐变色对上舰不生效；卡片背景色与徽章图由舰长等级自动决定。
-							</div>
-						</>
-					)}
-				</GlassBox>
-
-				<GlassBox
-					title="测试推送"
-					subtitle="切换卡片类型预览"
-					accent="#FB7299"
-					icon={<Icon.bell size={14} />}
-				>
-					<div className="flex flex-wrap gap-1.5">
-						{(["live", "dyn", "sc", "guard"] as const).map((k) => {
-							const active = kind === k;
-							const tone = KIND_LABELS[k].tone;
-							return (
-								<button
-									type="button"
-									key={k}
-									onClick={() => setKind(k)}
-									className="rounded px-3 py-1 text-[11.5px] font-semibold transition"
-									style={
-										active
-											? { background: tone, color: "white" }
-											: { background: "rgba(0,0,0,0.04)", color: "#666" }
-									}
+							</>
+						) : kind === "dyn" ? (
+							<>
+								<Field label="UP 主 UID" code="uid" hint="目标 UP 主的 UID">
+									<TInput
+										value={content.dyn.uid}
+										onChange={(v) => setDyn({ uid: v })}
+										placeholder="留空则使用示例数据"
+									/>
+								</Field>
+								<Field label="第几条动态" code="offset" hint="1 = 最新，2 = 倒数第二条…">
+									<TInput
+										value={String(content.dyn.offset)}
+										onChange={(v) => {
+											const n = Number.parseInt(v, 10);
+											setDyn({ offset: Number.isFinite(n) && n > 0 ? n : 1 });
+										}}
+										placeholder="1"
+									/>
+								</Field>
+								<div className="rounded border border-dashed bg-emerald-50/60 p-2.5 text-[11px] text-emerald-800">
+									需要后端账号已登录 B 站；填入后将拉取该 UP 的 space 动态列表，按 offset
+									选取并渲染。
+								</div>
+							</>
+						) : kind === "sc" ? (
+							<>
+								<Field label="SC 文案" code="text" hint="留言内容">
+									<TArea value={content.sc.text} onChange={(v) => setSc({ text: v })} rows={3} />
+								</Field>
+								<Field label="SC 价格" code="price" hint="决定背景色与时长 (30/50/100/500/1000)">
+									<TInput
+										value={String(content.sc.price)}
+										onChange={(v) => {
+											const n = Number.parseInt(v, 10);
+											setSc({ price: Number.isFinite(n) && n > 0 ? n : 30 });
+										}}
+										placeholder="30"
+									/>
+								</Field>
+								<div className="rounded border border-dashed bg-gray-50 p-2.5 text-[11px] text-bn-text-tertiary">
+									左侧渐变色对 SC 不生效；SC 卡片背景色由价格档位自动决定。
+								</div>
+							</>
+						) : (
+							<>
+								<Field label="舰长等级" code="level" hint="决定徽章图与背景色">
+									<div className="flex flex-wrap gap-1.5">
+										{GUARD_LEVELS.map((g) => {
+											const active = content.guard.level === g.v;
+											return (
+												<button
+													type="button"
+													key={g.v}
+													onClick={() => setGuard({ level: g.v })}
+													className="rounded px-3 py-1 text-[11.5px] font-semibold transition"
+													style={
+														active
+															? { background: g.tone, color: "white" }
+															: { background: "rgba(0,0,0,0.04)", color: "#666" }
+													}
+												>
+													{g.label}
+												</button>
+											);
+										})}
+									</div>
+								</Field>
+								<Field
+									label="新舰长称呼"
+									code="text"
+									hint="留空时使用当前登录账号的名字（未登录则显示示例新舰长）"
 								>
-									{k === "live"
-										? "直播开播"
-										: k === "dyn"
-											? "动态发布"
-											: k === "sc"
-												? "SC 提醒"
-												: "上舰提醒"}
-								</button>
-							);
-						})}
-					</div>
-					<div className="mt-3">
-						<Btn variant="primary" full icon={<Icon.bell size={13} />}>
-							发送测试推送
-						</Btn>
-					</div>
-				</GlassBox>
-			</div>
+									<TArea
+										value={content.guard.text}
+										onChange={(v) => setGuard({ text: v })}
+										placeholder="留空使用登录账号名"
+										rows={2}
+									/>
+								</Field>
+								<div className="rounded border border-dashed bg-gray-50 p-2.5 text-[11px] text-bn-text-tertiary">
+									左侧渐变色对上舰不生效；卡片背景色与徽章图由舰长等级自动决定。
+								</div>
+							</>
+						)}
+					</GlassBox>
 
-			{/* RIGHT: live preview */}
-			<div className="space-y-2.5">
-				<div className="flex items-center justify-between text-[13px] text-bn-text-primary">
-					<span className="font-bold">卡片预览 · 实时反映左侧 image 配置</span>
-					<span className="text-[11px] font-normal text-bn-text-secondary">
-						puppeteer 真实渲染 · 渲染宽度
-						{kind === "sc" ? " 280" : kind === "guard" ? " 430" : " 600"}px
-					</span>
+					<GlassBox
+						title="测试推送"
+						subtitle="切换卡片类型预览"
+						accent="#FB7299"
+						icon={<Icon.bell size={14} />}
+					>
+						<div className="flex flex-wrap gap-1.5">
+							{(["live", "dyn", "sc", "guard"] as const).map((k) => {
+								const active = kind === k;
+								const tone = KIND_LABELS[k].tone;
+								return (
+									<button
+										type="button"
+										key={k}
+										onClick={() => setKind(k)}
+										className="rounded px-3 py-1 text-[11.5px] font-semibold transition"
+										style={
+											active
+												? { background: tone, color: "white" }
+												: { background: "rgba(0,0,0,0.04)", color: "#666" }
+										}
+									>
+										{k === "live"
+											? "直播开播"
+											: k === "dyn"
+												? "动态发布"
+												: k === "sc"
+													? "SC 提醒"
+													: "上舰提醒"}
+									</button>
+								);
+							})}
+						</div>
+						<div className="mt-3">
+							<Btn variant="primary" full icon={<Icon.bell size={13} />}>
+								发送测试推送
+							</Btn>
+						</div>
+					</GlassBox>
 				</div>
-				<CardPreview kind={kind} style={draft} content={content} />
 
-				{/* Effective style readout */}
-				<div className="flex flex-wrap gap-3.5 rounded-md border border-black/5 bg-white/60 px-3 py-2 font-mono text-[10.5px] text-bn-text-tertiary">
-					<span>
-						cardColorStart: <TInputReadonly value={draft.cardColorStart} />
-					</span>
-					<span>
-						cardColorEnd: <TInputReadonly value={draft.cardColorEnd} />
-					</span>
-					<span className="italic text-bn-text-secondary">
-						per-UP 覆盖 → 高级规则 → cardStyleOverride
-					</span>
+				{/* RIGHT: live preview */}
+				<div className="space-y-2.5">
+					<div className="flex items-center justify-between text-[13px] text-bn-text-primary">
+						<span className="font-bold">卡片预览 · 实时反映左侧 image 配置</span>
+						<span className="text-[11px] font-normal text-bn-text-secondary">
+							puppeteer 真实渲染 · 渲染宽度
+							{kind === "sc" ? " 280" : kind === "guard" ? " 430" : " 600"}px
+						</span>
+					</div>
+					<CardPreview kind={kind} style={draft} content={content} />
+
+					{/* Effective style readout */}
+					<div className="flex flex-wrap gap-3.5 rounded-md border border-black/5 bg-white/60 px-3 py-2 font-mono text-[10.5px] text-bn-text-tertiary">
+						<span>
+							cardColorStart: <TInputReadonly value={draft.cardColorStart} />
+						</span>
+						<span>
+							cardColorEnd: <TInputReadonly value={draft.cardColorEnd} />
+						</span>
+						<span className="italic text-bn-text-secondary">
+							per-UP 覆盖 → 高级规则 → cardStyleOverride
+						</span>
+					</div>
 				</div>
-			</div>
 			</div>
 		</div>
 	);
