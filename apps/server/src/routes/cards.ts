@@ -315,7 +315,9 @@ function buildPreviewSpec(
 			component: SCCard,
 			props: buildScPreviewProps(style, content?.text),
 			title: "卡片预览 · SC",
-			htmlWidth: 430,
+			// SCCard's root is w-[280px]; matches ImageRenderer.generateSCCard.
+			// Larger htmlWidth leaks whitespace to the right of the card.
+			htmlWidth: 280,
 		};
 	}
 	return {

@@ -259,7 +259,8 @@ export default function Cards() {
 								/>
 							</Field>
 							<div className="rounded border border-dashed bg-emerald-50/60 p-2.5 text-[11px] text-emerald-800">
-								需要后端账号已登录 B 站；填入后将真实拉取该直播间数据并渲染。留空则继续使用示例数据。
+								需要后端账号已登录 B
+								站；填入后将真实拉取该直播间数据并渲染。留空则继续使用示例数据。
 							</div>
 						</>
 					) : kind === "dyn" ? (
@@ -342,7 +343,8 @@ export default function Cards() {
 				<div className="flex items-center justify-between text-[13px] text-bn-text-primary">
 					<span className="font-bold">卡片预览 · 实时反映左侧 image 配置</span>
 					<span className="text-[11px] font-normal text-bn-text-secondary">
-						puppeteer 真实渲染 · 渲染宽度{kind === "sc" || kind === "guard" ? " 430" : " 600"}px
+						puppeteer 真实渲染 · 渲染宽度
+						{kind === "sc" ? " 280" : kind === "guard" ? " 430" : " 600"}px
 					</span>
 				</div>
 				<CardPreview kind={kind} style={draft} content={content} />
