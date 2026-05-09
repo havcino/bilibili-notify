@@ -36,9 +36,7 @@ export default function App() {
 		queryKey: ["health"],
 		queryFn: () => api.get<HealthSnapshot>("/api/health"),
 		retry: 0,
-		// Once the backend has been unreachable, slow the probe down so we don't
-		// hammer the proxy. When healthy, refetch every 5 s for liveness.
-		refetchInterval: (q) => (q.state.status === "error" ? 15_000 : 5_000),
+		refetchInterval: 5_000,
 	});
 
 	// Show ShellLoading only on the very first attempt (no data and no error
