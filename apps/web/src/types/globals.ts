@@ -129,6 +129,5 @@ export interface GlobalConfig {
 }
 
 /** Patch payload for /api/globals — deeply partial; server merges + revalidates. */
-// biome-ignore lint/suspicious/noExplicitAny: deep partial helper for PATCH bodies; runtime validated by the server's Zod schema
 type DeepPartial<T> = T extends object ? { [K in keyof T]?: DeepPartial<T[K]> } : T;
 export type GlobalConfigPatch = DeepPartial<GlobalConfig>;

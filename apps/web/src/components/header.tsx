@@ -87,8 +87,8 @@ export function GlassHeader() {
 		<header className="bn-glass-strong sticky top-0 z-10">
 			<div className="flex items-center justify-between gap-4 px-7 pt-4">
 				<div className="flex min-w-0 items-center gap-3">
-					<div className="flex h-[52px] items-center px-1">
-						<img alt="Bilibili Notify" src="/logo.png" className="h-[52px] w-auto object-contain" />
+					<div className="flex h-13 items-center px-1">
+						<img alt="Bilibili Notify" src="/logo.png" className="h-13 w-auto object-contain" />
 					</div>
 					<div className="min-w-0">
 						<div className="text-[17px] font-bold tracking-tight text-bn-text-primary">

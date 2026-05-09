@@ -16,7 +16,6 @@ import {
 } from "@bilibili-notify/live";
 import type { BilibiliPush } from "@bilibili-notify/push";
 import { type Awaitable, type Context, type Element, h, Service } from "koishi";
-// biome-ignore lint/correctness/noUnusedImports: module augmentation for ctx["bilibili-notify"]
 import type {} from "koishi-plugin-bilibili-notify";
 import { liveCommands } from "./commands";
 import type { BilibiliNotifyLiveConfig } from "./config";

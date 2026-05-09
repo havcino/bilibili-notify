@@ -34,7 +34,6 @@ export function createKoishiSink(opts: KoishiSinkOptions): NotificationSink {
 	const { ctx, resolveTarget } = opts;
 
 	function getBot(botPlatform: string, selfId?: string): Bot | undefined {
-		// biome-ignore lint/suspicious/noExplicitAny: Bot generic context compatibility
 		return ctx.bots.find(
 			(b: Bot) => b.platform === botPlatform && (!selfId || selfId === "" || b.selfId === selfId),
 		) as Bot | undefined;

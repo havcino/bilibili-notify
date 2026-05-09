@@ -132,9 +132,7 @@ export default function Auth() {
 			<div className="flex flex-wrap gap-2">
 				<Btn
 					variant="primary"
-					disabled={
-						startQr.isPending || isQrPhase || status === BiliLoginStatus.LOGGED_IN
-					}
+					disabled={startQr.isPending || isQrPhase || status === BiliLoginStatus.LOGGED_IN}
 					onClick={() => startQr.mutate()}
 				>
 					{startQr.isPending ? "处理中…" : "发起扫码登录"}
@@ -153,11 +151,7 @@ export default function Auth() {
 				>
 					{logout.isPending ? "处理中…" : "退出登录"}
 				</Btn>
-				<Btn
-					variant="danger"
-					disabled={reset.isPending}
-					onClick={() => reset.mutate()}
-				>
+				<Btn variant="danger" disabled={reset.isPending} onClick={() => reset.mutate()}>
 					{reset.isPending ? "处理中…" : "重置密钥与 Cookie"}
 				</Btn>
 			</div>

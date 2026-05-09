@@ -37,7 +37,7 @@ export function createPuppeteerAdapter(opts: PuppeteerAdapterOptions): Standalon
 	let launching: Promise<Browser> | null = null;
 
 	async function ensure(): Promise<Browser> {
-		if (browser && browser.connected) return browser;
+		if (browser?.connected) return browser;
 		if (launching) return launching;
 		launching = (async () => {
 			opts.logger.info(`[puppeteer] 启动 chromium · executablePath=${opts.chromePath}`);

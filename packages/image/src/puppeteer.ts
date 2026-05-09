@@ -46,9 +46,11 @@ export interface ElementHandleLike {
 /** A puppeteer Page facade. Only the methods the renderer needs are exposed. */
 export interface PageLike {
 	setContent(html: string, options?: SetContentOptions): Promise<void>;
-	// biome-ignore lint/suspicious/noExplicitAny: condition can be a function or a JS expression string, mirroring puppeteer's overload
 	waitForFunction(
-		pageFunction: string | ((...args: any[]) => unknown),
+		pageFunction:
+			| string
+			// biome-ignore lint/suspicious/noExplicitAny: mirrors puppeteer's waitForFunction overload — args type is opaque to the caller
+			| ((...args: any[]) => unknown),
 		options?: WaitForFunctionOptions,
 	): Promise<unknown>;
 	$(selector: string): Promise<ElementHandleLike | null>;

@@ -11,7 +11,6 @@ import { BILIBILI_NOTIFY_TOKEN } from "@bilibili-notify/internal";
 import { makeKoishiMessageBus, makeKoishiServiceContext } from "@bilibili-notify/koishi-runtime";
 import type { BilibiliPush } from "@bilibili-notify/push";
 import { type Awaitable, type Context, h, Service } from "koishi";
-// biome-ignore lint/correctness/noUnusedImports: module augmentation for ctx["bilibili-notify"]
 import type {} from "koishi-plugin-bilibili-notify";
 import { dynamicCommands } from "./commands";
 import type { BilibiliNotifyDynamicConfig } from "./config";

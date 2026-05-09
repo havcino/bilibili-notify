@@ -157,11 +157,7 @@ export default function History() {
 					加载失败：{String((historyQuery.error as Error).message)}
 				</div>
 			) : (
-				<HistoryTable
-					entries={filtered}
-					subByUid={subByUid}
-					targetById={targetById}
-				/>
+				<HistoryTable entries={filtered} subByUid={subByUid} targetById={targetById} />
 			)}
 		</div>
 	);

@@ -224,7 +224,7 @@ function TimelinePanel({
 			) : (
 				<div className="relative pl-1">
 					<div
-						className="absolute left-[60px] top-2 bottom-2 w-0.5 opacity-25"
+						className="absolute left-15 top-2 bottom-2 w-0.5 opacity-25"
 						style={{
 							background: "linear-gradient(to bottom, #FB7299, #00AEEC, transparent)",
 						}}
@@ -313,7 +313,7 @@ function PluginMatrix({ cells, version }: { cells: PluginCell[]; version: string
 				const levelLabel = c.logLevel ? c.logLevel.toUpperCase() : "—";
 				const isOverride = c.logLevelSource === "module";
 				return (
-					<div key={c.id} className="rounded-[8px] border border-black/[0.06] bg-white px-3 py-2.5">
+					<div key={c.id} className="rounded-lg border border-black/6 bg-white px-3 py-2.5">
 						<div className="mb-1.5 flex items-center justify-between">
 							<span className="text-[12.5px] font-bold text-bn-text-primary">{c.label}</span>
 							<span

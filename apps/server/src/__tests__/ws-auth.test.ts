@@ -80,23 +80,33 @@ function tryConnect(
 	});
 }
 
+/** Loose envelope type for inbound WS frames; same shape as ws-server.test.ts. */
+type WsMsg = Record<string, unknown>;
+
+/** Typed accessor for the WS frame's `data` envelope; tests assert on the runtime shape. */
+function dataOf(m: WsMsg): Record<string, unknown> {
+	return (m.data ?? {}) as Record<string, unknown>;
+}
+
 function collectFrames(ws: WebSocket): {
-	waitFor: (pred: (msg: any) => boolean, timeoutMs?: number) => Promise<any>;
+	waitFor: (pred: (msg: WsMsg) => boolean, timeoutMs?: number) => Promise<WsMsg>;
 } {
-	const buffer: unknown[] = [];
+	const buffer: WsMsg[] = [];
 	const waiters: Array<{
-		pred: (msg: any) => boolean;
-		resolve: (m: any) => void;
+		pred: (msg: WsMsg) => boolean;
+		resolve: (m: WsMsg) => void;
 		reject: (e: Error) => void;
 		timer: NodeJS.Timeout;
 	}> = [];
 	ws.on("message", (raw: Buffer) => {
-		let msg: unknown;
+		let parsed: unknown;
 		try {
-			msg = JSON.parse(raw.toString("utf8"));
+			parsed = JSON.parse(raw.toString("utf8"));
 		} catch {
 			return;
 		}
+		if (typeof parsed !== "object" || parsed === null) return;
+		const msg = parsed as WsMsg;
 		buffer.push(msg);
 		for (let i = waiters.length - 1; i >= 0; i--) {
 			const w = waiters[i];
@@ -110,7 +120,7 @@ function collectFrames(ws: WebSocket): {
 	});
 	return {
 		waitFor(pred, timeoutMs = 1000) {
-			for (const m of buffer) if (pred(m as any)) return Promise.resolve(m as any);
+			for (const m of buffer) if (pred(m)) return Promise.resolve(m);
 			return new Promise((resolve, reject) => {
 				const timer = setTimeout(() => {
 					const idx = waiters.findIndex((w) => w.timer === timer);
@@ -345,7 +355,7 @@ describe("WS cookies-refreshed redaction", () => {
 
 		// Positive shape — minimal "refresh happened" signal.
 		expect(evt.data).toHaveProperty("refreshedAt");
-		expect(typeof evt.data.refreshedAt).toBe("string");
+		expect(typeof dataOf(evt).refreshedAt).toBe("string");
 
 		ws.close();
 	});
@@ -365,8 +375,8 @@ describe("WS cookies-refreshed redaction", () => {
 		});
 
 		const evt = await c.waitFor((m) => m?.type === "auth" && m?.event === "cookies-refreshed");
-		expect(evt.data.ok).toBe(true);
-		expect(evt.data.refreshedAt).toBeDefined();
+		expect(dataOf(evt).ok).toBe(true);
+		expect(dataOf(evt).refreshedAt).toBeDefined();
 		expect(JSON.stringify(evt.data)).not.toContain("refreshToken");
 		expect(JSON.stringify(evt.data)).not.toContain("cookiesJson");
 		ws.close();

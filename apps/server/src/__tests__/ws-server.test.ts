@@ -48,25 +48,40 @@ function connect(port: number): Promise<WebSocket> {
 	});
 }
 
+/**
+ * Loose envelope type for inbound WS frames in tests. Each frame is a JSON
+ * object with at least a `type` field; the rest depends on the channel.
+ * Tests use `m.type === "auth"` style narrowing — `unknown` on the property
+ * lets `=== <literal>` pass without a wider cast.
+ */
+type WsMsg = Record<string, unknown>;
+
+/** Typed accessor for the WS frame's `data` envelope; tests assert on the runtime shape. */
+function dataOf(m: WsMsg): Record<string, unknown> {
+	return (m.data ?? {}) as Record<string, unknown>;
+}
+
 /** Read frames from a socket into an array; returns a getter + unsub. */
 function collect(ws: WebSocket): {
-	all: () => unknown[];
-	waitFor: (pred: (msg: any) => boolean, timeoutMs?: number) => Promise<any>;
+	all: () => WsMsg[];
+	waitFor: (pred: (msg: WsMsg) => boolean, timeoutMs?: number) => Promise<WsMsg>;
 } {
-	const buffer: unknown[] = [];
+	const buffer: WsMsg[] = [];
 	const waiters: Array<{
-		pred: (msg: any) => boolean;
-		resolve: (m: any) => void;
+		pred: (msg: WsMsg) => boolean;
+		resolve: (m: WsMsg) => void;
 		reject: (e: Error) => void;
 		timer: NodeJS.Timeout;
 	}> = [];
 	ws.on("message", (raw: Buffer) => {
-		let msg: unknown;
+		let parsed: unknown;
 		try {
-			msg = JSON.parse(raw.toString("utf8"));
+			parsed = JSON.parse(raw.toString("utf8"));
 		} catch {
 			return;
 		}
+		if (typeof parsed !== "object" || parsed === null) return;
+		const msg = parsed as WsMsg;
 		buffer.push(msg);
 		for (let i = waiters.length - 1; i >= 0; i--) {
 			const w = waiters[i];
@@ -82,7 +97,7 @@ function collect(ws: WebSocket): {
 		all: () => buffer.slice(),
 		waitFor(pred, timeoutMs = 1000) {
 			// Check existing buffer first.
-			for (const m of buffer) if (pred(m as any)) return Promise.resolve(m as any);
+			for (const m of buffer) if (pred(m)) return Promise.resolve(m);
 			return new Promise((resolve, reject) => {
 				const timer = setTimeout(() => {
 					const idx = waiters.findIndex((w) => w.timer === timer);
@@ -156,9 +171,9 @@ describe("WS server", () => {
 		expect(ack.channels).toContain("state");
 
 		const hydrate = await c.waitFor((m) => m?.type === "state" && m?.event === "hydrate");
-		expect(hydrate.data.globals).toEqual(makeDefaultGlobalConfig());
-		expect(hydrate.data.subscriptions).toEqual([]);
-		expect(hydrate.data.targets).toEqual([]);
+		expect(dataOf(hydrate).globals).toEqual(makeDefaultGlobalConfig());
+		expect(dataOf(hydrate).subscriptions).toEqual([]);
+		expect(dataOf(hydrate).targets).toEqual([]);
 		ws.close();
 	});
 
@@ -195,8 +210,8 @@ describe("WS server", () => {
 		expect(bEvt.data).toBe("abc-123");
 
 		// Reverse direction: ensure neither leaked.
-		expect(ca.all().some((m: any) => m?.type === "push-events")).toBe(false);
-		expect(cb.all().some((m: any) => m?.type === "auth")).toBe(false);
+		expect(ca.all().some((m) => m.type === "push-events")).toBe(false);
+		expect(cb.all().some((m) => m.type === "auth")).toBe(false);
 		a.close();
 		b.close();
 	});
@@ -214,7 +229,7 @@ describe("WS server", () => {
 
 		// Wait long enough that any in-flight frame would have arrived.
 		await new Promise((r) => setTimeout(r, 50));
-		expect(c.all().some((m: any) => m?.type === "auth" && m?.event === "auth-lost")).toBe(false);
+		expect(c.all().some((m) => m.type === "auth" && m.event === "auth-lost")).toBe(false);
 		ws.close();
 	});
 
@@ -239,8 +254,8 @@ describe("WS server", () => {
 
 		await store.patchGlobals({ app: { dynamicCron: "*/15 * * * *" } });
 		const evt = await c.waitFor((m) => m?.type === "state" && m?.event === "config-changed");
-		expect(evt.data.scope).toBe("globals");
-		expect((evt.data.snapshot as GlobalConfig).app.dynamicCron).toBe("*/15 * * * *");
+		expect(dataOf(evt).scope).toBe("globals");
+		expect((dataOf(evt).snapshot as GlobalConfig).app.dynamicCron).toBe("*/15 * * * *");
 		ws.close();
 	});
 
@@ -261,8 +276,8 @@ describe("WS server", () => {
 
 		serviceCtx.logger.warn("hello-from-test", { extra: 1 });
 		const evt = await c.waitFor((m) => m?.type === "log" && m?.event === "warn");
-		expect(evt.data.msg).toBe("hello-from-test");
-		expect(Array.isArray(evt.data.args)).toBe(true);
+		expect(dataOf(evt).msg).toBe("hello-from-test");
+		expect(Array.isArray(dataOf(evt).args)).toBe(true);
 		ws.close();
 	});
 });
@@ -330,13 +345,19 @@ describe("WS server heartbeat", () => {
 		try {
 			const ws = await connect(port);
 			ws.on("message", (raw: Buffer) => {
-				let msg: any;
+				let msg: unknown;
 				try {
 					msg = JSON.parse(raw.toString("utf8"));
 				} catch {
 					return;
 				}
-				if (msg?.type === "ping") send(ws, { type: "pong" });
+				if (
+					typeof msg === "object" &&
+					msg !== null &&
+					(msg as Record<string, unknown>).type === "ping"
+				) {
+					send(ws, { type: "pong" });
+				}
 			});
 			// Idle for ~700ms — well past the 300ms timeout. We should still be open.
 			await new Promise((r) => setTimeout(r, 700));

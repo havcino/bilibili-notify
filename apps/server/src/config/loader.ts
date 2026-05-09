@@ -115,7 +115,7 @@ function readCli(argv: readonly string[]): Record<string, unknown> {
 	const out: Record<string, unknown> = {};
 	for (let i = 0; i < argv.length; i++) {
 		const tok = argv[i];
-		if (!tok || !tok.startsWith("--")) continue;
+		if (!tok?.startsWith("--")) continue;
 		const body = tok.slice(2);
 		const eq = body.indexOf("=");
 		let key: string;

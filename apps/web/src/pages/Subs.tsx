@@ -38,7 +38,7 @@ function NewSubDialog({
 	const valid = /^\d+$/.test(uid);
 	return (
 		<div className="bn-anim-fade-in fixed inset-0 z-30 flex items-center justify-center bg-black/30 backdrop-blur-sm">
-			<div className="w-[420px] rounded-bn-card border border-white/60 bg-white p-5 shadow-bn-elev">
+			<div className="w-105 rounded-bn-card border border-white/60 bg-white p-5 shadow-bn-elev">
 				<div className="mb-1 text-base font-bold text-bn-text-primary">添加 UP 主</div>
 				<div className="mb-4 text-[12px] text-bn-text-secondary">
 					输入 B 站 UID，女仆就能帮主人盯着 TA 的动态啦 (๑•̀ㅂ•́)و✧

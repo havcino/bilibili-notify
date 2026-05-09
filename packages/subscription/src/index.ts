@@ -45,7 +45,7 @@ export function diff(prev: Subscription[], next: Subscription[]): SubscriptionOp
 			ops.push({ type: "add", sub });
 		} else {
 			// Deep-compare: simple JSON check is sufficient for the schema types.
-			const prev = prevMap.get(id)!;
+			const prev = prevMap.get(id);
 			if (JSON.stringify(prev) !== JSON.stringify(sub)) {
 				ops.push({ type: "update", sub });
 			}
