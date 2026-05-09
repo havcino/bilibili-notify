@@ -1,0 +1,32 @@
+# Bootstrap config for the standalone server.
+#
+# Usage: copy to `bn.config.yaml` (which is gitignored) and edit.
+# Loader order: defaults < bn.config.yaml < BN_* env < CLI flags.
+# `${VAR}` 占位在 YAML 字符串值里会从 process.env 插值。
+#
+# Schema source: apps/standalone/server/src/config/schema.ts
+
+server:
+  host: 127.0.0.1   # 仅本机;线上反代后端设 0.0.0.0
+  port: 8787
+
+# 状态文件落点：globals.json / subscriptions.json / targets.json / secrets/ / history/
+dataDir: ./bn-data
+
+# 卡片实时预览需要本地 Chrome / Chromium。
+# 不配则 /api/cards/preview 返回 503,前端 /cards 页会渲染配置提示。
+# macOS:   /Applications/Google Chrome.app/Contents/MacOS/Google Chrome
+# Linux:   /usr/bin/google-chrome  或  /usr/bin/chromium
+# Windows: C:/Program Files/Google/Chrome/Application/chrome.exe
+# chromePath: ${BN_CHROME_PATH}
+
+logLevel: info   # fatal | error | warn | info | debug | trace | silent
+
+# Basic Auth 与 WS Origin 白名单都可选;开发期可整段留空。
+# auth:
+#   basicAuth:
+#     username: admin
+#     password: ${BN_DASHBOARD_PASS}
+#   allowedOrigins:
+#     - http://127.0.0.1:5173
+#     - http://127.0.0.1:5174

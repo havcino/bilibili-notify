@@ -5,3 +5,9 @@ lib/
 .env.*
 bn-data/
 *.log
+
+# Local bootstrap config — operator-specific paths (chromePath, dataDir).
+# Track bn.config.example.yaml instead.
+bn.config.yaml
+bn.config.yml
+bn.config.json
