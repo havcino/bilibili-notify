@@ -237,46 +237,6 @@ export default function Cards() {
 				</GlassBox>
 
 				<GlassBox
-					title="测试推送"
-					subtitle="切换卡片类型预览"
-					accent="#FB7299"
-					icon={<Icon.bell size={14} />}
-				>
-					<div className="flex flex-wrap gap-1.5">
-						{(["live", "dyn", "sc", "guard"] as const).map((k) => {
-							const active = kind === k;
-							const tone = KIND_LABELS[k].tone;
-							return (
-								<button
-									type="button"
-									key={k}
-									onClick={() => setKind(k)}
-									className="rounded px-3 py-1 text-[11.5px] font-semibold transition"
-									style={
-										active
-											? { background: tone, color: "white" }
-											: { background: "rgba(0,0,0,0.04)", color: "#666" }
-									}
-								>
-									{k === "live"
-										? "直播开播"
-										: k === "dyn"
-											? "动态发布"
-											: k === "sc"
-												? "SC 提醒"
-												: "上舰提醒"}
-								</button>
-							);
-						})}
-					</div>
-					<div className="mt-3">
-						<Btn variant="primary" full icon={<Icon.bell size={13} />}>
-							发送测试推送
-						</Btn>
-					</div>
-				</GlassBox>
-
-				<GlassBox
 					title="预览内容"
 					subtitle={
 						kind === "live"
@@ -331,13 +291,49 @@ export default function Cards() {
 						</Field>
 					) : (
 						<Field label="新舰长称呼" code="text" hint="渲染在卡片正中的名字">
-							<TArea
-								value={content.guard.text}
-								onChange={(v) => setGuard({ text: v })}
-								rows={2}
-							/>
+							<TArea value={content.guard.text} onChange={(v) => setGuard({ text: v })} rows={2} />
 						</Field>
 					)}
+				</GlassBox>
+
+				<GlassBox
+					title="测试推送"
+					subtitle="切换卡片类型预览"
+					accent="#FB7299"
+					icon={<Icon.bell size={14} />}
+				>
+					<div className="flex flex-wrap gap-1.5">
+						{(["live", "dyn", "sc", "guard"] as const).map((k) => {
+							const active = kind === k;
+							const tone = KIND_LABELS[k].tone;
+							return (
+								<button
+									type="button"
+									key={k}
+									onClick={() => setKind(k)}
+									className="rounded px-3 py-1 text-[11.5px] font-semibold transition"
+									style={
+										active
+											? { background: tone, color: "white" }
+											: { background: "rgba(0,0,0,0.04)", color: "#666" }
+									}
+								>
+									{k === "live"
+										? "直播开播"
+										: k === "dyn"
+											? "动态发布"
+											: k === "sc"
+												? "SC 提醒"
+												: "上舰提醒"}
+								</button>
+							);
+						})}
+					</div>
+					<div className="mt-3">
+						<Btn variant="primary" full icon={<Icon.bell size={13} />}>
+							发送测试推送
+						</Btn>
+					</div>
 				</GlassBox>
 			</div>
 

@@ -320,7 +320,15 @@ export class LoginFlow {
 	}
 
 	private reportQrPending(reasonKey: "waitScan" | "waitConfirm"): void {
-		this.transition({ status: BiliLoginStatus.LOGGING_QR, msg: MESSAGES[reasonKey] });
+		// Preserve `data` (the base64 QR image) across the LOGIN_QR → LOGGING_QR
+		// transition. The QR remains useful to the user until they confirm on
+		// phone — without this carry-over the dashboard shows "二维码加载中" the
+		// instant polling kicks in.
+		this.transition({
+			status: BiliLoginStatus.LOGGING_QR,
+			msg: MESSAGES[reasonKey],
+			data: this.snapshot.data,
+		});
 	}
 
 	private reportQrFailure(reasonKey: LoginStatusMsgKey): void {

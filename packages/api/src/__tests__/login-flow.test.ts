@@ -306,6 +306,28 @@ describe("LoginFlow.beginLogin()", () => {
 		expect(h.saveCookies).not.toHaveBeenCalled();
 		expect(h.scFake.intervals[0].handle.disposed).toBe(false);
 	});
+
+	it("LOGIN_QR → LOGGING_QR (waitScan/waitConfirm) preserves the QR data field", async () => {
+		// Regression: prior implementation dropped `data` on the LOGGING_QR
+		// transition, so the dashboard's QR card flickered to "二维码加载中"
+		// the moment polling reported 86101/86090.
+		const h = makeFlow();
+		h.api.getLoginQRCode.mockResolvedValueOnce({
+			code: 0,
+			data: { url: "https://qr", qrcode_key: "k" },
+		});
+		h.api.getLoginStatus.mockResolvedValueOnce({ code: 0, data: { code: 86101 } });
+
+		await h.flow.beginLogin(async () => "data:image/png;base64,QR_BASE64_PAYLOAD");
+		expect(h.flow.current().status).toBe(BiliLoginStatus.LOGIN_QR);
+		expect(h.flow.current().data).toBe("data:image/png;base64,QR_BASE64_PAYLOAD");
+
+		await h.scFake.intervals[0].handle.fire();
+
+		expect(h.flow.current().status).toBe(BiliLoginStatus.LOGGING_QR);
+		// The QR is still useful (user hasn't confirmed on phone yet) — must not be dropped.
+		expect(h.flow.current().data).toBe("data:image/png;base64,QR_BASE64_PAYLOAD");
+	});
 });
 
 describe("LoginFlow.stop()", () => {
