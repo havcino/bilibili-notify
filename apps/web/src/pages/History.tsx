@@ -173,9 +173,9 @@ function HistoryTable({
 	targetById: Map<string, PushTarget>;
 }) {
 	return (
-		<div className="overflow-hidden rounded-[10px] border border-black/[0.06] bg-white">
+		<div className="overflow-hidden rounded-[10px] border border-black/6 bg-white">
 			<div
-				className="grid items-center gap-2.5 border-b border-black/[0.06] bg-[#fafafb] px-4 py-2.5 text-[11px] font-bold tracking-wide text-bn-text-tertiary"
+				className="grid items-center gap-2.5 border-b border-black/6 bg-[#fafafb] px-4 py-2.5 text-[11px] font-bold tracking-wide text-bn-text-tertiary"
 				style={{ gridTemplateColumns: HISTORY_GRID }}
 			>
 				<span>时间</span>
@@ -232,7 +232,7 @@ function HistoryRow({
 	return (
 		<div
 			className={`grid items-center gap-2.5 px-4 py-3 text-[12.5px] ${
-				isLast ? "" : "border-b border-black/[0.04]"
+				isLast ? "" : "border-b border-black/4"
 			}`}
 			style={{ gridTemplateColumns: HISTORY_GRID }}
 		>

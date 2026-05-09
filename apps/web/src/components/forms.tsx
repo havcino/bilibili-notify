@@ -25,7 +25,7 @@ export function Field({ label, hint, code, required, full, children }: FieldProp
 				full ? "flex flex-col gap-1.5" : "flex flex-row gap-3.5"
 			} last:border-b-0`}
 		>
-			<div className={`pt-1 ${full ? "flex-none" : "flex-none basis-[200px]"}`}>
+			<div className={`pt-1 ${full ? "flex-none" : "flex-none basis-50"}`}>
 				<div className="mb-0.5 flex items-center gap-1.5">
 					<span className="text-[12.5px] font-semibold text-bn-text-primary">{label}</span>
 					{required ? <span className="text-[11px] text-red-500">*</span> : null}
@@ -150,7 +150,7 @@ export function TSelect<T extends string = string>({
 		<select
 			value={value}
 			onChange={(e) => onChange(e.target.value as T)}
-			className={`${INPUT_BASE} min-w-[160px] ${full ? "w-full" : "w-auto"}`}
+			className={`${INPUT_BASE} min-w-40 ${full ? "w-full" : "w-auto"}`}
 		>
 			{options.map((o) => (
 				<option key={o.value} value={o.value}>
@@ -187,7 +187,7 @@ export function TColor({ value, onChange }: TColorProps) {
 					setHex(e.target.value);
 					onChange(e.target.value);
 				}}
-				className="h-[30px] w-9 cursor-pointer rounded-md border border-gray-200 bg-white p-0"
+				className="h-7.5 w-9 cursor-pointer rounded-md border border-gray-200 bg-white p-0"
 			/>
 			<input
 				type="text"
@@ -232,7 +232,7 @@ export function Picker<T extends string | number | boolean>({
 	options,
 }: PickerProps<T>) {
 	return (
-		<div className="inline-flex flex-wrap gap-1 rounded-md bg-gray-100 p-[3px]">
+		<div className="inline-flex flex-wrap gap-1 rounded-md bg-gray-100 p-0.75">
 			{options.map((o) => {
 				const active = value === o.value;
 				return (
@@ -270,7 +270,7 @@ export function LogLevelPicker({ value, onChange, allowInherit }: LogLevelPicker
 		{ v: 3, label: "调试", color: "#a29bfe" },
 	];
 	return (
-		<div className="inline-flex flex-wrap gap-1 rounded-md bg-gray-100 p-[3px]">
+		<div className="inline-flex flex-wrap gap-1 rounded-md bg-gray-100 p-0.75">
 			{allowInherit ? (
 				<button
 					type="button"
@@ -312,7 +312,7 @@ export function ArrayEditor({ value, onChange, placeholder }: ArrayEditorProps) 
 			{value.map((v, i) => (
 				// biome-ignore lint/suspicious/noArrayIndexKey: index is the stable identity here — entries are positional and the row exposes it as the line number anyway
 				<div key={i} className="flex gap-1.5">
-					<span className="grid h-[30px] w-[22px] place-items-center font-mono text-[11px] text-bn-text-secondary">
+					<span className="grid h-7.5 w-5.5 place-items-center font-mono text-[11px] text-bn-text-secondary">
 						{i + 1}
 					</span>
 					<input
@@ -327,7 +327,7 @@ export function ArrayEditor({ value, onChange, placeholder }: ArrayEditorProps) 
 					<button
 						type="button"
 						onClick={() => onChange(value.filter((_, j) => j !== i))}
-						className="grid h-[30px] w-[30px] place-items-center rounded-md border border-gray-200 bg-white text-bn-text-secondary hover:text-red-500"
+						className="grid h-7.5 w-7.5 place-items-center rounded-md border border-gray-200 bg-white text-bn-text-secondary hover:text-red-500"
 						aria-label="移除"
 					>
 						×
@@ -337,7 +337,7 @@ export function ArrayEditor({ value, onChange, placeholder }: ArrayEditorProps) 
 			<button
 				type="button"
 				onClick={() => onChange([...value, ""])}
-				className="h-[30px] rounded-md border border-dashed border-gray-200 bg-white/60 text-[12px] text-bn-text-secondary hover:bg-white"
+				className="h-7.5 rounded-md border border-dashed border-gray-200 bg-white/60 text-[12px] text-bn-text-secondary hover:bg-white"
 			>
 				+ 添加一行{placeholder ? `（${placeholder}）` : ""}
 			</button>
