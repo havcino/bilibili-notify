@@ -16,7 +16,7 @@ on:
     paths:
       - "apps/**"
       - "packages/**"
-      - "yarn.lock"
+      - "pnpm-lock.yaml"
       - ".dockerignore"
       - ".github/workflows/image-release.yml"
     tags:

@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Yarn workspace monorepo for the Bilibili-Notify project. Two product forms share a single platform-neutral business core:
+Single pnpm workspace monorepo for the Bilibili-Notify project. Two product forms share a single platform-neutral business core:
 
 - **Koishi sub-plugins** (under `koishi/`) — historical / current shipping form, npm-published as `koishi-plugin-bilibili-notify*`
 - **Standalone Hono + React dashboard** (under `apps/`) — primary product form going forward
@@ -14,21 +14,26 @@ Both ends consume the same `@bilibili-notify/*` core packages.
 ## Commands
 
 ```bash
-yarn install
-yarn build                          # tsdown -W (all packages, watch)
-yarn workspace koishi-plugin-bilibili-notify build   # build a single package
-yarn typecheck                      # tsc --noEmit across the workspace
-yarn run test                       # vitest, all packages
+pnpm install
+pnpm build                          # pnpm -r run build (topo order) + koishi console UI
+pnpm --filter koishi-plugin-bilibili-notify run build   # build a single package
+pnpm typecheck                      # tsc --noEmit across the workspace
+pnpm test                           # vitest, all packages
+
+# Dashboard (apps/) dev — pnpm scripts at the root
+pnpm dev:server     # tsx watch on apps/server
+pnpm dev:web        # vite dev server on apps/web
+pnpm dev:apps       # both, in parallel with stream-prefixed logs
 
 # Lint / format (Biome)
-yarn lint           # check only
-yarn lint:fix       # auto-fix
-yarn format         # auto-format
-yarn check          # lint + format check
-yarn check:fix      # lint + format auto-fix
+pnpm lint           # check only
+pnpm lint:fix       # auto-fix
+pnpm format         # auto-format
+pnpm check          # lint + format check
+pnpm check:fix      # lint + format auto-fix
 
-# Git hooks (Lefthook) installed automatically on yarn install
-# Pre-commit: yarn check:fix (full repo), then biome check --staged --write on *.ts, *.js, *.json
+# Git hooks (Lefthook) installed automatically on pnpm install (prepare hook).
+# Pre-commit: biome check --staged --write on *.ts, *.js, *.mjs, *.json (lefthook.yml).
 ```
 
 ## Top-level layout
@@ -39,7 +44,7 @@ koishi/     ← Koishi thin-shell plugins (koishi-plugin-bilibili-notify*)
 apps/       ← Hono server + React dashboard (pnpm sub-workspace)
 ```
 
-Yarn workspaces glob: `["packages/*", "koishi/*"]`. `apps/` has its own pnpm sub-workspace and is intentionally invisible to the root yarn install — see "Branch model" below for why.
+pnpm-workspace.yaml glob: `["packages/*", "koishi/*", "apps/*"]`. Single workspace + single lockfile; apps/server consumes business cores via the pnpm `workspace:*` protocol.
 
 **Path constraint**: never put the substring `bilibili-notify` in any directory under `koishi/` — Koishi's plugin loader gets confused. The koishi main plugin lives at `koishi/core/`, not `koishi/bilibili-notify/`. The npm name `koishi-plugin-bilibili-notify` is decoupled from the directory name (set in package.json's `name`).
 
@@ -147,8 +152,8 @@ Custom events declared on `Context` (prefix `bilibili-notify/`):
 
 - **tsdown** — builds each package to ESM (`.mjs`) + CJS (`.cjs`) with declaration files
 - **Biome** — linter + formatter (tab indent, 100-char line width). Vue files in lint scope.
-- **Lefthook** — pre-commit runs `yarn check:fix` (full repo) then `biome check --staged --write`
-- **Vitest** — unit tests (`yarn run test`)
+- **Lefthook** — pre-commit runs `biome check --staged --write` on staged ts/js/mjs/json files
+- **Vitest** — unit tests (`pnpm test`)
 - **Changesets** — release tooling. `updateInternalDependencies: "patch"` only **syncs version ranges in `package.json`** for downstream consumers; it does **not** automatically include publishable downstream packages in the release. When a change in package A affects the runtime behavior of publishable package B, B must be listed explicitly in the changeset frontmatter.
 
 ## Console UI (Koishi)
@@ -171,6 +176,6 @@ Both product forms ship from `refactor` continuously:
 - Koishi side publishes to npm via `changesets` — touches `packages/*` and `koishi/*`.
 - Standalone side ships as a docker / GHCR image — touches `apps/*`. Never published to npm.
 
-`apps/` is a separate pnpm sub-workspace and is invisible to the root yarn workspace, so its heavyweight deps (Hono, ws, Vite, etc.) do not pollute koishi-end installs. Business core packages reach it via pnpm `link:` to `../../packages/*`.
+`apps/` shares the single root pnpm workspace with `packages/` and `koishi/`. apps/server consumes business cores via `workspace:*`. With `node-linker=hoisted` (root `.npmrc`), the layout matches yarn-classic's flat `node_modules` so koishi's plugin loader keeps working.
 
 Earlier plan iterations described splitting `koishi/` and `standalone/` into separate long-lived branches with one-way merges from `refactor`. **That model has been dropped** — single-trunk maintenance is simpler, debugging is faster (one commit fixes both ends), and the directory split + pnpm isolation already gives sufficient separation.

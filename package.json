@@ -2,14 +2,14 @@
 	"name": "@root/bilibili-notify",
 	"version": "0.0.0",
 	"private": true,
-	"packageManager": "yarn@4.9.2",
-	"workspaces": [
-		"packages/*",
-		"koishi/*"
-	],
+	"packageManager": "pnpm@10.33.4",
 	"scripts": {
-		"build": "tsdown -W && yarn workspace koishi-plugin-bilibili-notify run build:client",
-		"typecheck": "yarn workspaces foreach --all -p run typecheck",
+		"build": "pnpm -r run build && pnpm --filter koishi-plugin-bilibili-notify run build:client",
+		"typecheck": "pnpm -r run typecheck",
+		"dev:apps": "pnpm --filter @bilibili-notify/server --filter @bilibili-notify/web --parallel --stream run dev",
+		"dev:server": "pnpm --filter @bilibili-notify/server run dev",
+		"dev:web": "pnpm --filter @bilibili-notify/web run dev",
+		"start:server": "pnpm --filter @bilibili-notify/server run start",
 		"format": "biome format --write .",
 		"format:check": "biome format .",
 		"lint": "biome lint .",
@@ -19,7 +19,7 @@
 		"prepare": "lefthook install",
 		"changeset": "changeset",
 		"version": "changeset version",
-		"release": "yarn build && changeset publish",
+		"release": "pnpm build && changeset publish",
 		"test": "vitest run"
 	},
 	"devDependencies": {

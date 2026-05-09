@@ -6,27 +6,25 @@ Hono HTTP server + React dashboard. The Koishi sub-plugins under `koishi/` remai
 
 ```
 apps/
-  pnpm-workspace.yaml        # this is its OWN pnpm workspace, invisible to the root yarn workspace
-  package.json               # @bilibili-notify/root (private)
-  server/                    # Hono + Node 20 backend
-  web/                       # React + Vite dashboard
+  server/                    # Hono + Node 20 backend (@bilibili-notify/server)
+  web/                       # React + Vite dashboard (@bilibili-notify/web)
   Dockerfile                 # multi-stage; build context = repo root
   docker-compose.example.yaml
 ```
 
-The root yarn workspace at `../` only owns `packages/*` and `koishi/*`. This `apps/` subtree is intentionally invisible to it; pnpm handles install / build here. Business cores from `packages/` are consumed via pnpm `link:` protocol so edits in `packages/internal/src` show up immediately.
+`apps/server` and `apps/web` are members of the **root** pnpm workspace at `../`, alongside `packages/*` and `koishi/*`. Business cores reach the server via the pnpm `workspace:*` protocol, so editing `packages/internal/src` shows up immediately after rebuild.
 
 ## Quick start (dev)
 
 ```bash
-cd apps
-pnpm install                 # uses pnpm via corepack (packageManager pinned)
-pnpm typecheck
-pnpm dev                     # tsx watch on server/src/index.ts + vite on web/
+# from the repo root
+pnpm install                 # populates a single root node_modules
+pnpm typecheck               # tsc --noEmit across the whole workspace
+pnpm dev:apps                # tsx watch on apps/server + vite on apps/web in parallel
 curl -s http://localhost:8787/api/health
 ```
 
-`pnpm build` produces `server/lib/` + `web/dist/`. `pnpm start` runs the built server. Press Ctrl+C for graceful shutdown.
+`pnpm build` produces `apps/server/lib/` + `apps/web/dist/` (and lib/ in every business-core package). `pnpm start:server` runs the built server. Press Ctrl+C for graceful shutdown.
 
 ## Configuration
 

@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [dev]
+    branches: [dev, refactor]
   pull_request:
     branches: [main]
 
@@ -20,15 +20,16 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 24
+          cache: pnpm
 
       - name: Install dependencies
-        run: yarn install --no-immutable
+        run: pnpm install --frozen-lockfile
 
       - name: Lint (Biome)
-        run: yarn biome ci .
+        run: pnpm exec biome ci .
 
       - name: Build
-        run: yarn build
+        run: pnpm build
 
       - name: Typecheck
-        run: yarn typecheck
+        run: pnpm typecheck

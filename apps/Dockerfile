@@ -23,8 +23,8 @@ ARG NODE_VERSION=20
 FROM node:${NODE_VERSION}-bookworm-slim AS builder
 
 # git for any package that fetches via git-https; python3/make/g++ for native
-# deps that fall back to building from source. corepack provisions yarn 4 and
-# pnpm 10 from the `packageManager` fields in package.json.
+# deps that fall back to building from source. corepack provisions pnpm 10
+# from the `packageManager` field in the root package.json.
 RUN apt-get update && apt-get install -y --no-install-recommends \
         git python3 make g++ ca-certificates \
     && rm -rf /var/lib/apt/lists/* \
@@ -36,22 +36,16 @@ WORKDIR /repo
 # node_modules / lib / dist / .git so the build context stays small.
 COPY . .
 
-# Step 1: install + build platform-neutral packages/* via the root yarn workspace.
-# We invoke tsdown directly (instead of `yarn build`) to skip the koishi-only
-# vue client build step — tsdown -W still hits every workspace package's
-# tsdown.config.ts, including the koishi shells, but never touches the koishi
-# console UI which the dashboard does not consume.
-RUN yarn install --immutable
-RUN yarn tsdown -W
+# Single pnpm workspace covers packages/*, koishi/*, apps/*. Install once;
+# pnpm -r builds in topological order so packages/* land before koishi
+# shells and apps/server, which depend on them via workspace:* protocol.
+# We skip the koishi-console vue client build (`build:client`) — the
+# dashboard image does not consume the koishi UI.
+RUN pnpm install --frozen-lockfile
+RUN pnpm -r run build
 
-# Step 2: install + build the apps/ pnpm sub-workspace.
-# `pnpm -r build` runs both server (tsdown) and web (vite build).
-RUN cd apps && pnpm install --frozen-lockfile
-RUN cd apps && pnpm -r build
-
-# Step 3: drop devDependencies after the build so the final image only ships
-# what's needed at runtime.
-RUN cd apps && pnpm prune --prod || true
+# Drop devDependencies so the final image only ships runtime deps.
+RUN pnpm -r prune --prod || true
 
 # ---- runtime ----------------------------------------------------------------
 
@@ -72,16 +66,17 @@ ENV NODE_ENV=production \
     BN_CHROME_PATH=/usr/bin/chromium \
     BN_WEB_DIST=/app/web-dist
 
-# Preserve relative paths so pnpm `link:` symlinks resolve in the runtime image.
-# apps/server/node_modules/@bilibili-notify/internal -> ../../../../packages/internal
-# means /app must contain both packages/* and apps/server tree.
+# Preserve relative paths so pnpm `workspace:*` symlinks resolve in the
+# runtime image. With node-linker=hoisted, most third-party deps land in
+# /repo/node_modules; workspace deps live as symlinks under each consumer's
+# node_modules. We mirror that whole shape under /app.
 WORKDIR /app
 
+COPY --from=builder /repo/package.json ./package.json
+COPY --from=builder /repo/pnpm-workspace.yaml ./pnpm-workspace.yaml
+COPY --from=builder /repo/.npmrc ./.npmrc
+COPY --from=builder /repo/node_modules ./node_modules
 COPY --from=builder /repo/packages ./packages
-COPY --from=builder /repo/apps/package.json ./apps/package.json
-COPY --from=builder /repo/apps/pnpm-workspace.yaml ./apps/pnpm-workspace.yaml
-COPY --from=builder /repo/apps/.npmrc ./apps/.npmrc
-COPY --from=builder /repo/apps/node_modules ./apps/node_modules
 COPY --from=builder /repo/apps/server/lib ./apps/server/lib
 COPY --from=builder /repo/apps/server/package.json ./apps/server/package.json
 COPY --from=builder /repo/apps/server/node_modules ./apps/server/node_modules
