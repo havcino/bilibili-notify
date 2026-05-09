@@ -134,13 +134,21 @@ export function createCardsRoute(opts: CardsRouteOptions): Hono {
 		}
 		if (opts.api) {
 			try {
+				// /x/member/web/account returns only mid + uname; face requires the
+				// /x/web-interface/card endpoint (same two-step the LoginFlow does
+				// in reportAccountInfo). Skipping the second call left avatars
+				// undefined and the preview fell through to the SVG placeholder.
 				const my = await opts.api.getMyselfInfo();
-				if (my?.code === 0 && my.data?.uname) {
-					loggedInCache = { name: my.data.uname, avatar: my.data.face, ts: now };
-					return { name: my.data.uname, avatar: my.data.face };
+				if (my?.code !== 0 || !my.data?.mid) return null;
+				const card = await opts.api.getUserCardInfo(String(my.data.mid));
+				if (card?.code === 0 && card.data?.card?.face) {
+					const name = card.data.card.name || my.data.uname;
+					const avatar = card.data.card.face;
+					loggedInCache = { name, avatar, ts: now };
+					return { name, avatar };
 				}
 			} catch (err) {
-				log.debug(`[cards] getMyselfInfo failed: ${(err as Error).message}`);
+				log.warn(`[cards] resolve logged-in account failed: ${(err as Error).message}`);
 			}
 		}
 		return null;

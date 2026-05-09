@@ -32,7 +32,10 @@ const DEFAULT_PREVIEW_CONTENT: PreviewContent = {
 	live: { roomId: "" },
 	dyn: { uid: "", offset: 1 },
 	sc: { text: "主播加油！这首要听到！示例 UP 主唱得太好了！", price: 30 },
-	guard: { text: "示例新舰长", level: 3 },
+	// guard.text empty by default so the backend falls back to the logged-in
+	// account name (the operator), with "示例新舰长" only kicking in when
+	// nobody is logged in.
+	guard: { text: "", level: 3 },
 };
 
 const GUARD_LEVELS: { v: 1 | 2 | 3; label: string; tone: string }[] = [
@@ -338,11 +341,12 @@ export default function Cards() {
 							<Field
 								label="新舰长称呼"
 								code="text"
-								hint="留空时使用当前登录账号的名字"
+								hint="留空时使用当前登录账号的名字（未登录则显示示例新舰长）"
 							>
 								<TArea
 									value={content.guard.text}
 									onChange={(v) => setGuard({ text: v })}
+									placeholder="留空使用登录账号名"
 									rows={2}
 								/>
 							</Field>
