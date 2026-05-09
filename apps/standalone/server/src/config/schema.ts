@@ -51,7 +51,7 @@ const PresetSchema = z
 
 export const BootstrapConfigSchema = z.object({
 	server: ServerSchema.default({ host: "0.0.0.0", port: 8787 }),
-	dataDir: z.string().min(1).default("./bn-data"),
+	dataDir: z.string().min(1).default("./data"),
 	/**
 	 * Reserved for the future GCM-AEAD cookie encryption path described in plan §4.1.
 	 * As of stage 2.4 the master key still lives at `<dataDir>/secrets/master.key`

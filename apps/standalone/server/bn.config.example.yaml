@@ -11,7 +11,7 @@ server:
   port: 8787
 
 # 状态文件落点：globals.json / subscriptions.json / targets.json / secrets/ / history/
-dataDir: ./bn-data
+dataDir: ./data
 
 # 卡片实时预览需要本地 Chrome / Chromium。
 # 不配则 /api/cards/preview 返回 503,前端 /cards 页会渲染配置提示。
