@@ -28,17 +28,25 @@ export default function App() {
 
 	// Detect when the backend is genuinely unreachable so the shell can show
 	// the design's error state instead of letting individual pages render
-	// scattered "fetch failed" lines. We probe /api/health a few times before
-	// declaring it down — single-flight network blips shouldn't trigger the
-	// full-screen banner.
+	// scattered "fetch failed" lines. retry=0 — health probes should fail
+	// fast (TCP ECONNREFUSED resolves in <100 ms); retrying with exponential
+	// backoff just keeps the UI in "loading" for several seconds before
+	// committing to the error banner.
 	const health = useQuery({
 		queryKey: ["health"],
 		queryFn: () => api.get<HealthSnapshot>("/api/health"),
-		retry: 2,
-		refetchInterval: 5_000,
+		retry: 0,
+		// Once the backend has been unreachable, slow the probe down so we don't
+		// hammer the proxy. When healthy, refetch every 5 s for liveness.
+		refetchInterval: (q) => (q.state.status === "error" ? 15_000 : 5_000),
 	});
 
-	const showLoading = health.isLoading && !health.data;
+	// Show ShellLoading only on the very first attempt (no data and no error
+	// yet). After ANY error, stay on ShellError until a successful refetch
+	// lands — even when the user clicks "重试", the error banner stays put
+	// while the new request is in flight (the inflight flicker is what made
+	// the screen bounce loading ↔ error every few seconds before).
+	const showLoading = !health.data && !health.error;
 	const showError = !health.data && !!health.error;
 
 	return (
