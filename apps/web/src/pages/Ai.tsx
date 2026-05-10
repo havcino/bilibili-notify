@@ -51,11 +51,25 @@ export default function Ai() {
 	const [draft, setDraft] = useState<AISettings | null>(null);
 	const [aiLogLevel, setAiLogLevel] = useState<AiLogLevel>("");
 	const [error, setError] = useState<string | null>(null);
+	// "Which preset is currently active" is UI-local; AISettings has no
+	// activePresetId field. Initialised by matching the persona/prompts
+	// against each preset on hydrate; falls back to "custom".
+	const [selectedPresetId, setSelectedPresetId] = useState<string>("custom");
 
 	useEffect(() => {
 		if (globalsQuery.data) {
-			setDraft(globalsQuery.data.defaults.ai);
+			const ai = globalsQuery.data.defaults.ai;
+			setDraft(ai);
 			setAiLogLevel(globalsQuery.data.app.logLevels?.ai ?? "");
+			// Try to match persona+prompts against each preset; if all fields
+			// align, that's the active preset; otherwise it's "custom".
+			const matched = ai.presets.find(
+				(p) =>
+					JSON.stringify(p.persona) === JSON.stringify(ai.persona) &&
+					(p.dynamicPrompt ?? ai.dynamicPrompt) === ai.dynamicPrompt &&
+					(p.liveSummaryPrompt ?? ai.liveSummaryPrompt) === ai.liveSummaryPrompt,
+			);
+			setSelectedPresetId(matched?.id ?? "custom");
 		}
 	}, [globalsQuery.data]);
 
@@ -113,9 +127,6 @@ export default function Ai() {
 		...draft.presets.map((p) => ({ value: p.id, label: p.label })),
 		{ value: "custom", label: "完全自定义" },
 	];
-	const presetValue = draft.presets.some((p) => p.id === draft.persona.name)
-		? draft.persona.name
-		: "custom";
 
 	return (
 		<div className="bn-anim-fade-in flex flex-col gap-4">
@@ -275,8 +286,9 @@ export default function Ai() {
 					full
 				>
 					<Picker
-						value={presetValue}
+						value={selectedPresetId}
 						onChange={(v) => {
+							setSelectedPresetId(v);
 							if (v === "custom") return;
 							const p = draft.presets.find((x) => x.id === v);
 							if (!p) return;
