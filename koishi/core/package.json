@@ -34,7 +34,7 @@
 		"bilibili-notify"
 	],
 	"scripts": {
-		"build": "tsdown",
+		"build": "vp pack",
 		"build:client": "yakumo build",
 		"typecheck": "tsc --noEmit"
 	},

@@ -33,7 +33,7 @@
 		"ai"
 	],
 	"scripts": {
-		"build": "tsdown",
+		"build": "vp pack",
 		"typecheck": "tsc --noEmit"
 	},
 	"dependencies": {

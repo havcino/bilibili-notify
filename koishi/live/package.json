@@ -32,7 +32,7 @@
 		"bilibili-notify"
 	],
 	"scripts": {
-		"build": "tsdown",
+		"build": "vp pack",
 		"typecheck": "tsc --noEmit"
 	},
 	"dependencies": {
