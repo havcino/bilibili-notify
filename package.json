@@ -9,6 +9,7 @@
 		"dev": "pnpm -r --filter './packages/*' run build && pnpm -r --filter './packages/*' --filter '@bilibili-notify/server' --filter '@bilibili-notify/web' --parallel --stream run dev",
 		"dev:packages": "pnpm -r --filter './packages/*' --parallel --stream run dev",
 		"dev:apps": "pnpm --filter @bilibili-notify/server --filter @bilibili-notify/web --parallel --stream run dev",
+		"build:apps": "pnpm -r --filter './packages/*' run build && pnpm --filter @bilibili-notify/server --filter @bilibili-notify/web run build",
 		"dev:server": "pnpm --filter @bilibili-notify/server run dev",
 		"dev:web": "pnpm --filter @bilibili-notify/web run dev",
 		"start:server": "pnpm --filter @bilibili-notify/server run start",
@@ -29,13 +30,10 @@
 		"@changesets/cli": "^2.30.0",
 		"@commitlint/cli": "^20.5.0",
 		"@commitlint/config-conventional": "^20.5.0",
-		"@koishijs/client": "^5.30.11",
 		"@koishijs/plugin-console": "^5.30.11",
 		"@types/node": "^22.15.21",
 		"koishi": "^4.18.11",
 		"lefthook": "^1.11.12",
-		"tsdown": "^0.21.7",
-		"tsx": "^4.21.0",
 		"typescript": "^5.8.3",
 		"vitest": "^3.2.4"
 	}
