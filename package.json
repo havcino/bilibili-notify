@@ -23,7 +23,7 @@
 		"changeset": "changeset",
 		"version": "changeset version",
 		"release": "pnpm build && changeset publish",
-		"test": "vitest run"
+		"test": "vp test run"
 	},
 	"devDependencies": {
 		"@biomejs/biome": "^2.4.10",
@@ -36,7 +36,6 @@
 		"koishi": "^4.18.11",
 		"lefthook": "^1.11.12",
 		"typescript": "^5.8.3",
-		"vite-plus": "^0.1.20",
-		"vitest": "^4.1.5"
+		"vite-plus": "^0.1.20"
 	}
 }
