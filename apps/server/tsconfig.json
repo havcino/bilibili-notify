@@ -1,22 +1,18 @@
 {
+	"extends": "../../tsconfig.base.json",
 	"compilerOptions": {
-		"target": "es2022",
-		"module": "esnext",
-		"moduleResolution": "bundler",
 		"lib": ["es2022"],
 		"rootDir": "src",
 		"outDir": "lib",
 		"declaration": false,
-		"skipLibCheck": true,
-		"esModuleInterop": true,
+		"composite": false,
+		"emitDeclarationOnly": false,
 		"allowSyntheticDefaultImports": true,
 		"resolveJsonModule": true,
-		"strict": true,
 		"noUncheckedIndexedAccess": true,
 		"noImplicitOverride": true,
 		"verbatimModuleSyntax": false,
-		"isolatedModules": true,
-		"types": ["node"]
+		"isolatedModules": true
 	},
 	"include": ["src"]
 }
