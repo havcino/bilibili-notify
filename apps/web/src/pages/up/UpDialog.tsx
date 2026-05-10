@@ -191,7 +191,6 @@ export function UpDialog({ sub, targets, onClose, onSave, onDelete, saving }: Up
 			next.add(targetId);
 			return next;
 		});
-		setShowPicker(false);
 	}
 
 	/**
