@@ -55,6 +55,15 @@ export default function Ai() {
 	// activePresetId field. Initialised by matching the persona/prompts
 	// against each preset on hydrate; falls back to "custom".
 	const [selectedPresetId, setSelectedPresetId] = useState<string>("custom");
+	// Snapshot of the user's custom persona/prompts. Lets us restore their
+	// edits when they bounce between "custom" and a named preset, while still
+	// clearing the form on the *first* switch to custom from a preset.
+	type CustomSnapshot = {
+		persona: AIPersona;
+		dynamicPrompt: string;
+		liveSummaryPrompt: string;
+	};
+	const [customSnapshot, setCustomSnapshot] = useState<CustomSnapshot | null>(null);
 
 	useEffect(() => {
 		if (globalsQuery.data) {
@@ -70,8 +79,35 @@ export default function Ai() {
 					(p.liveSummaryPrompt ?? ai.liveSummaryPrompt) === ai.liveSummaryPrompt,
 			);
 			setSelectedPresetId(matched?.id ?? "custom");
+			setCustomSnapshot(
+				matched
+					? null
+					: {
+							persona: ai.persona,
+							dynamicPrompt: ai.dynamicPrompt,
+							liveSummaryPrompt: ai.liveSummaryPrompt,
+						},
+			);
 		}
 	}, [globalsQuery.data]);
+
+	// Keep customSnapshot in sync with edits made while in custom mode, so
+	// switching away to a preset and back restores the user's work.
+	useEffect(() => {
+		if (draft && selectedPresetId === "custom") {
+			setCustomSnapshot({
+				persona: draft.persona,
+				dynamicPrompt: draft.dynamicPrompt,
+				liveSummaryPrompt: draft.liveSummaryPrompt,
+			});
+		}
+	}, [
+		selectedPresetId,
+		draft?.persona,
+		draft?.dynamicPrompt,
+		draft?.liveSummaryPrompt,
+		draft,
+	]);
 
 	const serverAiLogLevel = globalsQuery.data?.app.logLevels?.ai ?? "";
 	const dirty = useMemo(() => {
@@ -289,7 +325,36 @@ export default function Ai() {
 						value={selectedPresetId}
 						onChange={(v) => {
 							setSelectedPresetId(v);
-							if (v === "custom") return;
+							if (v === "custom") {
+								// First switch to custom: clear all persona/prompt fields.
+								// Subsequent switches with prior user edits: restore snapshot.
+								setDraft((d) => {
+									if (!d) return d;
+									if (customSnapshot) {
+										return {
+											...d,
+											persona: { ...customSnapshot.persona },
+											dynamicPrompt: customSnapshot.dynamicPrompt,
+											liveSummaryPrompt: customSnapshot.liveSummaryPrompt,
+										};
+									}
+									return {
+										...d,
+										persona: {
+											name: "",
+											addressUser: "",
+											addressSelf: "",
+											traits: "",
+											catchphrase: "",
+											baseRole: "",
+											extraSystemPrompt: "",
+										},
+										dynamicPrompt: "",
+										liveSummaryPrompt: "",
+									};
+								});
+								return;
+							}
 							const p = draft.presets.find((x) => x.id === v);
 							if (!p) return;
 							setDraft((d) =>

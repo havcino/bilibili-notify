@@ -851,8 +851,21 @@ function AiOverrideBox({
 	const isPreset = !isCustom && !isInherit;
 	const activePreset = isPreset ? baseline.presets.find((p) => p.id === cur.preset) : null;
 
-	// Full effective persona = base override → fallback baseline → blank-extras safety net
-	const personaBase = cur.persona ?? baseline.persona;
+	// In custom mode: empty until the user types. Don't fall back to the global
+	// baseline persona — that would make "完全自定义" surface global state and
+	// confuse users who just want a blank slate to fill out.
+	const EMPTY_PERSONA = {
+		name: "",
+		addressUser: "",
+		addressSelf: "",
+		traits: "",
+		catchphrase: "",
+		baseRole: "",
+		extraSystemPrompt: "",
+	};
+	const personaBase = isCustom
+		? (cur.persona ?? EMPTY_PERSONA)
+		: (cur.persona ?? baseline.persona);
 	function setPersonaField(k: keyof typeof baseline.persona, v: string): void {
 		onChange({
 			...cur,
@@ -953,7 +966,7 @@ function AiOverrideBox({
 							</Field>
 							<Field label="动态点评 prompt" code="ai.dynamicPrompt" full>
 								<TArea
-									value={cur.dynamicPrompt ?? baseline.dynamicPrompt}
+									value={cur.dynamicPrompt ?? ""}
 									onChange={(v) => onChange({ ...cur, dynamicPrompt: v })}
 									rows={3}
 									mono
@@ -961,7 +974,7 @@ function AiOverrideBox({
 							</Field>
 							<Field label="直播总结 prompt" code="ai.liveSummaryPrompt" full>
 								<TArea
-									value={cur.liveSummaryPrompt ?? baseline.liveSummaryPrompt}
+									value={cur.liveSummaryPrompt ?? ""}
 									onChange={(v) => onChange({ ...cur, liveSummaryPrompt: v })}
 									rows={3}
 									mono
