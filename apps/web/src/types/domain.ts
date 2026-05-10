@@ -40,6 +40,25 @@ export const FEATURE_LABELS: Record<FeatureKey, string> = {
 	specialUserEnter: "特别用户进房",
 };
 
+/**
+ * Mirror of DEFAULT_FEATURE_FLAGS from packages/internal/src/schema/common.ts.
+ * Used by the UP dialog as the inherit-fallback when a subscription's
+ * overrides.features[k] is unset. Keep in sync with the server side.
+ */
+export const DEFAULT_FEATURE_FLAGS: Record<FeatureKey, boolean> = {
+	dynamic: true,
+	dynamicAtAll: false,
+	live: true,
+	liveAtAll: true,
+	liveEnd: true,
+	liveGuardBuy: false,
+	superchat: false,
+	wordcloud: true,
+	liveSummary: true,
+	specialDanmaku: false,
+	specialUserEnter: false,
+};
+
 // ---- PushTarget --------------------------------------------------------
 
 export type PushTargetScope = "group" | "private" | "channel";

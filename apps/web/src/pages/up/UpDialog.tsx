@@ -3,6 +3,8 @@ import { Avatar, Btn, PlatformIcon, StatusDot, Toggle } from "../../components/a
 import { ModalShell } from "../../components/dialog";
 import { Icon } from "../../components/icons";
 import {
+	DEFAULT_FEATURE_FLAGS,
+	FEATURE_KEYS,
 	FEATURE_LABELS,
 	type FeatureKey,
 	type PushTarget,
@@ -51,12 +53,42 @@ export interface UpDialogProps {
 	saving: boolean;
 }
 
+/**
+ * Read sub's effective feature flag (override or inherit-default).
+ */
+function effFeature(sub: Subscription, k: FeatureKey): boolean {
+	return sub.overrides.features?.[k] ?? DEFAULT_FEATURE_FLAGS[k];
+}
+
+/**
+ * A target is in "custom" mode when its routing diverges from the
+ * subscription's effective features for at least one feature.
+ *
+ * Targets that aren't referenced by any routing entry are treated as
+ * follow-mode (newly attached / never been individually customised).
+ */
+function inferCustomSet(sub: Subscription | null, targets: PushTarget[]): Set<string> {
+	if (!sub) return new Set();
+	const out = new Set<string>();
+	for (const t of targets) {
+		const referenced = FEATURE_KEYS.some((k) => sub.routing[k].includes(t.id));
+		if (!referenced) continue;
+		const mismatched = FEATURE_KEYS.some(
+			(k) => effFeature(sub, k) !== sub.routing[k].includes(t.id),
+		);
+		if (mismatched) out.add(t.id);
+	}
+	return out;
+}
+
 export function UpDialog({ sub, targets, onClose, onSave, onDelete, saving }: UpDialogProps) {
 	const [draft, setDraft] = useState<Subscription | null>(sub);
+	const [customSet, setCustomSet] = useState<Set<string>>(() => inferCustomSet(sub, targets));
 
 	useEffect(() => {
 		setDraft(sub);
-	}, [sub]);
+		setCustomSet(inferCustomSet(sub, targets));
+	}, [sub, targets]);
 
 	const targetsByIdMap = useMemo(() => makeTargetsById(targets), [targets]);
 
@@ -81,37 +113,103 @@ export function UpDialog({ sub, targets, onClose, onSave, onDelete, saving }: Up
 		setDraft((d) => (d ? { ...d, groups: parts } : d));
 	}
 
+	/**
+	 * Toggle a master feature on the subscription. Writes to overrides.features
+	 * (or clears the override when the new value matches the global default to
+	 * keep the schema clean), then mirrors the change into routing for every
+	 * target that is currently in follow mode.
+	 */
 	function setFeatureEnabled(k: FeatureKey, on: boolean): void {
 		setDraft((d) => {
 			if (!d) return d;
-			const next = { ...(d.overrides.features ?? {}) } as Record<string, boolean>;
-			if (on) {
-				// Removing the override lets the feature inherit the global default
-				// (currently true for every feature, mirroring the design's
-				// implicit "on by default" behaviour).
-				delete next[k];
-			} else {
-				next[k] = false;
+			const overrideObj = { ...(d.overrides.features ?? {}) } as Record<string, boolean>;
+			if (on === DEFAULT_FEATURE_FLAGS[k]) delete overrideObj[k];
+			else overrideObj[k] = on;
+			const features = Object.keys(overrideObj).length > 0 ? overrideObj : undefined;
+
+			let routing = d.routing;
+			for (const t of targets) {
+				if (customSet.has(t.id)) continue;
+				const inRouting = routing[k].includes(t.id);
+				if (on && !inRouting) routing = { ...routing, [k]: [...routing[k], t.id] };
+				else if (!on && inRouting)
+					routing = { ...routing, [k]: routing[k].filter((id) => id !== t.id) };
 			}
-			const features = Object.keys(next).length > 0 ? next : undefined;
-			return { ...d, overrides: { ...d.overrides, features } };
+
+			return { ...d, overrides: { ...d.overrides, features }, routing };
 		});
 	}
 
-	function toggleRoute(targetId: string, k: FeatureKey): void {
+	/**
+	 * Toggle one feature on a single target. Only ever invoked in custom mode
+	 * (the UI does not show the per-feature toggles in follow mode).
+	 */
+	function toggleRouteForTarget(targetId: string, k: FeatureKey, on: boolean): void {
 		setDraft((d) => {
 			if (!d) return d;
 			const list = d.routing[k];
 			const has = list.includes(targetId);
-			const nextList = has ? list.filter((id) => id !== targetId) : [...list, targetId];
-			return { ...d, routing: { ...d.routing, [k]: nextList } };
+			const next =
+				on && !has
+					? [...list, targetId]
+					: !on && has
+						? list.filter((id) => id !== targetId)
+						: list;
+			return { ...d, routing: { ...d.routing, [k]: next } };
 		});
 	}
+
+	/**
+	 * Flip a target between follow and custom mode. Switching from custom to
+	 * follow snaps the routing back in line with the subscription's effective
+	 * features. Switching the other way leaves routing untouched so the user
+	 * can edit per-feature.
+	 */
+	function switchTargetMode(targetId: string, toCustom: boolean): void {
+		setCustomSet((prev) => {
+			const next = new Set(prev);
+			if (toCustom) next.add(targetId);
+			else next.delete(targetId);
+			return next;
+		});
+		if (!toCustom) {
+			setDraft((d) => {
+				if (!d) return d;
+				let routing = d.routing;
+				for (const k of FEATURE_KEYS) {
+					const featOn = effFeature(d, k);
+					const inRouting = routing[k].includes(targetId);
+					if (featOn && !inRouting) routing = { ...routing, [k]: [...routing[k], targetId] };
+					else if (!featOn && inRouting)
+						routing = { ...routing, [k]: routing[k].filter((id) => id !== targetId) };
+				}
+				return { ...d, routing };
+			});
+		}
+	}
+
+	function removeStaleId(id: string): void {
+		setDraft((d) => {
+			if (!d) return d;
+			const routing = { ...d.routing };
+			for (const k of FEATURE_KEYS) {
+				routing[k] = routing[k].filter((rid) => rid !== id);
+			}
+			return { ...d, routing };
+		});
+	}
+
+	const staleIds = (() => {
+		const set = new Set<string>();
+		for (const k of FEATURE_KEYS)
+			for (const id of draft.routing[k]) if (!targetsByIdMap.has(id)) set.add(id);
+		return [...set];
+	})();
 
 	return (
 		<ModalShell
 			onCancel={onClose}
-			width={540}
+			width={560}
 			bodyClassName=""
 			bodyStyle={{ maxHeight: "90vh", display: "flex", flexDirection: "column" }}
 		>
@@ -160,7 +258,7 @@ export function UpDialog({ sub, targets, onClose, onSave, onDelete, saving }: Up
 					</span>
 				</div>
 
-				{/* Basic row: enabled + groups + notes inline */}
+				{/* 基础 */}
 				<section>
 					<SectionHeader label="基础" />
 					<div className="overflow-hidden rounded-lg border border-gray-200 bg-white">
@@ -184,32 +282,82 @@ export function UpDialog({ sub, targets, onClose, onSave, onDelete, saving }: Up
 					</div>
 				</section>
 
-				{/* Per-feature: 总开关 + target multi-select */}
-				{FEATURE_GROUPS.map((group) => (
-					<section key={group.label}>
-						<SectionHeader label={group.label} />
+				{/* 订阅项总开关 */}
+				<section>
+					<SectionHeader label="订阅项 · 默认推送内容" />
+					<p className="mb-2 text-[11px] text-bn-text-secondary">
+						这是该 UP 的"默认推送内容"。下方的推送目标若未单独自定义,会跟随这里的设置。
+					</p>
+					<div className="space-y-2">
+						{FEATURE_GROUPS.map((g) => (
+							<div
+								key={g.label}
+								className="overflow-hidden rounded-lg border border-gray-200 bg-white"
+							>
+								<div className="border-b border-gray-100 bg-[#fafafa] px-3 py-1.5 text-[10.5px] font-bold uppercase tracking-wider text-bn-text-tertiary">
+									{g.label}
+								</div>
+								<div className="grid grid-cols-2 gap-x-4 gap-y-2 px-3 py-2">
+									{g.keys.map(({ key, sub: featSub }) => (
+										<FeatureToggleRow
+											key={key}
+											label={FEATURE_LABELS[key]}
+											sub={featSub}
+											value={effFeature(draft, key)}
+											onChange={(on) => setFeatureEnabled(key, on)}
+										/>
+									))}
+								</div>
+							</div>
+						))}
+					</div>
+				</section>
+
+				{/* 推送目标 */}
+				<section>
+					<SectionHeader label="推送目标" />
+					{targets.length === 0 ? (
+						<div className="rounded-md border border-dashed border-gray-200 px-3 py-3 text-center text-[11.5px] text-bn-text-secondary">
+							尚未配置任何推送目标 · 请先到「推送目标」页面创建
+						</div>
+					) : (
 						<div className="space-y-2">
-							{group.keys.map(({ key, sub: featSub }) => (
-								<FeatureRow
-									key={key}
-									featureKey={key}
-									sub={featSub}
-									enabled={draft.overrides.features?.[key] ?? true}
-									routedIds={draft.routing[key]}
-									targets={targets}
-									targetsByIdMap={targetsByIdMap}
-									onToggleFeature={(on) => setFeatureEnabled(key, on)}
-									onToggleRoute={(targetId) => toggleRoute(targetId, key)}
+							{targets.map((t) => (
+								<TargetRoutingCard
+									key={t.id}
+									target={t}
+									isCustom={customSet.has(t.id)}
+									sub={draft}
+									onToggleMode={(toCustom) => switchTargetMode(t.id, toCustom)}
+									onToggleRoute={(k, on) => toggleRouteForTarget(t.id, k, on)}
 								/>
 							))}
 						</div>
-					</section>
-				))}
+					)}
+				</section>
 
-				{targets.length === 0 ? (
-					<div className="rounded-md border border-dashed border-gray-200 px-3 py-3 text-center text-[11.5px] text-bn-text-secondary">
-						尚未配置任何推送目标 · 请先到「推送目标」页面创建
-					</div>
+				{/* Stale routing entries */}
+				{staleIds.length > 0 ? (
+					<section>
+						<SectionHeader label="已失效的引用" />
+						<div className="rounded-md border border-dashed border-red-200 bg-red-50/50 px-3 py-2">
+							<div className="mb-1.5 text-[11px] text-red-600">
+								下列推送目标已被删除,但路由中仍有引用 · 点击移除
+							</div>
+							<div className="flex flex-wrap gap-1.5">
+								{staleIds.map((id) => (
+									<button
+										type="button"
+										key={id}
+										onClick={() => removeStaleId(id)}
+										className="inline-flex items-center gap-1.5 rounded-full border border-red-300 bg-white px-2.5 py-1 text-[11.5px] text-red-500 hover:bg-red-50"
+									>
+										{id.slice(0, 8)} ×
+									</button>
+								))}
+							</div>
+						</div>
+					</section>
 				) : null}
 			</div>
 
@@ -228,12 +376,7 @@ export function UpDialog({ sub, targets, onClose, onSave, onDelete, saving }: Up
 				<Btn variant="outline" size="sm" onClick={onClose} disabled={saving}>
 					取消
 				</Btn>
-				<Btn
-					variant="primary"
-					size="sm"
-					onClick={() => onSave(draft)}
-					disabled={saving || !dirty}
-				>
+				<Btn variant="primary" size="sm" onClick={() => onSave(draft)} disabled={saving || !dirty}>
 					{saving ? "保存中…" : "保存配置"}
 				</Btn>
 			</div>
@@ -250,8 +393,6 @@ function SectionHeader({ label }: { label: string }) {
 		</div>
 	);
 }
-
-// ── Basic row (label/sub/control inline) ─────────────────────────────────────
 
 function BasicRow({
 	label,
@@ -273,88 +414,101 @@ function BasicRow({
 	);
 }
 
-// ── Feature row (master switch + per-target chips) ───────────────────────────
+// ── Feature toggle row (used for both subscription master and target custom) ─
 
-function FeatureRow({
-	featureKey,
+function FeatureToggleRow({
+	label,
 	sub,
-	enabled,
-	routedIds,
-	targets,
-	targetsByIdMap,
-	onToggleFeature,
+	value,
+	onChange,
+}: {
+	label: string;
+	sub?: string;
+	value: boolean;
+	onChange: (on: boolean) => void;
+}) {
+	return (
+		<div className="flex items-center gap-2.5">
+			<Toggle value={value} onChange={onChange} size="sm" />
+			<div className="min-w-0 flex-1">
+				<div
+					className={`text-[12px] font-semibold ${
+						value ? "text-bn-text-primary" : "text-bn-text-secondary"
+					}`}
+				>
+					{label}
+				</div>
+				{sub ? (
+					<div className="mt-0.5 truncate text-[10.5px] text-bn-text-secondary">{sub}</div>
+				) : null}
+			</div>
+		</div>
+	);
+}
+
+// ── Target routing card (master switch + collapsed details) ──────────────────
+
+function TargetRoutingCard({
+	target,
+	isCustom,
+	sub,
+	onToggleMode,
 	onToggleRoute,
 }: {
-	featureKey: FeatureKey;
-	sub?: string;
-	enabled: boolean;
-	routedIds: string[];
-	targets: PushTarget[];
-	targetsByIdMap: Map<string, PushTarget>;
-	onToggleFeature: (on: boolean) => void;
-	onToggleRoute: (targetId: string) => void;
+	target: PushTarget;
+	isCustom: boolean;
+	sub: Subscription;
+	onToggleMode: (toCustom: boolean) => void;
+	onToggleRoute: (k: FeatureKey, on: boolean) => void;
 }) {
-	// Stale target ids (target was deleted after routing was recorded). Keep
-	// them visible as a removable chip so users can clean up the dangling
-	// reference without going back to the schema.
-	const staleIds = routedIds.filter((id) => !targetsByIdMap.has(id));
+	const enabledCount = isCustom
+		? FEATURE_KEYS.filter((k) => sub.routing[k].includes(target.id)).length
+		: FEATURE_KEYS.filter((k) => effFeature(sub, k)).length;
 
 	return (
 		<div className="overflow-hidden rounded-lg border border-gray-200 bg-white">
-			{/* Header row */}
-			<div className="flex items-center gap-3 px-3 py-2">
-				<Toggle value={enabled} onChange={onToggleFeature} size="sm" />
+			{/* Header */}
+			<div className="flex items-center gap-2.5 px-3 py-2.5">
+				<PlatformIcon platform={target.platform} size={16} />
 				<div className="min-w-0 flex-1">
-					<div
-						className={`text-[12.5px] font-semibold ${
-							enabled ? "text-bn-text-primary" : "text-bn-text-secondary"
-						}`}
-					>
-						{FEATURE_LABELS[featureKey]}
+					<div className="truncate text-[12.5px] font-semibold text-bn-text-primary">
+						{target.name || "（未命名）"}
 					</div>
-					{sub ? <div className="mt-0.5 text-[11px] text-bn-text-secondary">{sub}</div> : null}
+					<div className="mt-0.5 text-[11px] text-bn-text-secondary">
+						{isCustom ? "自定义推送内容" : `跟随订阅项 · ${enabledCount} 项已开启`}
+					</div>
 				</div>
-				{enabled ? (
+				{isCustom ? (
 					<span className="font-mono text-[10.5px] text-bn-text-tertiary">
-						{routedIds.length}/{targets.length}
+						{enabledCount}/{FEATURE_KEYS.length}
 					</span>
-				) : (
-					<span className="text-[11px] text-bn-text-tertiary">已关闭</span>
-				)}
+				) : null}
+				<Toggle value={isCustom} onChange={onToggleMode} size="sm" />
 			</div>
 
-			{/* Target chips (only when feature ON) */}
-			{enabled && targets.length > 0 ? (
-				<div className="flex flex-wrap gap-1.5 border-t border-gray-100 bg-[#fafafa] px-3 py-2">
-					{targets.map((t) => {
-						const on = routedIds.includes(t.id);
-						return (
-							<button
-								type="button"
-								key={t.id}
-								onClick={() => onToggleRoute(t.id)}
-								className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11.5px] transition ${
-									on
-										? "border-bn-pink bg-bn-pink/10 text-bn-pink"
-										: "border-gray-200 bg-white text-bn-text-secondary hover:border-bn-pink/60 hover:text-bn-text-primary"
-								}`}
-							>
-								<PlatformIcon platform={t.platform} size={11} />
-								<span className="max-w-[120px] truncate">{t.name}</span>
-								{on ? <Icon.check size={11} /> : null}
-							</button>
-						);
-					})}
-					{staleIds.map((id) => (
-						<button
-							type="button"
-							key={id}
-							onClick={() => onToggleRoute(id)}
-							className="inline-flex items-center gap-1.5 rounded-full border border-dashed border-red-300 bg-red-50/50 px-2.5 py-1 text-[11.5px] text-red-500"
-							title="该推送目标已被删除,点击移除"
+			{/* Detail (only when custom) */}
+			{isCustom ? (
+				<div className="border-t border-gray-100 bg-[#fafafa]">
+					{FEATURE_GROUPS.map((g) => (
+						<div
+							key={g.label}
+							className="border-b border-gray-100 px-3 py-2 last:border-b-0"
 						>
-							已失效 {id.slice(0, 6)} ×
-						</button>
+							<div className="mb-1.5 text-[10px] font-bold uppercase tracking-wider text-bn-text-tertiary">
+								{g.label}
+							</div>
+							<div className="grid grid-cols-2 gap-x-4 gap-y-1.5">
+								{g.keys.map(({ key, sub: featSub }) => (
+									<FeatureToggleRow
+										key={key}
+										label={FEATURE_LABELS[key]}
+										sub={featSub}
+										value={sub.routing[key].includes(target.id)}
+										onChange={(on) => onToggleRoute(key, on)}
+									/>
+								))}
+							</div>
+						</div>
 					))}
 				</div>
 			) : null}
