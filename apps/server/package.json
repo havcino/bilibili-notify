@@ -5,7 +5,7 @@
 	"type": "module",
 	"main": "./lib/index.mjs",
 	"scripts": {
-		"dev": "tsx watch src/index.ts",
+		"dev": "tsx watch --tsconfig tsconfig.dev.json src/index.ts",
 		"build": "vp pack",
 		"typecheck": "tsc --noEmit",
 		"start": "node lib/index.mjs",
