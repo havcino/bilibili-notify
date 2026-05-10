@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Btn, PlatformIcon, platformLabel, StatusDot, Toggle } from "../components/atoms";
+import { ModalShell } from "../components/dialog";
 import { Field, TInput } from "../components/forms";
 import { Icon } from "../components/icons";
 import { ApiError, api } from "../services/api";
@@ -358,43 +359,6 @@ function DeleteModal({
 	);
 }
 
-// ── Modal shell (overlay + esc) ─────────────────────────────────────────────
-
-function ModalShell({
-	children,
-	onCancel,
-	width,
-}: {
-	children: React.ReactNode;
-	onCancel: () => void;
-	width: number;
-}) {
-	useEffect(() => {
-		const onKey = (e: KeyboardEvent) => {
-			if (e.key === "Escape") onCancel();
-		};
-		window.addEventListener("keydown", onKey);
-		return () => window.removeEventListener("keydown", onKey);
-	}, [onCancel]);
-	return (
-		<div className="bn-anim-fade-in fixed inset-0 z-[300] flex items-center justify-center">
-			<button
-				type="button"
-				aria-label="关闭弹窗"
-				onClick={onCancel}
-				className="absolute inset-0 cursor-default border-0 bg-black/35 backdrop-blur-[4px]"
-			/>
-			<div
-				role="dialog"
-				aria-modal="true"
-				className="relative rounded-[14px] bg-white p-6"
-				style={{ width, boxShadow: "0 20px 60px rgba(0,0,0,0.2)" }}
-			>
-				{children}
-			</div>
-		</div>
-	);
-}
 
 // ── Platform-specific fields ────────────────────────────────────────────────
 

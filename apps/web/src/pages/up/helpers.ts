@@ -29,13 +29,6 @@ export function activeFeatures(routing: SubscriptionRouting): FeatureKey[] {
 	return keys.filter((k) => routing[k].length > 0);
 }
 
-/** Aggregate every target id referenced by routing. */
-export function routedTargetIds(sub: Subscription): string[] {
-	const out = new Set<string>();
-	for (const arr of Object.values(sub.routing)) for (const id of arr) out.add(id);
-	return [...out];
-}
-
 export function targetsById(targets: PushTarget[]): Map<string, PushTarget> {
 	const m = new Map<string, PushTarget>();
 	for (const t of targets) m.set(t.id, t);

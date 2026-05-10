@@ -6,7 +6,7 @@ import { ApiError, api } from "../services/api";
 import { makeEmptySubscription, type PushTarget, type Subscription } from "../types/domain";
 import { displayName } from "./up/helpers";
 import { UpCard } from "./up/UpCard";
-import { UpDrawer } from "./up/UpDrawer";
+import { UpDialog } from "./up/UpDialog";
 
 type FilterId = "all" | "enabled" | "disabled" | "live";
 
@@ -290,12 +290,12 @@ export default function Subs() {
 			</div>
 
 			{drawerSub ? (
-				<UpDrawer
+				<UpDialog
 					sub={drawerSub}
 					targets={targets}
 					onClose={() => setDrawerSubId(null)}
 					saving={upsert.isPending || del.isPending}
-					onSave={(next) => {
+					onSave={(next: Subscription) => {
 						upsert.mutate(next, {
 							onSuccess: () => setDrawerSubId(null),
 						});
