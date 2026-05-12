@@ -395,7 +395,18 @@ export default function Rules() {
 		mutationFn: async (next: GlobalConfig) => {
 			setError(null);
 			try {
-				await api.patch<GlobalConfig>("/api/globals", next);
+				// Only the three sub-scopes this page actually edits — filter /
+				// live thresholds / templates. Posting the full draft would put
+				// `defaults.cardStyle` and `defaults.ai` into the body and trigger
+				// the backend enable-check (puppeteer launch + chat.completions
+				// probe) every save, even though nothing here touches those scopes.
+				await api.patch<GlobalConfig>("/api/globals", {
+					defaults: {
+						filters: next.defaults.filters,
+						schedule: next.defaults.schedule,
+						templates: next.defaults.templates,
+					},
+				});
 			} catch (err) {
 				if (err instanceof ApiError) setError(err.message);
 				else setError(String(err));
