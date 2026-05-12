@@ -61,6 +61,18 @@ function GroupChip({
 	);
 }
 
+interface SearchResponse {
+	results: UpProfileLookup[];
+	page: number;
+	pageSize: number;
+	total: number;
+}
+
+/**
+ * "添加 UP" 弹窗。输入纯数字时走 `/api/subs/lookup` 单条 preview(原 UID 流程);
+ * 输入非数字时走 `/api/subs/search` 列出 5 条结果,翻页 + 整行点击直接提交订阅。
+ * 已订阅的行不可点击并附「已订阅」灰显标识。
+ */
 function NewSubDialog({
 	onSubmit,
 	onCancel,
@@ -74,70 +86,103 @@ function NewSubDialog({
 	error: string | null;
 	existingUids: Set<string>;
 }) {
-	const [uid, setUid] = useState("");
+	const [input, setInput] = useState("");
 	const [profile, setProfile] = useState<UpProfileLookup | null>(null);
-	const [lookupErr, setLookupErr] = useState<string | null>(null);
-	const valid = /^\d+$/.test(uid);
-	const duplicate = valid && existingUids.has(uid);
+	const [searchData, setSearchData] = useState<SearchResponse | null>(null);
+	const [searchTerm, setSearchTerm] = useState("");
+	const [page, setPage] = useState(1);
+	const [opErr, setOpErr] = useState<string | null>(null);
+
+	const trimmed = input.trim();
+	const mode: "uid" | "name" = /^\d+$/.test(trimmed) ? "uid" : "name";
+	const duplicate = mode === "uid" && trimmed.length > 0 && existingUids.has(trimmed);
 
 	const lookup = useMutation({
 		mutationFn: (q: string) =>
 			api.get<UpProfileLookup>(`/api/subs/lookup?uid=${encodeURIComponent(q)}`),
 		onSuccess: (data) => {
 			setProfile(data);
-			setLookupErr(null);
+			setSearchData(null);
+			setOpErr(null);
 		},
 		onError: (err) => {
 			setProfile(null);
-			if (err instanceof ApiError) {
-				if (err.status === 404) setLookupErr("未找到该 UP 主,请检查 UID 是否正确");
-				else if (err.status === 503) setLookupErr("B 站 API 尚未就绪,请等待登录完成或稍后再试");
-				else if (err.status === 502) setLookupErr(`无法访问 B 站: ${err.message}`);
-				else setLookupErr(err.message);
-			} else {
-				setLookupErr(err instanceof Error ? err.message : String(err));
-			}
+			setSearchData(null);
+			setOpErr(formatApiError(err, "lookup"));
+		},
+	});
+
+	const search = useMutation({
+		mutationFn: ({ q, p }: { q: string; p: number }) =>
+			api.get<SearchResponse>(`/api/subs/search?q=${encodeURIComponent(q)}&page=${p}`),
+		onSuccess: (data) => {
+			setSearchData(data);
+			setProfile(null);
+			setOpErr(null);
+		},
+		onError: (err) => {
+			setSearchData(null);
+			setProfile(null);
+			setOpErr(formatApiError(err, "search"));
 		},
 	});
 
 	function reset(): void {
 		setProfile(null);
-		setLookupErr(null);
+		setSearchData(null);
+		setSearchTerm("");
+		setPage(1);
+		setOpErr(null);
 		lookup.reset();
+		search.reset();
 	}
 
-	function handleUidChange(next: string): void {
-		setUid(next);
-		if (profile || lookupErr) reset();
+	function handleInputChange(next: string): void {
+		setInput(next);
+		if (profile || searchData || opErr) reset();
 	}
 
-	function fansLabel(n: number): string {
-		if (n >= 10_000) return `${(n / 10_000).toFixed(1)}万 粉丝`;
-		return `${n} 粉丝`;
+	function runQuery(): void {
+		if (!trimmed) return;
+		if (mode === "uid") {
+			lookup.mutate(trimmed);
+		} else {
+			setSearchTerm(trimmed);
+			setPage(1);
+			search.mutate({ q: trimmed, p: 1 });
+		}
 	}
+
+	function gotoPage(p: number): void {
+		if (!searchTerm || p < 1) return;
+		setPage(p);
+		search.mutate({ q: searchTerm, p });
+	}
+
+	const busy = lookup.isPending || search.isPending || pending;
+	const queryDisabled = !trimmed || busy;
+	const queryLabel = mode === "uid" ? "查询" : "搜索";
+	const totalPages = searchData
+		? Math.max(1, Math.ceil(searchData.total / Math.max(1, searchData.pageSize)))
+		: 1;
 
 	return (
 		<div className="bn-anim-fade-in fixed inset-0 z-30 flex items-center justify-center bg-black/30 backdrop-blur-sm">
 			<div className="w-105 rounded-bn-card border border-white/60 bg-white p-5 shadow-bn-elev">
 				<div className="mb-1 text-base font-bold text-bn-text-primary">添加 UP 主</div>
 				<div className="mb-4 text-[12px] text-bn-text-secondary">
-					输入 B 站 UID,先确认 UP 主信息再加入订阅
+					输入纯数字走 UID 精确查询; 输入名字走搜索,点击结果直接订阅
 				</div>
 				<div className="flex gap-2">
 					<Input
 						full
-						value={uid}
-						onChange={handleUidChange}
-						placeholder="纯数字 UID(例:401742377)"
+						value={input}
+						onChange={handleInputChange}
+						placeholder="搜索 UID 或 UP 主名字"
 						icon={<Icon.user size={14} />}
 					/>
-					<Btn
-						variant="outline"
-						size="sm"
-						onClick={() => lookup.mutate(uid)}
-						disabled={!valid || lookup.isPending || pending}
-					>
-						{lookup.isPending ? "查询中…" : "查询"}
+					<Btn variant="outline" size="sm" onClick={runQuery} disabled={queryDisabled}>
+						{busy ? `${queryLabel}中…` : queryLabel}
 					</Btn>
 				</div>
 				{duplicate ? (
@@ -145,41 +190,25 @@ function NewSubDialog({
 						该 UID 已经在订阅列表中,无需重复添加
 					</div>
 				) : null}
-				{lookupErr ? (
+				{opErr ? (
 					<div className="mt-3 rounded border border-red-200 bg-red-50 p-2 text-xs text-red-700">
-						{lookupErr}
+						{opErr}
 					</div>
 				) : null}
 				{profile ? (
-					<div className="mt-4 flex items-center gap-3 rounded-lg border border-gray-200 bg-gray-50 p-3">
-						<img
-							src={profile.avatar}
-							alt={profile.name}
-							className="h-12 w-12 shrink-0 rounded-full bg-white object-cover"
-							referrerPolicy="no-referrer"
-						/>
-						<div className="min-w-0 flex-1">
-							<div className="flex items-center gap-2">
-								<span className="truncate text-[13px] font-bold text-bn-text-primary">
-									{profile.name}
-								</span>
-								<span className="font-mono text-[10.5px] text-bn-text-tertiary">
-									UID {profile.uid}
-								</span>
-							</div>
-							<div className="mt-0.5 text-[11px] text-bn-text-secondary">
-								{fansLabel(profile.fans)}
-							</div>
-							{profile.sign ? (
-								<div
-									className="mt-1 line-clamp-2 text-[11px] text-bn-text-tertiary"
-									title={profile.sign}
-								>
-									{profile.sign}
-								</div>
-							) : null}
-						</div>
-					</div>
+					<ProfilePreview profile={profile} subscribed={existingUids.has(profile.uid)} />
+				) : null}
+				{searchData ? (
+					<SearchResultList
+						data={searchData}
+						page={page}
+						totalPages={totalPages}
+						existingUids={existingUids}
+						pending={pending}
+						onPick={onSubmit}
+						onPrev={() => gotoPage(page - 1)}
+						onNext={() => gotoPage(page + 1)}
+					/>
 				) : null}
 				{error ? (
 					<div className="mt-3 rounded border border-red-200 bg-red-50 p-2 text-xs text-red-700">
@@ -188,20 +217,177 @@ function NewSubDialog({
 				) : null}
 				<div className="mt-4 flex justify-end gap-2">
 					<Btn variant="outline" size="sm" onClick={onCancel} disabled={pending}>
-						取消
+						{searchData ? "关闭" : "取消"}
+					</Btn>
+					{profile ? (
+						<Btn
+							variant="primary"
+							size="sm"
+							onClick={() => onSubmit(profile)}
+							disabled={existingUids.has(profile.uid) || pending}
+						>
+							{pending ? "添加中…" : "添加"}
+						</Btn>
+					) : null}
+				</div>
+			</div>
+		</div>
+	);
+}
+
+function ProfilePreview({
+	profile,
+	subscribed,
+}: {
+	profile: UpProfileLookup;
+	subscribed: boolean;
+}) {
+	return (
+		<div className="mt-4 flex items-center gap-3 rounded-lg border border-gray-200 bg-gray-50 p-3">
+			<img
+				src={profile.avatar}
+				alt={profile.name}
+				className="h-12 w-12 shrink-0 rounded-full bg-white object-cover"
+				referrerPolicy="no-referrer"
+			/>
+			<div className="min-w-0 flex-1">
+				<div className="flex items-center gap-2">
+					<span className="truncate text-[13px] font-bold text-bn-text-primary">{profile.name}</span>
+					<span className="font-mono text-[10.5px] text-bn-text-tertiary">UID {profile.uid}</span>
+					{subscribed ? (
+						<span className="rounded bg-gray-200 px-1.5 py-0.5 text-[10px] font-semibold text-bn-text-tertiary">
+							已订阅
+						</span>
+					) : null}
+				</div>
+				<div className="mt-0.5 text-[11px] text-bn-text-secondary">{fansLabel(profile.fans)}</div>
+				{profile.sign ? (
+					<div
+						className="mt-1 line-clamp-2 text-[11px] text-bn-text-tertiary"
+						title={profile.sign}
+					>
+						{profile.sign}
+					</div>
+				) : null}
+			</div>
+		</div>
+	);
+}
+
+function SearchResultList({
+	data,
+	page,
+	totalPages,
+	existingUids,
+	pending,
+	onPick,
+	onPrev,
+	onNext,
+}: {
+	data: SearchResponse;
+	page: number;
+	totalPages: number;
+	existingUids: Set<string>;
+	pending: boolean;
+	onPick: (profile: UpProfileLookup) => void;
+	onPrev: () => void;
+	onNext: () => void;
+}) {
+	return (
+		<div className="mt-4 flex flex-col gap-1.5">
+			{data.results.length === 0 ? (
+				<div className="rounded border border-gray-200 bg-gray-50 p-4 text-center text-[12px] text-bn-text-tertiary">
+					没有匹配的 UP 主
+				</div>
+			) : (
+				data.results.map((r) => {
+					const subscribed = existingUids.has(r.uid);
+					const disabled = subscribed || pending;
+					return (
+						<button
+							key={r.uid}
+							type="button"
+							onClick={() => !disabled && onPick(r)}
+							disabled={disabled}
+							className={`flex items-center gap-3 rounded-lg border p-2.5 text-left transition ${
+								subscribed
+									? "cursor-not-allowed border-gray-200 bg-gray-50 opacity-60"
+									: "border-gray-200 bg-white hover:border-bn-pink/60 hover:bg-bn-pink/5"
+							}`}
+						>
+							<img
+								src={r.avatar}
+								alt={r.name}
+								className="h-10 w-10 shrink-0 rounded-full bg-white object-cover"
+								referrerPolicy="no-referrer"
+							/>
+							<div className="min-w-0 flex-1">
+								<div className="flex items-center gap-1.5">
+									<span className="truncate text-[12.5px] font-bold text-bn-text-primary">
+										{r.name}
+									</span>
+									<span className="font-mono text-[10.5px] text-bn-text-tertiary">
+										UID {r.uid}
+									</span>
+									{subscribed ? (
+										<span className="rounded bg-gray-200 px-1.5 py-0.5 text-[10px] font-semibold text-bn-text-tertiary">
+											已订阅
+										</span>
+									) : null}
+								</div>
+								<div className="mt-0.5 text-[10.5px] text-bn-text-secondary">
+									{fansLabel(r.fans)}
+									{r.sign ? (
+										<span className="ml-2 text-bn-text-tertiary" title={r.sign}>
+											· {truncate(r.sign, 30)}
+										</span>
+									) : null}
+								</div>
+							</div>
+						</button>
+					);
+				})
+			)}
+			<div className="mt-1 flex items-center justify-between text-[11px] text-bn-text-tertiary">
+				<span>
+					第 {data.page} 页 / 共 {totalPages} 页 · 总 {data.total} 条
+				</span>
+				<div className="flex gap-1.5">
+					<Btn variant="outline" size="sm" onClick={onPrev} disabled={page <= 1 || pending}>
+						← 上一页
 					</Btn>
 					<Btn
-						variant="primary"
+						variant="outline"
 						size="sm"
-						onClick={() => profile && onSubmit(profile)}
-						disabled={!profile || duplicate || pending}
+						onClick={onNext}
+						disabled={page >= totalPages || pending}
 					>
-						{pending ? "添加中…" : "添加"}
+						下一页 →
 					</Btn>
 				</div>
 			</div>
 		</div>
 	);
+}
+
+function fansLabel(n: number): string {
+	if (n >= 10_000) return `${(n / 10_000).toFixed(1)}万 粉丝`;
+	return `${n} 粉丝`;
+}
+
+function truncate(s: string, max: number): string {
+	return s.length > max ? `${s.slice(0, max)}…` : s;
+}
+
+function formatApiError(err: unknown, kind: "lookup" | "search"): string {
+	if (err instanceof ApiError) {
+		if (err.status === 404) return "未找到该 UP 主,请检查 UID 是否正确";
+		if (err.status === 503) return "B 站 API 尚未就绪,请等待登录完成或稍后再试";
+		if (err.status === 502) return `无法访问 B 站: ${err.message}`;
+		if (err.status === 400 && kind === "search") return "搜索关键词不能为空";
+		return err.message;
+	}
+	return err instanceof Error ? err.message : String(err);
 }
 
 export default function Subs() {

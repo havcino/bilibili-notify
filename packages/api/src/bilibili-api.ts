@@ -527,9 +527,16 @@ export class BilibiliAPI {
 		}, "getUserVideos");
 	}
 
-	async searchByType(searchType: string, keyword: string) {
+	async searchByType(
+		searchType: string,
+		keyword: string,
+		opts?: { page?: number; pageSize?: number },
+	) {
 		return this.retry(async () => {
-			const wbi = await this.getWbi({ search_type: searchType, keyword });
+			const params: Record<string, string> = { search_type: searchType, keyword };
+			if (opts?.page) params.page = String(opts.page);
+			if (opts?.pageSize) params.page_size = String(opts.pageSize);
+			const wbi = await this.getWbi(params);
 			return (await this.client.get(`${EP.SEARCH_BY_TYPE}?${wbi}`)).data;
 		}, "searchByType");
 	}

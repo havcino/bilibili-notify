@@ -32,6 +32,57 @@ export function createSubsRoute(deps: RouteDeps): Hono {
 	 * the UID doesn't exist; 503 means we couldn't reach B-station / the
 	 * API client wasn't ready yet.
 	 */
+	/**
+	 * Name-search counterpart to /lookup. Hits B-station's wbi/search/type
+	 * endpoint with `search_type=bili_user`, slices to 5 entries per page so the
+	 * dashboard's "添加 UP" dialog can paginate without overwhelming the UI.
+	 * The response shape mirrors /lookup's per-row payload so the frontend can
+	 * pass either through to onSubmit without translation.
+	 */
+	app.get("/search", async (c) => {
+		const q = c.req.query("q")?.trim();
+		const pageParam = Number(c.req.query("page") ?? 1);
+		const page =
+			Number.isFinite(pageParam) && pageParam >= 1 ? Math.min(Math.floor(pageParam), 200) : 1;
+		if (!q) {
+			return c.json({ error: "invalid_query", message: "搜索关键词不能为空" }, 400);
+		}
+		const engines = deps.runtime.engines;
+		if (!engines) {
+			return c.json({ error: "api_not_ready", message: "B 站 API 尚未就绪" }, 503);
+		}
+		try {
+			// biome-ignore lint/suspicious/noExplicitAny: B-station response shape varies by search_type
+			const res = (await engines.api.searchByType("bili_user", q, {
+				page,
+				pageSize: 5,
+			})) as any;
+			if (!res || res.code !== 0) {
+				const message = res?.message ?? "搜索失败";
+				return c.json({ error: "upstream_failed", code: res?.code, message }, 502);
+			}
+			// biome-ignore lint/suspicious/noExplicitAny: raw search result row
+			const raw: any[] = Array.isArray(res.data?.result) ? res.data.result : [];
+			const results = raw.slice(0, 5).map((r) => ({
+				uid: String(r.mid),
+				name: stripHtmlTags(String(r.uname ?? "")),
+				avatar: normaliseAvatarUrl(r.upic),
+				sign: typeof r.usign === "string" ? r.usign : "",
+				fans: typeof r.fans === "number" ? r.fans : 0,
+			}));
+			return c.json({
+				results,
+				page,
+				pageSize: 5,
+				total: typeof res.data?.numResults === "number" ? res.data.numResults : results.length,
+			});
+		} catch (err) {
+			const message = err instanceof Error ? err.message : String(err);
+			log.warn(`/api/subs/search q=${q} failed: ${message}`);
+			return c.json({ error: "upstream_failed", message }, 502);
+		}
+	});
+
 	app.get("/lookup", async (c) => {
 		const uid = c.req.query("uid")?.trim();
 		if (!uid || !/^\d+$/.test(uid)) {
@@ -127,4 +178,16 @@ export function createSubsRoute(deps: RouteDeps): Hono {
 function isNotFound(err: ConfigValidationError): boolean {
 	const issues = err.issues as { message?: string } | undefined;
 	return issues?.message === "subscription not found" || issues?.message === "target not found";
+}
+
+/** B-station search wraps matched keywords with `<em class="keyword">…</em>`. */
+function stripHtmlTags(s: string): string {
+	return s.replace(/<[^>]+>/g, "");
+}
+
+/** B-station avatar urls come back protocol-relative (`//…`); coerce to https. */
+function normaliseAvatarUrl(raw: unknown): string {
+	if (typeof raw !== "string" || !raw) return "";
+	if (raw.startsWith("//")) return `https:${raw}`;
+	return raw;
 }
