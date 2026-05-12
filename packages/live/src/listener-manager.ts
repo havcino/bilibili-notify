@@ -77,11 +77,43 @@ export class ListenerManager {
 	startForUid(sub: SubItemView, logPrefix = "[ops]"): void {
 		const mutable: SubItemView = structuredClone(sub);
 		this.subRecord.set(sub.uid, mutable);
-		this.ctx.danmakuCollector.registerRoom(sub.roomId);
+		void this.bootstrapForUid(mutable, logPrefix);
+	}
+
+	private async bootstrapForUid(mutable: SubItemView, logPrefix: string): Promise<void> {
+		if (!mutable.roomId) {
+			const resolved = await this.resolveRoomId(mutable.uid, logPrefix);
+			if (!resolved) return;
+			mutable.roomId = resolved;
+		}
+		if (this.ctx.isDisposed()) return;
+		// `subRecord` was populated synchronously in `startForUid`; if the entry has
+		// been removed during the async resolve (stop/remove), bail out.
+		if (!this.subRecord.has(mutable.uid)) return;
+		this.ctx.danmakuCollector.registerRoom(mutable.roomId);
 		const session = new RoomSession(this.ctx, mutable);
 		session.bootstrap().catch((e) => {
-			this.ctx.logger.error(`${logPrefix} 启动直播监听失败 UID=${sub.uid}：${e}`);
+			this.ctx.logger.error(`${logPrefix} 启动直播监听失败 UID=${mutable.uid}：${e}`);
 		});
+	}
+
+	private async resolveRoomId(uid: string, logPrefix: string): Promise<string | undefined> {
+		try {
+			// biome-ignore lint/suspicious/noExplicitAny: B-station response shape
+			const info = (await this.ctx.api.getUserInfo(uid)) as any;
+			const roomid = info?.data?.live_room?.roomid;
+			const n = Number(roomid);
+			if (!Number.isFinite(n) || n <= 0) {
+				this.ctx.logger.warn(
+					`${logPrefix} UID=${uid} 未开通直播间或 live_room 解析失败，跳过 listener 创建`,
+				);
+				return undefined;
+			}
+			return String(n);
+		} catch (e) {
+			this.ctx.logger.error(`${logPrefix} UID=${uid} 解析直播间号失败：${(e as Error).message}`);
+			return undefined;
+		}
 	}
 
 	/** Stop a single sub's listener and drop its bookkeeping. */
