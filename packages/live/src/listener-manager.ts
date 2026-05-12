@@ -27,6 +27,7 @@ export type ListenerManagerOptions = RoomContextOptions;
 export class ListenerManager {
 	private readonly ctx: RoomContext;
 	private readonly subRecord: Map<string, SubItemView> = new Map();
+	private readonly sessionRecord: Map<string, RoomSession> = new Map();
 
 	constructor(opts: ListenerManagerOptions) {
 		this.ctx = new RoomContext(opts);
@@ -50,6 +51,16 @@ export class ListenerManager {
 		return this.subRecord.get(uid);
 	}
 
+	/**
+	 * Read-only live-state snapshot for every monitored room. Each entry pairs
+	 * the room's `isLive` boolean (mirrors RoomSession.liveStatus) with the
+	 * latest fetched `liveRoomInfo` fields. Used by the standalone dashboard's
+	 * `GET /api/live/listening` route to populate the "正在直播" panel.
+	 */
+	listLiveSnapshots(): ReturnType<RoomSession["getLiveSnapshot"]>[] {
+		return Array.from(this.sessionRecord.values()).map((s) => s.getLiveSnapshot());
+	}
+
 	/** Whether any feature on this sub requires the live-room WS connection. */
 	needsLiveMonitor(sub: SubItemView): boolean {
 		return this.ctx.needsLiveMonitor(sub);
@@ -61,6 +72,7 @@ export class ListenerManager {
 		this.ctx.clearPushTimers();
 		this.ctx.clearListeners();
 		this.subRecord.clear();
+		this.sessionRecord.clear();
 
 		const liveSubUids = Object.values(subs)
 			.filter((s) => this.ctx.needsLiveMonitor(s))
@@ -92,6 +104,7 @@ export class ListenerManager {
 		if (!this.subRecord.has(mutable.uid)) return;
 		this.ctx.danmakuCollector.registerRoom(mutable.roomId);
 		const session = new RoomSession(this.ctx, mutable);
+		this.sessionRecord.set(mutable.uid, session);
 		session.bootstrap().catch((e) => {
 			this.ctx.logger.error(`${logPrefix} 启动直播监听失败 UID=${mutable.uid}：${e}`);
 		});
@@ -126,6 +139,7 @@ export class ListenerManager {
 		this.ctx.closeListener(sub.roomId);
 		this.ctx.danmakuCollector.clear(sub.roomId);
 		this.subRecord.delete(uid);
+		this.sessionRecord.delete(uid);
 	}
 
 	/** Tear down everything. Used by engine `stop()` / `auth-lost`. */
@@ -135,6 +149,7 @@ export class ListenerManager {
 		this.ctx.clearPushTimers();
 		this.ctx.clearListeners();
 		this.subRecord.clear();
+		this.sessionRecord.clear();
 		this.ctx.danmakuCollector.clearAll();
 		this.ctx.logSideEffectState("stop:after-clear");
 	}

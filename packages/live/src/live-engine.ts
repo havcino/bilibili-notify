@@ -217,6 +217,14 @@ export class LiveEngine {
 		return this.listener.getListenerCount();
 	}
 
+	/**
+	 * Per-room live-state snapshot for every active monitor. Routes / dashboards
+	 * filter on `isLive` to show "正在直播" panels.
+	 */
+	listLiveSnapshots(): ReturnType<ListenerManager["listLiveSnapshots"]> {
+		return this.listener.listLiveSnapshots();
+	}
+
 	/** Read-only view of the engine config (for the koishi shell to pass through). */
 	getConfig(): LiveEngineConfig {
 		return this.config;

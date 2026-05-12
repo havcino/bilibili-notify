@@ -68,6 +68,16 @@ export interface ModuleStatus {
 	ai: boolean;
 }
 
+export interface LiveListenerSnapshot {
+	uid: string;
+	roomId: string;
+	isLive: boolean;
+	title?: string;
+	cover?: string;
+	areaName?: string;
+	startedAt?: string;
+}
+
 export interface EnginesRuntime extends Disposable {
 	readonly dynamic: DynamicEngine;
 	readonly live: LiveEngine;
@@ -76,8 +86,8 @@ export interface EnginesRuntime extends Disposable {
 	readonly commentary: CommentaryGenerator | null;
 	/** Started BilibiliAPI; consumed by routes that need ad-hoc B-station calls (e.g. subs lookup). */
 	readonly api: BilibiliAPI;
-	/** Live listener UID list for /api/live/listening. */
-	listListeningUids(): string[];
+	/** Currently-broadcasting rooms; powers /api/live/listening. */
+	listLiveRooms(): LiveListenerSnapshot[];
 	/** Out-of-band reachability probe for `/api/adapters/:id/test`. */
 	probeAdapter(adapterId: string): Promise<ProbeResult>;
 	/** Per-module readiness snapshot exposed via `/api/health`. */
@@ -489,7 +499,7 @@ export function createEngines(opts: CreateEnginesOptions): EnginesRuntime {
 		subscriptionStore: opts.subscriptionStore,
 		commentary,
 		api: opts.api,
-		listListeningUids: () => listListeningUids(live),
+		listLiveRooms: () => listLiveRooms(live),
 		probeAdapter: (adapterId: string) => sink.probeAdapter(adapterId),
 		getModuleStatus: (): ModuleStatus => {
 			const g = globals();
@@ -778,12 +788,20 @@ function subscriptionOpsToLive(
 	return out;
 }
 
-function listListeningUids(live: LiveEngine): string[] {
-	// LiveEngine doesn't expose its listener manager directly, but exposes a
-	// listenerCount accessor. For now we read the active subscription set off
-	// the engine's internal config — see plan §3 (live-engine getter API
-	// expansion). Until that lands, return an empty list (the dashboard's
-	// "正在直播" panel renders empty state which matches an idle backend).
-	void live;
-	return [];
+function listLiveRooms(live: LiveEngine): LiveListenerSnapshot[] {
+	// Only rooms that have reported `liveStatus === true` via the WS dispatcher
+	// surface to the Dashboard. Monitored-but-idle rooms are filtered so the
+	// "正在直播" panel matches its name (vs. the looser "正在监听" set).
+	return live
+		.listLiveSnapshots()
+		.filter((s) => s.isLive)
+		.map((s) => ({
+			uid: s.uid,
+			roomId: s.roomId,
+			isLive: s.isLive,
+			title: s.title,
+			cover: s.cover,
+			areaName: s.areaName,
+			startedAt: s.startedAt,
+		}));
 }

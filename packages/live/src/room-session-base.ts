@@ -41,6 +41,37 @@ export abstract class RoomSessionBase {
 		this.sub = sub;
 	}
 
+	/** Whether the underlying B-station room is currently broadcasting. */
+	get isLive(): boolean {
+		return this.liveStatus;
+	}
+
+	/**
+	 * Read-only diagnostic snapshot for routes / dashboards. Includes `uid`,
+	 * `roomId`, and — when `liveRoomInfo` was successfully fetched — `title`,
+	 * `cover`, `areaName`, `startedAt`. Returns undefined fields rather than
+	 * partial data so consumers can render fallbacks deterministically.
+	 */
+	getLiveSnapshot(): {
+		uid: string;
+		roomId: string;
+		isLive: boolean;
+		title?: string;
+		cover?: string;
+		areaName?: string;
+		startedAt?: string;
+	} {
+		return {
+			uid: this.sub.uid,
+			roomId: this.sub.roomId,
+			isLive: this.liveStatus,
+			title: this.liveRoomInfo?.title,
+			cover: this.liveRoomInfo?.user_cover || this.liveRoomInfo?.keyframe || undefined,
+			areaName: this.liveRoomInfo?.area_name,
+			startedAt: this.liveRoomInfo?.live_time || undefined,
+		};
+	}
+
 	/**
 	 * Open the WS connection (via `RoomContext.startLiveRoomListener`), pull
 	 * the initial live-room snapshot, and — if the room is already live —
