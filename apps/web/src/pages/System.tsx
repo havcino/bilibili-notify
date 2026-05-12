@@ -399,16 +399,6 @@ export default function System() {
 
 			{draft ? (
 				<>
-					<SystemSettingsSection
-						draft={draft}
-						targets={targetsQuery.data ?? []}
-						onPatch={patchDraft}
-					/>
-					{systemError ? (
-						<div className="rounded border border-red-200 bg-red-50 p-2 text-xs text-red-700">
-							{systemError}
-						</div>
-					) : null}
 					{dirty ? (
 						<div className="flex items-center justify-end gap-2">
 							<span className="text-[11.5px] font-semibold text-bn-pink">未保存</span>
@@ -425,6 +415,16 @@ export default function System() {
 							</Btn>
 						</div>
 					) : null}
+					{systemError ? (
+						<div className="rounded border border-red-200 bg-red-50 p-2 text-xs text-red-700">
+							{systemError}
+						</div>
+					) : null}
+					<SystemSettingsSection
+						draft={draft}
+						targets={targetsQuery.data ?? []}
+						onPatch={patchDraft}
+					/>
 				</>
 			) : globalsQuery.isLoading ? (
 				<div className="text-xs text-bn-text-tertiary">加载系统配置中…</div>
