@@ -863,9 +863,7 @@ function AiOverrideBox({
 		baseRole: "",
 		extraSystemPrompt: "",
 	};
-	const personaBase = isCustom
-		? (cur.persona ?? EMPTY_PERSONA)
-		: (cur.persona ?? baseline.persona);
+	const personaBase = isCustom ? (cur.persona ?? EMPTY_PERSONA) : (cur.persona ?? baseline.persona);
 	function setPersonaField(k: keyof typeof baseline.persona, v: string): void {
 		onChange({
 			...cur,

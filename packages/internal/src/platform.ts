@@ -50,7 +50,12 @@ export interface BiliEvents {
 	"cookies-refreshed": (data: unknown) => void;
 	"subscription-changed": (ops: SubscriptionOp[]) => void;
 	"login-status-report": (snapshot: LoginSnapshot) => void;
-	"plugin-error": (source: string, message: string) => void;
+	/**
+	 * Surface a runtime error from a business engine / subsystem.
+	 * `source` 是逻辑发射源标识(e.g. "dynamic-engine" / "live-engine" / "image" / "ai")
+	 * 用于消费方（master-notifier / AlertShell）做按域节流与展示。
+	 */
+	"engine-error": (source: string, message: string) => void;
 	ready: () => void;
 	"config-changed": (scope: ConfigScope) => void;
 	/**

@@ -160,11 +160,11 @@ export function attachChannelWiring(deps: ChannelWiringDeps): Disposable {
 
 	// log channel -----------------------------------------------------------
 	// Two sources merge here:
-	//   1. plugin-error events from the bus (any sub-engine reporting a failure)
+	//   1. engine-error events from the bus (any business engine reporting a failure)
 	//   2. logger.<level> calls (via the LogChannel that NodeServiceContext feeds)
 	subs.push(
-		deps.bus.on("plugin-error", (source, message) =>
-			deps.publish(envelope("log", "plugin-error", [source, message])),
+		deps.bus.on("engine-error", (source, message) =>
+			deps.publish(envelope("log", "engine-error", [source, message])),
 		),
 	);
 	const unsubLog = deps.log.subscribe((entry: LogEntry) => {

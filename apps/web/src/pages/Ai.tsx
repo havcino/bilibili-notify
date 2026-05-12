@@ -101,13 +101,7 @@ export default function Ai() {
 				liveSummaryPrompt: draft.liveSummaryPrompt,
 			});
 		}
-	}, [
-		selectedPresetId,
-		draft?.persona,
-		draft?.dynamicPrompt,
-		draft?.liveSummaryPrompt,
-		draft,
-	]);
+	}, [selectedPresetId, draft?.persona, draft?.dynamicPrompt, draft?.liveSummaryPrompt, draft]);
 
 	const serverAiLogLevel = globalsQuery.data?.app.logLevels?.ai ?? "";
 	const dirty = useMemo(() => {

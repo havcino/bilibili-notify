@@ -35,6 +35,9 @@ async function main(): Promise<void> {
 			serviceCtx: runtime.serviceCtx,
 			bus: runtime.bus,
 			bootstrap,
+			// 从 globals.app.healthCheckMinutes 计算初始 ms;后续 config-changed
+			// 会通过 engines.ts 调 flow.setHealthCheckMs 热更。
+			healthCheckMs: runtime.configStore.getGlobals().app.healthCheckMinutes * 60_000,
 		});
 	} catch (err) {
 		// Fatal: without StorageManager / BilibiliAPI the dashboard can't function.
@@ -85,6 +88,7 @@ async function main(): Promise<void> {
 	const engines = createEngines({
 		serviceCtx: runtime.serviceCtx,
 		api: authSystem.api,
+		loginFlow: authSystem.flow,
 		configStore: runtime.configStore,
 		historyStore: runtime.historyStore,
 		subscriptionStore: subBinding.store,

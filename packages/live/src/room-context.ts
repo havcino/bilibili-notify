@@ -77,7 +77,15 @@ export interface RoomContextOptions {
 	danmakuCollector: DanmakuCollector;
 	imageRenderer: ImageRenderer | null;
 	config: ListenerManagerConfig;
-	emitPluginError: (message: string) => void;
+	emitEngineError: (message: string) => void;
+	/**
+	 * 推送 per-UID 直播状态变化(`onLiveStart` / `onLiveEnd` / `bootstrap 已开播` /
+	 * `stopMonitoring 时挂掉的活房间`)。Adapter 实现:
+	 *   - standalone: `(uid, status) => bus.emit("live-state-changed", uid, status)`
+	 *   - koishi:     `(uid, status) => ctx.emit("bilibili-notify/live-state-changed", uid, status)`
+	 * 可选;缺省时不推送 —— 仅在 dashboard 走 WS 实时刷新"正在直播"面板时有意义。
+	 */
+	emitLiveState?: (uid: string, status: "live" | "idle") => void;
 }
 
 /**
@@ -108,7 +116,8 @@ export class RoomContextBase {
 	 * `if (this.imageRenderer?.generateXxx)` 自然落入文字回退分支。
 	 */
 	private readonly _imageRenderer: ImageRenderer | null;
-	readonly emitPluginError: (message: string) => void;
+	readonly emitEngineError: (message: string) => void;
+	private readonly _emitLiveState: ((uid: string, status: "live" | "idle") => void) | undefined;
 
 	config: ListenerManagerConfig;
 
@@ -132,7 +141,15 @@ export class RoomContextBase {
 		this.danmakuCollector = opts.danmakuCollector;
 		this._imageRenderer = opts.imageRenderer;
 		this.config = opts.config;
-		this.emitPluginError = opts.emitPluginError;
+		this.emitEngineError = opts.emitEngineError;
+		this._emitLiveState = opts.emitLiveState;
+	}
+
+	/**
+	 * 安全调用方:adapter 未注入时静默 no-op,业务代码无需在调用点判空。
+	 */
+	emitLiveState(uid: string, status: "live" | "idle"): void {
+		this._emitLiveState?.(uid, status);
 	}
 
 	/** 受 `config.imageEnabled` 门控的渲染器视图;关闭时返回 null。 */
@@ -220,12 +237,12 @@ export class RoomContextBase {
 				timer();
 				this.livePushTimerManager.delete(roomId);
 			}
-			this.emitPluginError(`[${roomId}] ${reason}`);
+			this.emitEngineError(`[${roomId}] ${reason}`);
 			return;
 		}
 		this.logger.error(`[conn] ${reason}，直播监测已停止`);
 		this.clearListeners();
 		this.clearPushTimers();
-		this.emitPluginError(reason);
+		this.emitEngineError(reason);
 	}
 }

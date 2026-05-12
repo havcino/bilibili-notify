@@ -49,7 +49,7 @@ export class RoomSession extends RoomSessionBase {
 	// ── Event handlers ────────────────────────────────────────────────────────
 
 	private async onError(): Promise<void> {
-		this.liveStatus = false;
+		this.setLiveStatus(false);
 		this.cancelPeriodicTimer();
 		this.ctx.closeListener(this.sub.roomId);
 		if (this.ctx.isDisposed()) return;
@@ -229,14 +229,14 @@ export class RoomSession extends RoomSessionBase {
 			this.ctx.logger.warn(`[live] 直播间 [${this.sub.roomId}] 已经是开播状态，忽略重复的开播事件`);
 			return;
 		}
-		this.liveStatus = true;
+		this.setLiveStatus(true);
 		if (
 			!(await this.useLiveRoomInfo(LiveType.StartBroadcasting)) ||
 			!(await this.useMasterInfo(LiveType.StartBroadcasting)) ||
 			!this.liveRoomInfo ||
 			!this.masterInfo
 		) {
-			this.liveStatus = false;
+			this.setLiveStatus(false);
 			if (this.ctx.isDisposed()) return;
 			this.ctx.stopMonitoring("获取直播间信息失败，推送直播开播卡片失败", this.sub.roomId);
 			return;

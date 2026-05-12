@@ -21,7 +21,7 @@ declare module "koishi" {
 	}
 	interface Events {
 		"bilibili-notify/subscription-changed"(ops: SubscriptionOp[]): void;
-		"bilibili-notify/plugin-error"(source: string, message: string): void;
+		"bilibili-notify/engine-error"(source: string, message: string): void;
 		"bilibili-notify/auth-lost"(): void;
 		"bilibili-notify/auth-restored"(): void;
 	}

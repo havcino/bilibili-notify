@@ -1,7 +1,14 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { Btn } from "../components/atoms";
-import { Field, LogLevelPicker, type LogLevelValue, TInput, TNum, TSelect } from "../components/forms";
+import {
+	Field,
+	LogLevelPicker,
+	type LogLevelValue,
+	TInput,
+	TNum,
+	TSelect,
+} from "../components/forms";
 import { GlassBox } from "../components/glass-box";
 import { Icon } from "../components/icons";
 import { ApiError, api } from "../services/api";
@@ -71,12 +78,15 @@ function QrCard({ data, msg }: { data: unknown; msg: string }) {
  * user explicitly asked for (core / dynamic / live). image / ai overrides in
  * `app.logLevels` are preserved untouched on writes.
  */
-const SYSTEM_MODULES: ReadonlyArray<{ id: "core" | "dynamic" | "live"; label: string; tone: string }> =
-	[
-		{ id: "core", label: "core 核心", tone: "#FB7299" },
-		{ id: "dynamic", label: "dynamic 动态", tone: "#00AEEC" },
-		{ id: "live", label: "live 直播", tone: "#FF6699" },
-	];
+const SYSTEM_MODULES: ReadonlyArray<{
+	id: "core" | "dynamic" | "live";
+	label: string;
+	tone: string;
+}> = [
+	{ id: "core", label: "core 核心", tone: "#FB7299" },
+	{ id: "dynamic", label: "dynamic 动态", tone: "#00AEEC" },
+	{ id: "live", label: "live 直播", tone: "#FF6699" },
+];
 
 const LOG_LEVEL_NUM: Record<LogLevel, LogLevelValue> = { error: 1, info: 2, debug: 3 };
 const NUM_TO_LOG: Record<LogLevelValue, LogLevel> = { 1: "error", 2: "info", 3: "debug" };
@@ -121,10 +131,7 @@ function SystemSettingsSection({
 
 	// Only mutate `app.logLevels[id]` for this module; preserve any image / ai
 	// overrides that were set elsewhere.
-	function setModuleLevel(
-		id: "core" | "dynamic" | "live",
-		value: LogLevelValue | null,
-	): void {
+	function setModuleLevel(id: "core" | "dynamic" | "live", value: LogLevelValue | null): void {
 		const current: ModuleLogLevels = { ...(app.logLevels ?? {}) };
 		if (value === null) delete current[id];
 		else current[id] = NUM_TO_LOG[value];
@@ -231,7 +238,9 @@ function SystemSettingsSection({
 			<div className="mt-3 rounded-lg border border-bn-pink/20 bg-gradient-to-br from-bn-pink/8 to-transparent p-3">
 				<div className="mb-1.5 flex items-center justify-between">
 					<span className="text-[12.5px] font-bold text-bn-text-primary">主人账号 · master</span>
-					<span className="text-[10.5px] text-bn-text-tertiary">插件遇错误会私聊报告给这个目标</span>
+					<span className="text-[10.5px] text-bn-text-tertiary">
+						插件遇错误会私聊报告给这个目标
+					</span>
 				</div>
 				<Field label="Master 推送目标" code="master.targetId">
 					<TSelect

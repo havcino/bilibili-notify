@@ -47,6 +47,17 @@ export abstract class RoomSessionBase {
 	}
 
 	/**
+	 * 唯一允许翻转 `liveStatus` 的入口。只在真实 transition 时通过 RoomContext
+	 * 推送 `live-state-changed` 事件,前端的"正在直播"面板靠它实时收敛。
+	 * 直接赋值 `this.liveStatus = ...` 会绕过这里,**不要这样做**。
+	 */
+	protected setLiveStatus(next: boolean): void {
+		if (this.liveStatus === next) return;
+		this.liveStatus = next;
+		this.ctx.emitLiveState(this.sub.uid, next ? "live" : "idle");
+	}
+
+	/**
 	 * Read-only diagnostic snapshot for routes / dashboards. Includes `uid`,
 	 * `roomId`, and — when `liveRoomInfo` was successfully fetched — `title`,
 	 * `cover`, `areaName`, `startedAt`. Returns undefined fields rather than
@@ -120,7 +131,7 @@ export abstract class RoomSessionBase {
 				});
 			}
 			this.armPeriodicTimer();
-			this.liveStatus = true;
+			this.setLiveStatus(true);
 		}
 	}
 
@@ -153,6 +164,18 @@ export abstract class RoomSessionBase {
 		} catch {
 			return false;
 		}
+	}
+
+	/**
+	 * Live 配置 `pushTime` 热更后调用:重新按当前(可能已变更的) `pushTime`
+	 * arm 定时器。仅对正在直播的房间生效,因为只有 live 状态下才会有 timer。
+	 *
+	 * 注意:`setInterval` 句柄的 ms 参数是 immutable,只能 dispose 重建。
+	 */
+	rearmPeriodicTimer(): void {
+		if (!this.isLive) return;
+		this.cancelPeriodicTimer();
+		this.armPeriodicTimer();
 	}
 
 	protected armPeriodicTimer(): void {
@@ -239,13 +262,13 @@ export abstract class RoomSessionBase {
 			!this.liveRoomInfo ||
 			!this.masterInfo
 		) {
-			this.liveStatus = false;
+			this.setLiveStatus(false);
 			this.ctx.danmakuCollector.clear(this.sub.roomId);
 			if (this.ctx.isDisposed()) return;
 			this.ctx.stopMonitoring("获取直播间信息失败，推送直播下播卡片失败", this.sub.roomId);
 			return;
 		}
-		this.liveStatus = false;
+		this.setLiveStatus(false);
 		this.ctx.logger.debug(
 			`[stat] 开播时粉丝数：${this.masterInfo.liveOpenFollowerNum}，下播时粉丝数：${this.masterInfo.liveEndFollowerNum}，粉丝数变化：${this.masterInfo.liveFollowerChange}`,
 		);

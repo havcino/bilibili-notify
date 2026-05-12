@@ -1,9 +1,11 @@
 import { useQuery } from "@tanstack/react-query";
 import { Route, Routes } from "react-router-dom";
+import { AlertShell } from "./components/alert-shell";
 import { FloatingAiBar } from "./components/floating-ai-bar";
 import { GlassHeader } from "./components/header";
 import { ShellError, ShellLoading } from "./components/shell-states";
 import { ToastShell } from "./components/toast-shell";
+import { useAlertChannel } from "./hooks/useAlertChannel";
 import { useAuthChannel } from "./hooks/useAuthChannel";
 import { useAuthHydrate } from "./hooks/useAuthHydrate";
 import { usePushEventsChannel } from "./hooks/usePushEventsChannel";
@@ -28,6 +30,7 @@ export default function App() {
 	useAuthChannel();
 	useStateChannel();
 	usePushEventsChannel();
+	useAlertChannel();
 
 	// Detect when the backend is genuinely unreachable so the shell can show
 	// the design's error state instead of letting individual pages render
@@ -78,6 +81,7 @@ export default function App() {
 			)}
 			<FloatingAiBar />
 			<ToastShell />
+			<AlertShell />
 		</div>
 	);
 }

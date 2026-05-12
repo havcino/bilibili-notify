@@ -131,7 +131,7 @@ export class DynamicEngine {
 	private readonly api: BilibiliAPI;
 	private readonly push: PushLike;
 	private readonly image?: ImageRenderer;
-	private readonly ai?: CommentaryGenerator;
+	private ai?: CommentaryGenerator;
 	private readonly logger: Logger;
 	private readonly getSubs: () => SubscriptionsView | null;
 
@@ -198,9 +198,29 @@ export class DynamicEngine {
 		}
 	}
 
-	/** 替换运行时配置（adapter 在 koishi config 变更时调用）。 */
+	/**
+	 * 替换运行时配置(adapter 在 koishi config / dashboard 编辑后调用)。
+	 * `dynamicCron` 变化时会自动停掉旧 CronJob 并按新表达式重新 schedule —— 否则
+	 * 配置已经写进 this.config,但 node-cron 句柄还在跑旧节奏,纯粹的字段更新
+	 * 是看不见的 bug。
+	 */
 	updateConfig(config: DynamicEngineConfig): void {
+		const cronChanged = this.config.dynamicCron !== config.dynamicCron;
 		this.config = config;
+		if (cronChanged && this.dynamicJob) {
+			this.logger.info(`[detector] dynamicCron 已更新为 "${config.dynamicCron}",重启检测任务`);
+			this.dynamicJob.stop();
+			this.dynamicJob = undefined;
+			if (this.dynamicSubManager.size > 0) this.startJob();
+		}
+	}
+
+	/**
+	 * 热替换 CommentaryGenerator 实例。adapter 在用户运行时打开 / 关闭 / 更换 AI
+	 * 配置后调用,引擎随后的动态点评会立即用新实例 (或回退到纯文字) ,无需重启 server。
+	 */
+	setAi(ai: CommentaryGenerator | undefined): void {
+		this.ai = ai;
 	}
 
 	get isActive(): boolean {
@@ -252,14 +272,14 @@ export class DynamicEngine {
 			this.logger.debug(`[ops] 初始化 UID：${uid} 时间戳`);
 		}
 		this.dynamicSubManager.set(uid, structuredClone(sub));
-		this.logger.debug(`[ops] 开启动态订阅 UID：${uid}`);
+		this.logger.info(`[ops] 开启动态订阅 UID：${uid}`);
 	}
 
 	private stopDynamicForUid(uid: string): void {
 		if (!this.dynamicSubManager.has(uid)) return;
 		this.dynamicSubManager.delete(uid);
 		this.dynamicTimelineManager.delete(uid);
-		this.logger.debug(`[ops] 移除动态订阅 UID：${uid}`);
+		this.logger.info(`[ops] 移除动态订阅 UID：${uid}`);
 	}
 
 	/** Incrementally apply subscription ops without restarting the cron job. */
@@ -425,7 +445,7 @@ export class DynamicEngine {
 					await this.push.sendErrorMsg(
 						`生成动态图片失败：${err.message}，已降级为纯文字推送，请检查图片插件状态`,
 					);
-					this.bus.emit("plugin-error", LOG_TAG, `生成动态图片失败：${err.message}`);
+					this.bus.emit("engine-error", LOG_TAG, `生成动态图片失败：${err.message}`);
 				}
 				buffer = undefined;
 			}
@@ -527,21 +547,21 @@ export class DynamicEngine {
 			case -101: {
 				// auth-lost 由 api interceptor 触发的 onAuthLost 单点广播；
 				// 通知主人由 server-manager.handleAuthLost 60 秒节流统一发送。
-				// 这里只需停 cron 与上报 plugin-error 供运维诊断。
+				// 这里只需停 cron 与上报 engine-error 供运维诊断。
 				this.logger.error("[api] 账号未登录，动态检测已停止");
-				this.bus.emit("plugin-error", LOG_TAG, "账号未登录");
+				this.bus.emit("engine-error", LOG_TAG, "账号未登录");
 				break;
 			}
 			case -352: {
 				this.logger.error("[api] 账号被风控，动态检测已停止");
 				await this.push.sendPrivateMsg("账号被风控，请使用 `bili cap` 指令解除风控");
-				this.bus.emit("plugin-error", LOG_TAG, "账号被风控");
+				this.bus.emit("engine-error", LOG_TAG, "账号被风控");
 				break;
 			}
 			default: {
 				this.logger.error(`[api] 获取动态信息失败，错误码：${code}，${message}`);
 				await this.push.sendPrivateMsg(`获取动态信息失败，错误码：${code}`);
-				this.bus.emit("plugin-error", LOG_TAG, `获取动态失败，错误码：${code}`);
+				this.bus.emit("engine-error", LOG_TAG, `获取动态失败，错误码：${code}`);
 			}
 		}
 	}

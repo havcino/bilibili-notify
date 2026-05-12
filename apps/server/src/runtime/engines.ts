@@ -55,6 +55,7 @@ import type { HistoryAppendInput, HistoryStore } from "../history/store.js";
 import type { PlatformAdapter, ProbeResult } from "../platforms/types.js";
 import { createMultiplexSink } from "../sink/multiplex.js";
 import { segmentToPayload, standaloneContentBuilder } from "./content-builder.js";
+import { MasterNotifier } from "./master-notifier.js";
 import type { NodeServiceContext } from "./service-context.js";
 
 export interface ModuleStatus {
@@ -103,6 +104,11 @@ export interface CreateEnginesOptions {
 	 */
 	serviceCtx: NodeServiceContext;
 	api: BilibiliAPI;
+	/**
+	 * Auth subsystem 的 LoginFlow 实例。engines.ts 用它在 config-changed 时
+	 * 把 `app.healthCheckMinutes` 热推到登录健康检查定时器。
+	 */
+	loginFlow: import("@bilibili-notify/api").LoginFlow;
 	configStore: ConfigStore;
 	historyStore: HistoryStore;
 	subscriptionStore: SubscriptionStore;
@@ -119,14 +125,27 @@ export interface CreateEnginesOptions {
 
 export function createEngines(opts: CreateEnginesOptions): EnginesRuntime {
 	const log = opts.serviceCtx.logger;
-	// Per-module sub-contexts. Pino level is fixed at construct time, so editing
-	// globals.app.logLevels via /api/globals takes effect on next server restart.
-	const initialLevels = opts.configStore.getGlobals().app.logLevels;
-	const dynamicCtx = opts.serviceCtx.forSubsystem("dynamic", initialLevels?.dynamic);
-	const liveCtx = opts.serviceCtx.forSubsystem("live", initialLevels?.live);
-	const aiCtx = opts.serviceCtx.forSubsystem("ai", initialLevels?.ai);
-	const imageCtx = opts.serviceCtx.forSubsystem("image", initialLevels?.image);
+	// Per-module sub-contexts. Subsystem level falls back to `app.logLevel`
+	// when its module-specific override is absent (schema doc spells this out).
+	// Pino levels are mutable, so `config-changed: globals` later pushes new
+	// levels onto these instances without a server restart.
+	const initialGlobals = opts.configStore.getGlobals();
+	const resolveLevel = (
+		g: GlobalConfig,
+		key: "core" | "dynamic" | "live" | "image" | "ai",
+	): string => g.app.logLevels?.[key] ?? g.app.logLevel;
+	const dynamicCtx = opts.serviceCtx.forSubsystem(
+		"dynamic",
+		resolveLevel(initialGlobals, "dynamic"),
+	);
+	const liveCtx = opts.serviceCtx.forSubsystem("live", resolveLevel(initialGlobals, "live"));
+	const aiCtx = opts.serviceCtx.forSubsystem("ai", resolveLevel(initialGlobals, "ai"));
+	const imageCtx = opts.serviceCtx.forSubsystem("image", resolveLevel(initialGlobals, "image"));
 	const globals = (): GlobalConfig => opts.configStore.getGlobals();
+
+	// 启动期把 app.userAgent 推到 BilibiliAPI(auth/index.ts 构造时未填,这里补)。
+	// config-changed 路径下方也会再次调用,变更立即生效。
+	opts.api.setUserAgent(globals().app.userAgent);
 
 	// ---------- Sink + push ----------
 	const sink = createMultiplexSink({
@@ -175,44 +194,63 @@ export function createEngines(opts: CreateEnginesOptions): EnginesRuntime {
 	});
 	push.start();
 
+	// ---------- Master notifier ----------
+	// engine-error / auth-lost → 主人 OneBot 私聊。共用一张 per-source 60s 节流表。
+	// Web dashboard 上同样会通过 AlertShell 看到 engine-error;两路通道互不影响。
+	const masterNotifier = new MasterNotifier({ bus: opts.bus, push, logger: log });
+	masterNotifier.install();
+
 	// ---------- AI (optional) ----------
 	// 构造仅依赖 apiKey / baseUrl 是否齐备 —— 与 `enabled` 解耦,后者交给引擎 config 层
 	// 的 aiEnabled flag 在每次推送前热判断。这样用户在 dashboard 把 AI 开关切关再切开
-	// 不需要重启服务,且无需在 config-changed 里 hot-swap 实例。
+	// 不需要重启服务。完整字段变更则走下方 `rebuildCommentary` 重建实例。
+	//
+	// 字段名映射:schema 用 `baseRole` / `extraSystemPrompt` (面向用户的字段名),
+	// CommentaryGenerator 的 PersonaConfig 用 `customBase` / `extraPrompt` (历史
+	// 命名,与 koishi 端的 PersonaConfig 一致)。在这里做一次性翻译,引擎层不感知差异。
+	const buildAiConfig = () => {
+		const a = globals().defaults.ai;
+		return {
+			apiKey: a.apiKey ?? "",
+			baseURL: a.baseUrl ?? "",
+			model: a.model,
+			persona: {
+				preset: "custom" as const,
+				name: a.persona.name,
+				addressUser: a.persona.addressUser,
+				addressSelf: a.persona.addressSelf,
+				traits: a.persona.traits,
+				catchphrase: a.persona.catchphrase,
+				customBase: a.persona.baseRole,
+				extraPrompt: a.persona.extraSystemPrompt,
+			},
+			dynamicPrompt: a.dynamicPrompt,
+			liveSummaryPrompt: a.liveSummaryPrompt,
+			enableConversation: false,
+			maxHistory: 6,
+			enableThinking: false,
+			enableSearch: false,
+			enableVision: false,
+		};
+	};
 	let commentary: CommentaryGenerator | null = null;
-	const aiSettings = globals().defaults.ai;
-	if (aiSettings.apiKey && aiSettings.baseUrl) {
+	const buildCommentary = (): CommentaryGenerator | null => {
+		const a = globals().defaults.ai;
+		if (!a.apiKey || !a.baseUrl) return null;
 		try {
-			commentary = new CommentaryGenerator({
+			const c = new CommentaryGenerator({
 				serviceCtx: aiCtx,
 				api: opts.api,
-				config: {
-					apiKey: aiSettings.apiKey,
-					baseURL: aiSettings.baseUrl,
-					model: aiSettings.model,
-					persona: {
-						preset: "custom",
-						name: aiSettings.persona.name,
-						addressUser: aiSettings.persona.addressUser,
-						addressSelf: aiSettings.persona.addressSelf,
-						traits: aiSettings.persona.traits,
-						catchphrase: aiSettings.persona.catchphrase,
-					},
-					dynamicPrompt: aiSettings.dynamicPrompt,
-					liveSummaryPrompt: aiSettings.liveSummaryPrompt,
-					enableConversation: false,
-					maxHistory: 6,
-					enableThinking: false,
-					enableSearch: false,
-					enableVision: false,
-				},
+				config: buildAiConfig(),
 			});
-			commentary.start();
+			c.start();
+			return c;
 		} catch (err) {
 			log.warn(`[ai] commentary init failed: ${String(err)}`);
-			commentary = null;
+			return null;
 		}
-	}
+	};
+	commentary = buildCommentary();
 
 	// ---------- ImageRenderer (optional) ----------
 	// Constructed once when puppeteer is wired (BN_CHROME_PATH / chromePath set).
@@ -341,7 +379,8 @@ export function createEngines(opts: CreateEnginesOptions): EnginesRuntime {
 		imageRenderer: imageRenderer ?? null,
 		commentary: commentary ?? null,
 		config: liveConfig(),
-		emitPluginError: (msg) => opts.bus.emit("plugin-error", "live-engine", msg),
+		emitEngineError: (msg) => opts.bus.emit("engine-error", "live-engine", msg),
+		emitLiveState: (uid, status) => opts.bus.emit("live-state-changed", uid, status),
 	});
 
 	// Initialise live with current subs.
@@ -424,31 +463,62 @@ export function createEngines(opts: CreateEnginesOptions): EnginesRuntime {
 			// 'adapters' config-changed → would re-trigger probeAllAdapters in an
 			// emit loop. Users wait at most one 5-min tick after editing an
 			// adapter (or click "测试" for an immediate refresh).
+			if (scope === "globals" || scope === "targets") {
+				// targets 也可能影响 master 解析(被引用的 target 删了 / 改了元数据)。
+				// 单独一行先 push,避免后续 globals-only 路径未执行时漏掉。
+				push.setMaster(masterTarget() ?? null);
+				if (scope === "targets") return;
+			}
 			if (scope === "globals") {
+				// Push log-level changes onto the live pino instances so dashboard
+				// edits take effect without a server restart.
+				const g = globals();
+				opts.serviceCtx.setLevel(g.app.logLevel);
+				dynamicCtx.setLevel(resolveLevel(g, "dynamic"));
+				liveCtx.setLevel(resolveLevel(g, "live"));
+				aiCtx.setLevel(resolveLevel(g, "ai"));
+				imageCtx.setLevel(resolveLevel(g, "image"));
+				// User-Agent 直接推到 BilibiliAPI 的 axios default headers。
+				opts.api.setUserAgent(g.app.userAgent);
+				// healthCheckMinutes 推到 LoginFlow:dispose 旧 setInterval + 按新间隔重 arm。
+				opts.loginFlow.setHealthCheckMs(g.app.healthCheckMinutes * 60_000);
+				// ImageRenderer 配色热更(仅在已构造时有意义)。
+				if (imageRenderer) {
+					const cs = g.defaults.cardStyle;
+					imageRenderer.updateConfig({
+						cardColorStart: cs.cardColorStart,
+						cardColorEnd: cs.cardColorEnd,
+						font: "PingFang SC, sans-serif",
+						hideDesc: false,
+						followerDisplay: true,
+					});
+				}
 				dynamic.updateConfig(dynamicConfig());
 				live.updateConfig(liveConfig());
-				if (commentary) {
-					const a = globals().defaults.ai;
-					commentary.updateConfig({
-						apiKey: a.apiKey ?? "",
-						baseURL: a.baseUrl ?? "",
-						model: a.model,
-						persona: {
-							preset: "custom",
-							name: a.persona.name,
-							addressUser: a.persona.addressUser,
-							addressSelf: a.persona.addressSelf,
-							traits: a.persona.traits,
-							catchphrase: a.persona.catchphrase,
-						},
-						dynamicPrompt: a.dynamicPrompt,
-						liveSummaryPrompt: a.liveSummaryPrompt,
-						enableConversation: false,
-						maxHistory: 6,
-						enableThinking: false,
-						enableSearch: false,
-						enableVision: false,
-					});
+				// AI 实例热重载:lazy 构造 + 配置失效降级 + 已存在时增量 updateConfig。
+				// 引擎构造时 ai 字段是 snapshot,新建/置空后必须通过 setAi/setCommentary
+				// 把引用同步过去,否则永远沿用启动时的 null。
+				const a = globals().defaults.ai;
+				const needsCommentary = Boolean(a.apiKey && a.baseUrl);
+				if (!needsCommentary && commentary) {
+					try {
+						commentary.stop();
+					} catch (e) {
+						log.warn(`[ai] commentary.stop on disable failed: ${String(e)}`);
+					}
+					commentary = null;
+					dynamic.setAi(undefined);
+					live.setCommentary(null);
+				} else if (needsCommentary && !commentary) {
+					commentary = buildCommentary();
+					dynamic.setAi(commentary ?? undefined);
+					live.setCommentary(commentary);
+					if (commentary) log.info("[ai] commentary 已激活");
+				} else if (commentary) {
+					commentary.updateConfig(buildAiConfig());
+					log.info(
+						`[ai] commentary 配置已更新: model=${a.model}, persona.name=${a.persona.name}, traits=${a.persona.traits}`,
+					);
 				}
 			}
 		}),
@@ -488,6 +558,11 @@ export function createEngines(opts: CreateEnginesOptions): EnginesRuntime {
 			push.stop();
 		} catch (e) {
 			log.warn(`[engines] push.stop failed: ${String(e)}`);
+		}
+		try {
+			masterNotifier.dispose();
+		} catch (e) {
+			log.warn(`[engines] masterNotifier.dispose failed: ${String(e)}`);
 		}
 	};
 	opts.serviceCtx.onDispose(dispose);

@@ -115,9 +115,14 @@ export class CommentaryGenerator {
 		this.subMgmt = opts.subMgmt ?? null;
 	}
 
-	/** 替换运行时配置（adapter 在 koishi config 变更时调用）。 */
+	/** 替换运行时配置（adapter 在 koishi config / dashboard 编辑后调用）。 */
 	updateConfig(config: CommentaryGeneratorConfig): void {
 		this.config = config;
+		const { preset, name, traits } = config.persona;
+		this.logger.info(
+			`[update] 人格预设：${preset}，名字：${name ?? "(默认)"}，模型：${config.model}，性格：${traits ?? "(默认)"}`,
+		);
+		this.logger.debug(`[update] 新系统提示词（无场景）：\n${this.getSystemPrompt()}`);
 	}
 
 	/** 启动钩子（保留扩展点，目前仅打印一条日志）。 */

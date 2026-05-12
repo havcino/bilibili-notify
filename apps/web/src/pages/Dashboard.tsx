@@ -90,12 +90,12 @@ function LiveNowPanel({ live, subs }: { live: LiveListenerSnapshot[]; subs: Subs
 							>
 								<div className="flex items-center gap-3 rounded-[10px] bg-white/95 p-2.5 backdrop-blur-sm">
 									<Avatar
-									name={name}
-									color={color}
-									size={44}
-									status="living"
-									url={sub?.cachedProfile?.avatar}
-								/>
+										name={name}
+										color={color}
+										size={44}
+										status="living"
+										url={sub?.cachedProfile?.avatar}
+									/>
 									<div className="min-w-0 flex-1">
 										<div className="mb-0.5 flex items-center gap-2">
 											<span className="text-[13.5px] font-bold text-bn-text-primary">{name}</span>
@@ -454,7 +454,8 @@ export default function Dashboard() {
 	const liveQuery = useQuery({
 		queryKey: ["live", "listening"],
 		queryFn: () => api.get<LiveListenerSnapshot[]>("/api/live/listening"),
-		refetchInterval: 30_000,
+		// 不再轮询；usePushEventsChannel 监听 WS `live-state-changed` 后 invalidate
+		// 即可让该 query 重新 fetch 最新快照。
 	});
 	// Cache is kept fresh by `usePushEventsChannel` (WS push-events → setQueryData),
 	// so KPI / recent list / trend chart update within ~1s without polling.

@@ -88,7 +88,7 @@ export class LoginFlow {
 	private readonly serviceCtx: ServiceContext;
 	private readonly api: BilibiliAPI;
 	private readonly bus: MessageBus;
-	private readonly healthCheckMs: number;
+	private healthCheckMs: number;
 	private readonly saveCookies: (data: CookieData) => Promise<void>;
 	private readonly logger: Logger;
 
@@ -349,6 +349,16 @@ export class LoginFlow {
 	}
 
 	// ---- Health check ----
+
+	/**
+	 * 热替换登录健康检查间隔。adapter 在 dashboard 编辑 `app.healthCheckMinutes`
+	 * 后调用,会 dispose 旧定时器并按新间隔重 arm。`<=0` 等价于关闭健康检查。
+	 */
+	setHealthCheckMs(ms: number): void {
+		if (this.healthCheckMs === ms) return;
+		this.healthCheckMs = ms;
+		this.attachHealthCheck();
+	}
 
 	private attachHealthCheck(): void {
 		this.detachHealthCheck();

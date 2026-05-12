@@ -103,9 +103,9 @@ describe("makeKoishiMessageBus()", () => {
 		const ctx = makeFakeKoishiCtx();
 		const bus = makeKoishiMessageBus(ctx);
 		const handler = vi.fn();
-		bus.on("plugin-error", handler);
+		bus.on("engine-error", handler);
 
-		bus.emit("plugin-error", "live", "boom");
+		bus.emit("engine-error", "live", "boom");
 
 		expect(handler).toHaveBeenCalledTimes(1);
 		expect(handler).toHaveBeenCalledWith("live", "boom");

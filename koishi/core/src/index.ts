@@ -48,7 +48,7 @@ declare module "koishi" {
 		"bilibili-notify/cookies-refreshed"(data: CookieData): void;
 		"bilibili-notify/subscription-changed"(ops: SubscriptionOp[]): void;
 		"bilibili-notify/ready"(api: BilibiliAPI): void;
-		"bilibili-notify/plugin-error"(source: string, message: string): void;
+		"bilibili-notify/engine-error"(source: string, message: string): void;
 		"bilibili-notify/update-config"(config: BilibiliNotifyConfig): void;
 	}
 }

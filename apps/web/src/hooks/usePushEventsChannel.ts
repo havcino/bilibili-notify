@@ -29,6 +29,14 @@ export function usePushEventsChannel(): void {
 		subscribeChannels(["push-events"]);
 		return onWsEvent((env) => {
 			if (env.type !== "push-events") return;
+
+			// 直播状态翻转 → 让 ["live","listening"] 失效,Dashboard 立即重 fetch。
+			// 后端只在真实 transition 时 emit("live-state-changed"),所以这里不会刷屏。
+			if (env.event === "live-state-changed") {
+				qc.invalidateQueries({ queryKey: ["live", "listening"] });
+				return;
+			}
+
 			if (env.event !== "history-recorded") return;
 			const data = env.data as PushEventView | undefined;
 			if (!data || typeof data.id !== "string") return;

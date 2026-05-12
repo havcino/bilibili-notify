@@ -72,7 +72,7 @@ export class ImageRenderer {
 	readonly logger: Logger;
 	private readonly serviceCtx: ServiceContext;
 	private readonly puppeteer: PuppeteerLike;
-	private readonly config: ImageRendererConfig;
+	private config: ImageRendererConfig;
 
 	// 图片 base64 缓存
 	private readonly imageCache = new Map<string, { dataUrl: string; updatedAt: number }>();
@@ -92,6 +92,18 @@ export class ImageRenderer {
 
 	start(): void {
 		this.clearCacheTimer = this.serviceCtx.setInterval(() => this.pruneImageCache(), 5 * 60 * 1000);
+	}
+
+	/**
+	 * 热更运行时配置(卡片配色 / 字体 / 显示选项)。adapter 在 dashboard 编辑后调用,
+	 * 后续渲染的卡片立刻用新配色,无需重启 server。
+	 * 注意:已缓存的 base64 图(头像 / 封面)与配色无关,无需 invalidate。
+	 */
+	updateConfig(config: ImageRendererConfig): void {
+		this.config = config;
+		this.logger.info(
+			`[image] 配置已更新: cardColorStart=${config.cardColorStart}, cardColorEnd=${config.cardColorEnd}`,
+		);
 	}
 
 	stop(): void {

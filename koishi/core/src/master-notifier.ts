@@ -6,9 +6,9 @@ export interface MasterNotifierOptions {
 }
 
 /**
- * Listener for `bilibili-notify/plugin-error`. Today this is a thin warn-level log
- * forwarder so sub-plugins can surface their own errors without hard-coupling to
- * the koishi `ctx.logger` namespace. Future work in Stage 2 will extend this to
+ * Listener for `bilibili-notify/engine-error`. Today this is a thin warn-level log
+ * forwarder so business engines can surface their own errors without hard-coupling
+ * to the koishi `ctx.logger` namespace. Future work in Stage 2 will extend this to
  * relay to the master account and to a `Notifier` console widget.
  */
 export class MasterNotifier {
@@ -19,7 +19,7 @@ export class MasterNotifier {
 	}
 
 	install(): void {
-		this.opts.ctx.on("bilibili-notify/plugin-error", (source, message) => {
+		this.opts.ctx.on("bilibili-notify/engine-error", (source, message) => {
 			this.opts.logger.warn(`[${source}] ${message}`);
 		});
 	}

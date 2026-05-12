@@ -33,7 +33,7 @@ export interface BilibiliPushOptions {
 export class BilibiliPush {
 	private readonly sink: NotificationSink;
 	private readonly store: SubscriptionStore;
-	private readonly master: PushTarget | null;
+	private master: PushTarget | null;
 	private readonly logger: Logger;
 	private disposed = false;
 
@@ -42,6 +42,19 @@ export class BilibiliPush {
 		this.store = opts.store;
 		this.master = opts.master ?? null;
 		this.logger = opts.logger;
+	}
+
+	/**
+	 * 热替换 master PushTarget。adapter 在 globals/targets 变化后调用,
+	 * 后续 `sendPrivateMsg` / `sendErrorMsg` 立即用新目标。
+	 * `null` 表示"无 master 配置",私聊路径变 no-op。
+	 */
+	setMaster(target: PushTarget | null): void {
+		const prev = this.master?.id;
+		this.master = target;
+		if (prev !== target?.id) {
+			this.logger.info(`[push] master 目标已切换: ${prev ?? "(无)"} → ${target?.id ?? "(无)"}`);
+		}
 	}
 
 	start(): void {

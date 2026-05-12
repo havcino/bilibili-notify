@@ -61,6 +61,14 @@ export class ListenerManager {
 		return Array.from(this.sessionRecord.values()).map((s) => s.getLiveSnapshot());
 	}
 
+	/**
+	 * `pushTime` 热更后调用:把所有 active session 的"正在直播"复推 timer 按当前
+	 * `pushTime` 重新 arm。LiveEngine.updateConfig 在检测到变化时转发。
+	 */
+	rearmAllPeriodicTimers(): void {
+		for (const session of this.sessionRecord.values()) session.rearmPeriodicTimer();
+	}
+
 	/** Whether any feature on this sub requires the live-room WS connection. */
 	needsLiveMonitor(sub: SubItemView): boolean {
 		return this.ctx.needsLiveMonitor(sub);
@@ -133,6 +141,9 @@ export class ListenerManager {
 	stopForUid(uid: string): void {
 		const sub = this.subRecord.get(uid);
 		if (!sub) return;
+		// 若停止时这位 UP 正在直播,等价于"idle"——前端面板需要把这条移出。
+		const session = this.sessionRecord.get(uid);
+		if (session?.isLive) this.ctx.emitLiveState(uid, "idle");
 		const timer = this.ctx.livePushTimerManager.get(sub.roomId);
 		timer?.();
 		this.ctx.livePushTimerManager.delete(sub.roomId);

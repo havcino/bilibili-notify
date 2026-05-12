@@ -32,6 +32,16 @@ export interface NodeServiceContextOptions {
  * WS layer to feed `logger.<level>(...)` calls onto the `log` channel without the
  * core `Logger` interface having to know anything about WebSockets.
  */
+export interface SubsystemContext extends ServiceContext {
+	/**
+	 * Mutate the subsystem's pino level at runtime. Pino exposes `.level`
+	 * as a writeable property; this just forwards. Used by engines.ts when
+	 * `config-changed: globals` arrives so log-level changes via the dashboard
+	 * take effect without a server restart.
+	 */
+	setLevel(level: string): void;
+}
+
 export interface NodeServiceContext extends ServiceContext {
 	/** Tear down all pending timers + onDispose hooks (LIFO). Idempotent. */
 	dispose(): Promise<void>;
@@ -40,16 +50,17 @@ export interface NodeServiceContext extends ServiceContext {
 	 * Returns the previous hook so callers can restore it on dispose.
 	 */
 	setLogHook(fn: ((entry: LogEntry) => void) | undefined): ((entry: LogEntry) => void) | undefined;
+	/** Mutate the base pino logger's level at runtime. */
+	setLevel(level: string): void;
 	/**
 	 * Spawn a child ServiceContext for a named subsystem (engine module). The
 	 * child shares timers / onDispose / WS log hook with the parent but its
 	 * `logger` writes through a fresh pino instance with `name=parent:sub` and
 	 * an independent `level`. Used by engines.ts to give each business engine
 	 * (dynamic / live / image / ai) its own log pipeline so operators can crank
-	 * one to debug without flooding the others. Pino level is set at construct
-	 * time, so changing logLevels at runtime requires a server restart.
+	 * one to debug without flooding the others.
 	 */
-	forSubsystem(name: string, level: string | undefined): ServiceContext;
+	forSubsystem(name: string, level: string | undefined): SubsystemContext;
 }
 
 export function createNodeServiceContext(opts: NodeServiceContextOptions): NodeServiceContext {
@@ -159,7 +170,10 @@ export function createNodeServiceContext(opts: NodeServiceContextOptions): NodeS
 			logHook = fn;
 			return prev;
 		},
-		forSubsystem(name: string, level: string | undefined): ServiceContext {
+		setLevel(level: string): void {
+			baseLogger.level = level;
+		},
+		forSubsystem(name: string, level: string | undefined): SubsystemContext {
 			const subPino = pino({
 				name: `${opts.name}:${name}`,
 				level: level ?? opts.level ?? "info",
@@ -170,6 +184,9 @@ export function createNodeServiceContext(opts: NodeServiceContextOptions): NodeS
 				setInterval: setIntervalImpl,
 				setTimeout: setTimeoutImpl,
 				onDispose: onDisposeImpl,
+				setLevel(next: string): void {
+					subPino.level = next;
+				},
 			};
 		},
 		async dispose() {

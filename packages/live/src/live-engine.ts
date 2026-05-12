@@ -66,10 +66,17 @@ export interface LiveEngineOptions {
 	commentary?: CommentaryGenerator | null;
 	config: LiveEngineConfig;
 	/**
-	 * Called by the engine to surface a `plugin-error` to the host. Adapters
-	 * forward this to their MessageBus / koishi `ctx.emit('bilibili-notify/plugin-error')`.
+	 * Called by the engine to surface an `engine-error` to the host. Adapters
+	 * forward this to their MessageBus / koishi `ctx.emit('bilibili-notify/engine-error')`.
 	 */
-	emitPluginError: (message: string) => void;
+	emitEngineError: (message: string) => void;
+	/**
+	 * Optional — adapter pipe for per-UID live-state transitions. Adapter forwards
+	 * to `bus.emit("live-state-changed", uid, status)`. When absent the engine
+	 * runs without state broadcasts (koishi shell may opt out if it has nothing
+	 * subscribing).
+	 */
+	emitLiveState?: (uid: string, status: "live" | "idle") => void;
 }
 
 /**
@@ -91,6 +98,7 @@ export class LiveEngine {
 	private readonly logger: Logger;
 	private readonly listener: ListenerManager;
 	private readonly danmakuCollector: DanmakuCollector;
+	private readonly liveSummaryRequester: LiveSummaryRequester;
 	private config: LiveEngineConfig;
 
 	constructor(opts: LiveEngineOptions) {
@@ -105,12 +113,13 @@ export class LiveEngine {
 			isImageEnabled: () => this.config.imageEnabled !== false,
 			logger: this.logger,
 		});
-		const liveSummaryRequester = new LiveSummaryRequester({
+		this.liveSummaryRequester = new LiveSummaryRequester({
 			commentary: opts.commentary ?? null,
 			isAiEnabled: () => this.config.aiEnabled !== false,
 			templateRenderer,
 			logger: this.logger,
 		});
+		const liveSummaryRequester = this.liveSummaryRequester;
 
 		this.listener = new ListenerManager({
 			serviceCtx: opts.serviceCtx,
@@ -123,7 +132,8 @@ export class LiveEngine {
 			danmakuCollector: this.danmakuCollector,
 			imageRenderer: opts.imageRenderer ?? null,
 			config: toListenerConfig(opts.config),
-			emitPluginError: opts.emitPluginError,
+			emitEngineError: opts.emitEngineError,
+			emitLiveState: opts.emitLiveState,
 		});
 	}
 
@@ -202,9 +212,23 @@ export class LiveEngine {
 
 	/** Replace runtime config (called when the adapter receives a config-changed event). */
 	updateConfig(config: LiveEngineConfig): void {
+		const pushTimeChanged = this.config.pushTime !== config.pushTime;
 		this.config = config;
 		this.danmakuCollector.setStopwords(mergeStopWords(config.wordcloudStopWords));
 		this.listener.updateConfig(toListenerConfig(config));
+		// pushTime 变化需要 dispose+rearm 已 arm 的 setInterval(node API ms 参数 immutable)。
+		if (pushTimeChanged) {
+			this.logger.info(`[live] pushTime 已更新为 ${config.pushTime}h,重排所有定时器`);
+			this.listener.rearmAllPeriodicTimers();
+		}
+	}
+
+	/**
+	 * 热替换 CommentaryGenerator 实例。adapter 在用户运行时打开 / 关闭 / 更换 AI
+	 * 配置后调用,引擎随后的直播总结会立即用新实例 (或回退到模板) ,无需重启 server。
+	 */
+	setCommentary(commentary: CommentaryGenerator | null): void {
+		this.liveSummaryRequester.setCommentary(commentary);
 	}
 
 	/** Final dispose; the engine instance must not be reused after this. */

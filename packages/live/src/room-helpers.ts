@@ -37,14 +37,14 @@ export class RoomContext extends RoomContextBase {
 		} catch (e) {
 			const message = (e as Error).message ?? String(e);
 			this.logger.error(`[conn] 获取个人信息异常，房间 [${roomId}]：${message}`);
-			this.emitPluginError(`[${roomId}] 获取个人信息异常：${message}`);
+			this.emitEngineError(`[${roomId}] 获取个人信息异常：${message}`);
 			return;
 		}
 		if (mySelfInfo.code !== 0 || !mySelfInfo.data) {
 			this.logger.error(
 				`[conn] 获取个人信息失败 code=${mySelfInfo.code}，无法创建直播间 [${roomId}] 连接`,
 			);
-			this.emitPluginError(`[${roomId}] 获取个人信息失败 code=${mySelfInfo.code}`);
+			this.emitEngineError(`[${roomId}] 获取个人信息失败 code=${mySelfInfo.code}`);
 			return;
 		}
 		if (this.isDisposed()) return;

@@ -26,7 +26,7 @@ declare module "koishi" {
 	}
 	interface Events {
 		"bilibili-notify/subscription-changed"(ops: SubscriptionOp[]): void;
-		"bilibili-notify/plugin-error"(source: string, message: string): void;
+		"bilibili-notify/engine-error"(source: string, message: string): void;
 		"bilibili-notify/auth-lost"(): void;
 		"bilibili-notify/auth-restored"(): void;
 	}
@@ -308,8 +308,8 @@ export class BilibiliNotifyLive extends Service<BilibiliNotifyLiveConfig> {
 			imageRenderer: this.ctx.get("bilibili-notify-image")?.engine ?? null,
 			commentary: this.ctx.get("bilibili-notify-ai")?.engine ?? null,
 			config: this.toEngineConfig(this.config),
-			emitPluginError: (message) =>
-				this.ctx.emit("bilibili-notify/plugin-error", SERVICE_NAME, message),
+			emitEngineError: (message) =>
+				this.ctx.emit("bilibili-notify/engine-error", SERVICE_NAME, message),
 		});
 
 		// Initialize with current subs

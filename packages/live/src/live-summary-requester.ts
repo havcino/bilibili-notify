@@ -24,7 +24,7 @@ export const LIVE_SUMMARY_MIN_SENDERS = 5;
  * caller to skip the summary push entirely).
  */
 export class LiveSummaryRequester {
-	private readonly commentary: CommentaryGenerator | null;
+	private commentary: CommentaryGenerator | null;
 	private readonly isAiEnabled: () => boolean;
 	private readonly templateRenderer: LiveTemplateRenderer;
 	private readonly logger: Logger;
@@ -44,6 +44,11 @@ export class LiveSummaryRequester {
 		this.isAiEnabled = opts.isAiEnabled ?? (() => true);
 		this.templateRenderer = opts.templateRenderer;
 		this.logger = opts.logger;
+	}
+
+	/** 热替换 CommentaryGenerator 实例。null 表示降级到模板回退。 */
+	setCommentary(commentary: CommentaryGenerator | null): void {
+		this.commentary = commentary;
 	}
 
 	async generate(params: {

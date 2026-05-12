@@ -52,7 +52,7 @@ export interface BilibiliAPIOptions {
 export class BilibiliAPI {
 	readonly logger: Logger;
 	private readonly serviceCtx: ServiceContext;
-	private readonly config: BilibiliAPIConfig;
+	private config: BilibiliAPIConfig;
 	private readonly callbacks: BilibiliAPICallbacks;
 
 	private jar: CookieJar;
@@ -96,6 +96,23 @@ export class BilibiliAPI {
 		this.ticketJob?.stop();
 		this.refreshCookieTimer?.dispose();
 		this.refreshCookieTimer = undefined;
+	}
+
+	/**
+	 * 热替换 User-Agent。adapter 在 dashboard 编辑 `app.userAgent` 后调用,
+	 * 直接改 axios 实例的 default headers,后续请求生效;已 in-flight 的请求
+	 * 仍走旧 UA。`undefined` / 空串 → 回退到内置默认 Firefox UA。
+	 */
+	setUserAgent(userAgent: string | undefined): void {
+		const ua =
+			userAgent && userAgent.trim()
+				? userAgent
+				: "Mozilla/5.0 (X11; Linux x86_64; rv:109.0) Gecko/20100101 Firefox/115.0";
+		this.config = { ...this.config, userAgent };
+		if (this.client) {
+			this.client.defaults.headers["User-Agent"] = ua;
+			this.logger.info(`[init] User-Agent 已更新: ${ua}`);
+		}
 	}
 
 	// ---- Initialization ----
