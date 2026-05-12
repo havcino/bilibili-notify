@@ -261,12 +261,20 @@ export function createEngines(opts: CreateEnginesOptions): EnginesRuntime {
 				supervisorImgUrl: g.defaults.templates.guardBuy.commander.imageUrl,
 				governorImgUrl: g.defaults.templates.guardBuy.governor.imageUrl,
 			},
-			customLiveMsg: {
-				enable: g.defaults.templates.liveMsgEnabled,
-				customLiveStart: g.defaults.templates.liveStart,
-				customLive: g.defaults.templates.liveOngoing,
-				customLiveEnd: g.defaults.templates.liveEnd,
-			},
+			// Only forward the schema templates when the user opted in via
+			// `liveMsgEnabled`. When false, leave the override empty so the engine
+			// falls back to `DEFAULT_LIVE_TEMPLATES` in template-renderer.ts (the
+			// legacy `-name / -time / -watched` shorthand that users expect by
+			// default). The schema fields use `{name}` style and are only honoured
+			// when the user explicitly turns on the custom-template switch.
+			customLiveMsg: g.defaults.templates.liveMsgEnabled
+				? {
+						enable: true,
+						customLiveStart: g.defaults.templates.liveStart,
+						customLive: g.defaults.templates.liveOngoing,
+						customLiveEnd: g.defaults.templates.liveEnd,
+					}
+				: { enable: false },
 		};
 	};
 
@@ -584,12 +592,14 @@ function buildLiveSubViewSingle(sub: Subscription, globals: GlobalConfig): LiveS
 			cardColorStart: eff.cardStyle.cardColorStart,
 			cardColorEnd: eff.cardStyle.cardColorEnd,
 		},
-		customLiveMsg: {
-			enable: eff.templates.liveMsgEnabled,
-			customLiveStart: eff.templates.liveStart,
-			customLive: eff.templates.liveOngoing,
-			customLiveEnd: eff.templates.liveEnd,
-		},
+		customLiveMsg: eff.templates.liveMsgEnabled
+			? {
+					enable: true,
+					customLiveStart: eff.templates.liveStart,
+					customLive: eff.templates.liveOngoing,
+					customLiveEnd: eff.templates.liveEnd,
+				}
+			: { enable: false },
 		customGuardBuy: {
 			enable: eff.templates.guardBuy.enable,
 			guardBuyMsg: eff.templates.guardBuy.captain.template,
