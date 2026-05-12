@@ -89,34 +89,45 @@ interface EnableCheckArgs {
 }
 
 async function runEnableCheck(args: EnableCheckArgs): Promise<EnableCheckResult> {
-	const cardEnabled = mergedFlag(
-		args.current.defaults.cardStyle.enabled,
-		pluck(args.patch, ["defaults", "cardStyle", "enabled"]),
-	);
-	if (cardEnabled) {
-		const r = await checkCardEnable(args.puppeteer);
-		if (!r.ok) return r;
+	// Per-scope gating: the check only fires when *this* PATCH actually touches
+	// the scope. Otherwise saving the Cards tab would re-validate the live AI
+	// connection (and vice versa) simply because the persisted state already had
+	// `enabled = true`. Each dashboard tab now only validates what it owns.
+	const touchesCardStyle = pluck(args.patch, ["defaults", "cardStyle"]) !== undefined;
+	const touchesAi = pluck(args.patch, ["defaults", "ai"]) !== undefined;
+
+	if (touchesCardStyle) {
+		const cardEnabled = mergedFlag(
+			args.current.defaults.cardStyle.enabled,
+			pluck(args.patch, ["defaults", "cardStyle", "enabled"]),
+		);
+		if (cardEnabled) {
+			const r = await checkCardEnable(args.puppeteer);
+			if (!r.ok) return r;
+		}
 	}
 
-	const aiEnabled = mergedFlag(
-		args.current.defaults.ai.enabled,
-		pluck(args.patch, ["defaults", "ai", "enabled"]),
-	);
-	if (aiEnabled) {
-		const apiKey = mergedString(
-			args.current.defaults.ai.apiKey,
-			pluck(args.patch, ["defaults", "ai", "apiKey"]),
+	if (touchesAi) {
+		const aiEnabled = mergedFlag(
+			args.current.defaults.ai.enabled,
+			pluck(args.patch, ["defaults", "ai", "enabled"]),
 		);
-		const baseUrl = mergedString(
-			args.current.defaults.ai.baseUrl,
-			pluck(args.patch, ["defaults", "ai", "baseUrl"]),
-		);
-		const model = mergedString(
-			args.current.defaults.ai.model,
-			pluck(args.patch, ["defaults", "ai", "model"]),
-		);
-		const r = await checkAiEnable({ apiKey, baseUrl, model });
-		if (!r.ok) return r;
+		if (aiEnabled) {
+			const apiKey = mergedString(
+				args.current.defaults.ai.apiKey,
+				pluck(args.patch, ["defaults", "ai", "apiKey"]),
+			);
+			const baseUrl = mergedString(
+				args.current.defaults.ai.baseUrl,
+				pluck(args.patch, ["defaults", "ai", "baseUrl"]),
+			);
+			const model = mergedString(
+				args.current.defaults.ai.model,
+				pluck(args.patch, ["defaults", "ai", "model"]),
+			);
+			const r = await checkAiEnable({ apiKey, baseUrl, model });
+			if (!r.ok) return r;
+		}
 	}
 
 	return { ok: true };
