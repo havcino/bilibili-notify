@@ -1,5 +1,6 @@
 import type { ConfigStore } from "../config/store.js";
 import type { AppRuntime } from "../runtime/bootstrap.js";
+import type { StandalonePuppeteer } from "../runtime/puppeteer.js";
 
 /**
  * Shared dependency bag passed to each route module's factory. Avoids a global
@@ -8,4 +9,10 @@ import type { AppRuntime } from "../runtime/bootstrap.js";
 export interface RouteDeps {
 	runtime: AppRuntime;
 	store: ConfigStore;
+	/**
+	 * Puppeteer adapter shared with the engine + cards/preview routes. Null when
+	 * `BN_CHROME_PATH` / `chromePath` is unset; the globals enable-check uses
+	 * this presence to gate `cardStyle.enabled = true` saves.
+	 */
+	puppeteer: StandalonePuppeteer | null;
 }

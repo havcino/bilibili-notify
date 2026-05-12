@@ -64,7 +64,11 @@ export interface CreateAppOptions {
  */
 export function createApp(runtime: AppRuntime, options: CreateAppOptions = {}): Hono {
 	const app = new Hono();
-	const deps: RouteDeps = { runtime, store: runtime.configStore };
+	const deps: RouteDeps = {
+		runtime,
+		store: runtime.configStore,
+		puppeteer: options.puppeteer ?? null,
+	};
 
 	app.onError((err, c) => {
 		// Let hono's HTTPException-derived responses (e.g. basicAuth's 401) flow
