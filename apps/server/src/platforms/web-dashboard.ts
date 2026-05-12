@@ -5,7 +5,7 @@ import type {
 	PushAdapter,
 	PushTarget,
 } from "@bilibili-notify/internal";
-import type { PlatformAdapter } from "./types.js";
+import type { PlatformAdapter, ProbeResult } from "./types.js";
 
 /**
  * Web-dashboard "platform". This is not a real outbound channel — it's a
@@ -46,6 +46,12 @@ export function createWebDashboardAdapter(_opts: WebDashboardAdapterOptions): Pl
 					err: `wrong platform: adapter=${adapter.platform} target=${target.platform}`,
 				};
 			}
+			return { ok: true, latencyMs: 0 };
+		},
+		async probe(_adapter: PushAdapter): Promise<ProbeResult> {
+			// Dashboard "platform" is an in-process pass-through; it's always
+			// reachable as long as the server is running (which is the case if
+			// we got far enough to be polling adapters).
 			return { ok: true, latencyMs: 0 };
 		},
 	};

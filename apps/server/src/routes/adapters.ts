@@ -68,6 +68,36 @@ export function createAdaptersRoute(deps: RouteDeps): Hono {
 		}
 	});
 
+	app.post("/:id/test", async (c) => {
+		const id = c.req.param("id");
+		const adapter = deps.store.getAdapters().find((a) => a.id === id);
+		if (!adapter) return c.json({ ok: false, latencyMs: 0, err: "adapter not found" }, 404);
+		const engines = deps.runtime.engines;
+		if (!engines) {
+			return c.json({ ok: false, latencyMs: 0, err: "engines not yet attached" }, 503);
+		}
+		const result = await engines.probeAdapter(id);
+		// Persist the probe outcome to adapter.testStatus so the dashboard's
+		// status dot reflects this click without waiting for the 5-min poller.
+		// `ok: null` (probe unsupported) deliberately doesn't write back — we
+		// want the UI to remain "pending / unsupported" rather than green.
+		if (result.ok !== null) {
+			try {
+				await deps.store.patchAdapter(id, {
+					testStatus: {
+						ok: result.ok,
+						lastCheckedAt: new Date().toISOString(),
+						latencyMs: result.latencyMs,
+						err: result.err,
+					},
+				});
+			} catch (err) {
+				log.warn(`POST /api/adapters/${id}/test patchAdapter failed: ${String(err)}`);
+			}
+		}
+		return c.json(result);
+	});
+
 	app.delete("/:id", async (c) => {
 		const id = c.req.param("id");
 		try {

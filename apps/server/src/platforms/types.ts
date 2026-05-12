@@ -18,6 +18,18 @@ import type {
  * Adapters should NOT throw — return `{ ok: false, err: "..." }` instead.
  * The router will retry on transient failures.
  */
+/**
+ * Connection-level probe outcome. Distinct from {@link DeliveryResult} so the
+ * caller can tell "this platform doesn't support a no-message probe" apart
+ * from "probe ran and failed".
+ */
+export interface ProbeResult {
+	/** `true` = reachable; `false` = reachable test failed; `null` = adapter has no probe protocol */
+	ok: boolean | null;
+	latencyMs: number;
+	err?: string;
+}
+
 export interface PlatformAdapter {
 	/** Platforms this adapter handles ("onebot" / "webhook" / "web-dashboard"). */
 	readonly platforms: readonly string[];
@@ -30,4 +42,10 @@ export interface PlatformAdapter {
 		payload: NotificationPayload,
 		opts?: { private?: boolean },
 	): Promise<DeliveryResult>;
+	/**
+	 * Side-effect-free reachability probe. Used by the adapter status indicator
+	 * and the auto-poller. Implementations that have no out-of-band ping should
+	 * return `{ ok: null }` so the UI can render "probe unsupported".
+	 */
+	probe(adapter: PushAdapter): Promise<ProbeResult>;
 }

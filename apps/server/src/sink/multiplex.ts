@@ -7,7 +7,16 @@ import type {
 	PushTarget,
 } from "@bilibili-notify/internal";
 import type { ConfigStore } from "../config/store.js";
-import type { PlatformAdapter } from "../platforms/types.js";
+import type { PlatformAdapter, ProbeResult } from "../platforms/types.js";
+
+/**
+ * Extended sink — keeps the canonical NotificationSink surface but adds an
+ * `out-of-band` adapter probe entry point used by `/api/adapters/:id/test` and
+ * the {@link AdapterProbeScheduler}.
+ */
+export interface MultiplexSink extends NotificationSink {
+	probeAdapter(adapterId: string): Promise<ProbeResult>;
+}
 
 /**
  * Standalone {@link NotificationSink} implementation.
@@ -30,7 +39,7 @@ export interface MultiplexSinkOptions {
 	) => void;
 }
 
-export function createMultiplexSink(opts: MultiplexSinkOptions): NotificationSink {
+export function createMultiplexSink(opts: MultiplexSinkOptions): MultiplexSink {
 	const log = opts.logger;
 	const adapterByPlatform = new Map<string, PlatformAdapter>();
 	for (const ad of opts.adapters) {
@@ -71,6 +80,18 @@ export function createMultiplexSink(opts: MultiplexSinkOptions): NotificationSin
 
 		sendPrivate(targetId: string, payload: NotificationPayload): Promise<DeliveryResult> {
 			return dispatch(targetId, payload, { private: true });
+		},
+
+		async probeAdapter(adapterId: string): Promise<ProbeResult> {
+			const adapter = opts.store.getAdapters().find((a) => a.id === adapterId);
+			if (!adapter) {
+				return { ok: false, latencyMs: 0, err: "adapter not found" };
+			}
+			const platformAdapter = adapterByPlatform.get(adapter.platform);
+			if (!platformAdapter) {
+				return { ok: false, latencyMs: 0, err: `no platform adapter for ${adapter.platform}` };
+			}
+			return platformAdapter.probe(adapter);
 		},
 	};
 

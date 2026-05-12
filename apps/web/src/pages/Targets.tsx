@@ -86,10 +86,16 @@ function targetSessionSummary(target: PushTarget): string {
 
 // ── Adapter card ────────────────────────────────────────────────────────────
 
-function adapterStatusFor(a: PushAdapter): "ok" | "warn" | "err" | "off" {
+function adapterStatusFor(a: PushAdapter): "ok" | "warn" | "err" | "off" | "pending" {
 	if (!a.enabled) return "off";
-	if (!a.testStatus) return "ok";
+	if (!a.testStatus) return "pending";
 	return a.testStatus.ok ? "ok" : "err";
+}
+
+function targetStatusFor(t: PushTarget): "ok" | "warn" | "err" | "off" | "pending" {
+	if (!t.enabled) return "off";
+	if (!t.testStatus) return "pending";
+	return t.testStatus.ok ? "ok" : "err";
 }
 
 // ── Target card ─────────────────────────────────────────────────────────────
@@ -99,11 +105,15 @@ interface TargetCardProps {
 	adapter: PushAdapter | undefined;
 	onEdit: () => void;
 	onDelete: () => void;
+	onTest: () => void;
+	testing: TestState | undefined;
 }
 
-function TargetCard({ target, adapter, onEdit, onDelete }: TargetCardProps) {
+function TargetCard({ target, adapter, onEdit, onDelete, onTest, testing }: TargetCardProps) {
 	const tint = tintFor(target.platform);
 	const adapterMissing = !adapter;
+	const status = targetStatusFor(target);
+	const testStatus = target.testStatus;
 
 	return (
 		<div
@@ -127,8 +137,23 @@ function TargetCard({ target, adapter, onEdit, onDelete }: TargetCardProps) {
 						{targetSessionSummary(target)}
 					</div>
 				</div>
-				<StatusDot kind={target.enabled ? "ok" : "off"} />
+				<StatusDot kind={status} />
 			</div>
+
+			{testStatus ? (
+				<div
+					className="mb-2 rounded-[4px] border-l-[3px] px-2 py-0.5 text-[10.5px]"
+					style={
+						testStatus.ok
+							? { background: "#f0fdf4", borderLeftColor: "#22c55e", color: "#166534" }
+							: { background: "#fef2f2", borderLeftColor: "#ef4444", color: "#991b1b" }
+					}
+				>
+					{testStatus.ok
+						? `上次推送 OK${testStatus.latencyMs != null ? ` · ${testStatus.latencyMs}ms` : ""}`
+						: `上次推送失败${testStatus.err ? ` — ${testStatus.err}` : ""}`}
+				</div>
+			) : null}
 
 			<div className="flex items-center justify-between text-[11.5px] text-bn-text-secondary">
 				<span className="truncate">
@@ -140,6 +165,21 @@ function TargetCard({ target, adapter, onEdit, onDelete }: TargetCardProps) {
 					{target.enabled ? null : <span className="ml-1.5 text-bn-text-tertiary">(已停用)</span>}
 				</span>
 				<div className="flex shrink-0 gap-1">
+					<Btn
+						size="sm"
+						variant="ghost"
+						onClick={onTest}
+						disabled={testing === "pending" || !target.enabled || adapterMissing}
+						title="向该目标真实发送一条测试消息"
+					>
+						{testing === "pending"
+							? "发送中…"
+							: testing === "ok"
+								? "已送达"
+								: testing === "fail"
+									? "失败"
+									: "测试"}
+					</Btn>
 					<Btn size="sm" variant="ghost" onClick={onEdit}>
 						配置
 					</Btn>
@@ -763,6 +803,42 @@ function DeleteModal({
 	);
 }
 
+// ── Test confirm modal ─────────────────────────────────────────────────────
+
+function TestConfirmModal({
+	target,
+	adapter,
+	onCancel,
+	onConfirm,
+}: {
+	target: PushTarget;
+	adapter: PushAdapter | undefined;
+	onCancel: () => void;
+	onConfirm: () => void;
+}) {
+	return (
+		<ModalShell onCancel={onCancel} width={420}>
+			<div className="mb-2 text-[15px] font-bold text-bn-text-primary">发送测试推送?</div>
+			<div className="mb-4 text-[13px] leading-relaxed text-bn-text-secondary">
+				将通过 <b className="text-bn-text-primary">{adapter?.name ?? "(未知适配器)"}</b> 向{" "}
+				<b className="text-bn-text-primary">{target.name}</b> 真实发送一条测试消息。
+				<br />
+				<span className="font-mono text-[11.5px] text-bn-text-tertiary">
+					[bilibili-notify] 测试推送已送达 ✓
+				</span>
+			</div>
+			<div className="flex justify-end gap-2">
+				<Btn variant="outline" onClick={onCancel}>
+					取消
+				</Btn>
+				<Btn variant="primary" onClick={onConfirm}>
+					发送
+				</Btn>
+			</div>
+		</ModalShell>
+	);
+}
+
 // ── Adapter rail (left sidebar) ─────────────────────────────────────────────
 
 function AdapterRail({
@@ -877,6 +953,8 @@ export default function Targets() {
 	const [error, setError] = useState<string | null>(null);
 	const [deleteError, setDeleteError] = useState<string | null>(null);
 	const [testing, setTesting] = useState<Record<string, TestState>>({});
+	const [targetTesting, setTargetTesting] = useState<Record<string, TestState>>({});
+	const [confirmTest, setConfirmTest] = useState<PushTarget | null>(null);
 	const [toast, setToast] = useState<{ msg: string; ok: boolean } | null>(null);
 	const [selectedAdapterId, setSelectedAdapterId] = useState<string | null>(null);
 
@@ -985,22 +1063,27 @@ export default function Targets() {
 	});
 
 	async function testAdapter(a: PushAdapter): Promise<void> {
-		// Reuse /api/push/test on any of this adapter's targets if available.
-		// Otherwise tell the user to bind a target first (we don't yet have a
-		// connection-only ping endpoint).
-		const probe = targets.find((t) => t.adapterId === a.id);
-		if (!probe) {
-			showToast("请先为该适配器绑定一个目标再测试", false);
-			return;
-		}
+		// Connection-only probe — calls platformAdapter.probe(), no real message
+		// sent. Webhook returns ok=null (unsupported) which we surface as a
+		// targeted toast asking the user to use a target send-test instead.
 		setTesting((p) => ({ ...p, [a.id]: "pending" }));
 		try {
-			const res = await api.post<TestResponse>("/api/push/test", {
-				targetId: probe.id,
-				kind: "text",
-			});
+			const res = await api.post<{ ok: boolean | null; latencyMs: number; err?: string }>(
+				`/api/adapters/${a.id}/test`,
+				{},
+			);
+			if (res.ok === null) {
+				setTesting((p) => {
+					const next = { ...p };
+					delete next[a.id];
+					return next;
+				});
+				showToast(`该平台不支持连接探测;请用该适配器下任一目标的 "测试" 验证`, false);
+				return;
+			}
 			setTesting((p) => ({ ...p, [a.id]: res.ok ? "ok" : "fail" }));
 			showToast(res.ok ? `连通 · ${res.latencyMs}ms` : `失败:${res.err ?? "未知错误"}`, res.ok);
+			qc.invalidateQueries({ queryKey: ["adapters"] });
 		} catch (err) {
 			setTesting((p) => ({ ...p, [a.id]: "fail" }));
 			const msg = err instanceof ApiError ? err.message : String(err);
@@ -1013,6 +1096,34 @@ export default function Targets() {
 				return next;
 			});
 		}, 2000);
+	}
+
+	async function runTargetTest(t: PushTarget): Promise<void> {
+		setTargetTesting((p) => ({ ...p, [t.id]: "pending" }));
+		try {
+			const res = await api.post<TestResponse>("/api/push/test", {
+				targetId: t.id,
+				kind: "text",
+			});
+			setTargetTesting((p) => ({ ...p, [t.id]: res.ok ? "ok" : "fail" }));
+			showToast(res.ok ? `已送达 · ${res.latencyMs}ms` : `失败:${res.err ?? "未知错误"}`, res.ok);
+			qc.invalidateQueries({ queryKey: ["targets"] });
+		} catch (err) {
+			setTargetTesting((p) => ({ ...p, [t.id]: "fail" }));
+			const msg = err instanceof ApiError ? err.message : String(err);
+			showToast(`测试失败:${msg}`, false);
+		}
+		window.setTimeout(() => {
+			setTargetTesting((p) => {
+				const next = { ...p };
+				delete next[t.id];
+				return next;
+			});
+		}, 2000);
+	}
+
+	function testTarget(t: PushTarget): void {
+		setConfirmTest(t);
 	}
 
 	function startNewAdapter(): void {
@@ -1199,6 +1310,8 @@ export default function Targets() {
 													setDeleteError(null);
 													setConfirmDelete({ kind: "target", value: t });
 												}}
+												onTest={() => testTarget(t)}
+												testing={targetTesting[t.id]}
 											/>
 										))}
 										<AddCard
@@ -1267,6 +1380,19 @@ export default function Targets() {
 					}}
 					deleting={delAdapter.isPending || delTarget.isPending}
 					error={deleteError}
+				/>
+			) : null}
+
+			{confirmTest ? (
+				<TestConfirmModal
+					target={confirmTest}
+					adapter={adaptersById.get(confirmTest.adapterId)}
+					onCancel={() => setConfirmTest(null)}
+					onConfirm={() => {
+						const t = confirmTest;
+						setConfirmTest(null);
+						void runTargetTest(t);
+					}}
 				/>
 			) : null}
 

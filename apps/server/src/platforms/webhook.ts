@@ -6,7 +6,7 @@ import type {
 	PushTarget,
 	WebhookAdapterConfig,
 } from "@bilibili-notify/internal";
-import type { PlatformAdapter } from "./types.js";
+import type { PlatformAdapter, ProbeResult } from "./types.js";
 
 /**
  * Webhook adapter — POST the payload as JSON to an arbitrary HTTP endpoint.
@@ -33,6 +33,13 @@ export function createWebhookAdapter(opts: WebhookAdapterOptions): PlatformAdapt
 			if (!adapter.enabled || !target.enabled) return false;
 			const cfg = adapter.config as WebhookAdapterConfig;
 			return typeof cfg.url === "string" && cfg.url.length > 0;
+		},
+		async probe(_adapter: PushAdapter): Promise<ProbeResult> {
+			// Webhook has no standard side-effect-free ping verb — most endpoints
+			// reject everything except the exact POST shape they expect. Returning
+			// ok:null tells the UI to render "probe unsupported" and prompt the
+			// user to verify with a real send-test.
+			return { ok: null, latencyMs: 0, err: "webhook does not support connection probe" };
 		},
 		async send(
 			adapter: PushAdapter,

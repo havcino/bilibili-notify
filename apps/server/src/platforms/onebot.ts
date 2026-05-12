@@ -8,7 +8,7 @@ import type {
 	PushAdapter,
 	PushTarget,
 } from "@bilibili-notify/internal";
-import type { PlatformAdapter } from "./types.js";
+import type { PlatformAdapter, ProbeResult } from "./types.js";
 
 /**
  * OneBot v11 HTTP adapter.
@@ -152,6 +152,26 @@ export function createOnebotAdapter(opts: OnebotPlatformAdapterOptions): Platfor
 			if (!adapter.enabled || !target.enabled) return false;
 			const cfg = adapter.config as OnebotAdapterConfig;
 			return typeof cfg.baseUrl === "string" && cfg.baseUrl.length > 0;
+		},
+
+		async probe(adapter: PushAdapter): Promise<ProbeResult> {
+			if (adapter.platform !== "onebot") {
+				return { ok: false, latencyMs: 0, err: `wrong platform: ${adapter.platform}` };
+			}
+			const cfg = adapter.config as OnebotAdapterConfig;
+			const t0 = Date.now();
+			try {
+				const result = await postOnebotOnce(cfg, "/get_status", {});
+				const latencyMs = Date.now() - t0;
+				if (result.status !== "ok" || result.retcode !== 0) {
+					const err = result.wording ?? result.message ?? `retcode=${result.retcode}`;
+					return { ok: false, latencyMs, err };
+				}
+				return { ok: true, latencyMs };
+			} catch (e) {
+				const latencyMs = Date.now() - t0;
+				return { ok: false, latencyMs, err: describeFetchError(e) };
+			}
 		},
 
 		async send(

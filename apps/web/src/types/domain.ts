@@ -121,6 +121,7 @@ interface PushTargetCommon {
 	adapterId: string;
 	scope: PushTargetScope;
 	enabled: boolean;
+	testStatus?: PushAdapterTestStatus;
 }
 
 export type PushTarget =

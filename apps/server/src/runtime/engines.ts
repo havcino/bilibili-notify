@@ -51,7 +51,7 @@ import { BilibiliPush } from "@bilibili-notify/push";
 import type { SubscriptionStore } from "@bilibili-notify/subscription";
 import type { ConfigStore } from "../config/store.js";
 import type { HistoryAppendInput, HistoryStore } from "../history/store.js";
-import type { PlatformAdapter } from "../platforms/types.js";
+import type { PlatformAdapter, ProbeResult } from "../platforms/types.js";
 import { createMultiplexSink } from "../sink/multiplex.js";
 import { segmentToPayload, standaloneContentBuilder } from "./content-builder.js";
 import type { NodeServiceContext } from "./service-context.js";
@@ -66,6 +66,8 @@ export interface EnginesRuntime extends Disposable {
 	readonly api: BilibiliAPI;
 	/** Live listener UID list for /api/live/listening. */
 	listListeningUids(): string[];
+	/** Out-of-band reachability probe for `/api/adapters/:id/test`. */
+	probeAdapter(adapterId: string): Promise<ProbeResult>;
 }
 
 export interface CreateEnginesOptions {
@@ -107,6 +109,23 @@ export function createEngines(opts: CreateEnginesOptions): EnginesRuntime {
 				result,
 				dispatchOpts,
 			).catch((e) => log.warn(`[history] append failed: ${String(e)}`));
+			// Bring target.testStatus in sync with reality. We only write on
+			// transition (or first-time) so steady-state pushes don't thrash
+			// targets.json. Fire-and-forget; logging on failure.
+			const prev = target.testStatus;
+			if (!prev || prev.ok !== result.ok) {
+				const nextStatus = {
+					ok: result.ok,
+					lastCheckedAt: new Date().toISOString(),
+					latencyMs: result.latencyMs,
+					err: result.err,
+				};
+				void opts.configStore
+					.patchTarget(target.id, { testStatus: nextStatus })
+					.catch((e) =>
+						log.warn(`[sink] target ${target.id} testStatus writeback failed: ${String(e)}`),
+					);
+			}
 		},
 	});
 
@@ -292,8 +311,56 @@ export function createEngines(opts: CreateEnginesOptions): EnginesRuntime {
 			live.teardown();
 		}),
 	);
+	// ---------- Adapter probe scheduler ----------
+	// Background reachability check. Plan §"系统不要主动测试" excludes message-
+	// sending probes; this one only calls platformAdapter.probe (no side
+	// effects) and writes the result back to adapter.testStatus so the dashboard
+	// reflects reality without the user having to click "测试" on every adapter.
+	const ADAPTER_PROBE_INTERVAL_MS = 5 * 60 * 1000;
+	let probeInFlight = false;
+	async function probeAllAdapters(): Promise<void> {
+		if (probeInFlight) return;
+		probeInFlight = true;
+		try {
+			for (const adapter of opts.configStore.getAdapters()) {
+				if (!adapter.enabled) continue;
+				try {
+					const result = await sink.probeAdapter(adapter.id);
+					if (result.ok === null) continue; // platform doesn't support probe (e.g. webhook)
+					await opts.configStore.patchAdapter(adapter.id, {
+						testStatus: {
+							ok: result.ok,
+							lastCheckedAt: new Date().toISOString(),
+							latencyMs: result.latencyMs,
+							err: result.err,
+						},
+					});
+				} catch (e) {
+					log.warn(`[probe] adapter ${adapter.id} update failed: ${String(e)}`);
+				}
+			}
+		} finally {
+			probeInFlight = false;
+		}
+	}
+
+	// Kick off an immediate probe after engines come up, then poll on a timer.
+	// `config-changed` for 'adapters' scope triggers an extra immediate probe so
+	// the UI reflects new adapters / edits without waiting up to 5 min.
+	void probeAllAdapters();
+	const probeTimer = setInterval(() => {
+		void probeAllAdapters();
+	}, ADAPTER_PROBE_INTERVAL_MS);
+	// Allow process exit without waiting for the next tick.
+	probeTimer.unref?.();
+
 	handles.push(
 		opts.bus.on("config-changed", (scope) => {
+			// NOTE: we deliberately do NOT trigger probeAllAdapters on 'adapters'
+			// config-changed. The probe writes back via patchAdapter → emits
+			// 'adapters' config-changed → would re-trigger probeAllAdapters in an
+			// emit loop. Users wait at most one 5-min tick after editing an
+			// adapter (or click "测试" for an immediate refresh).
 			if (scope === "globals") {
 				dynamic.updateConfig(dynamicConfig());
 				live.updateConfig(liveConfig());
@@ -326,6 +393,7 @@ export function createEngines(opts: CreateEnginesOptions): EnginesRuntime {
 
 	// ---------- Disposal ----------
 	const dispose = (): void => {
+		clearInterval(probeTimer);
 		for (const h of handles.splice(0)) {
 			try {
 				h.dispose();
@@ -364,6 +432,7 @@ export function createEngines(opts: CreateEnginesOptions): EnginesRuntime {
 		commentary,
 		api: opts.api,
 		listListeningUids: () => listListeningUids(live),
+		probeAdapter: (adapterId: string) => sink.probeAdapter(adapterId),
 		dispose,
 	};
 }

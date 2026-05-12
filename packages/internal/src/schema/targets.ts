@@ -143,6 +143,12 @@ const PushTargetCommonShape = {
 	adapterId: z.uuid(),
 	scope: PushTargetScopeSchema,
 	enabled: z.boolean(),
+	/**
+	 * 最近一次显式 `/api/push/test` 或真实业务推送的结果。
+	 * 跟 PushAdapter.testStatus 互相独立 — 此处只反映会话级 (group/userId) 是否可达,
+	 * adapter 连接级状态在 PushAdapter.testStatus。
+	 */
+	testStatus: PushAdapterTestStatusSchema.optional(),
 } as const;
 
 const OnebotPushTargetSchema = z.object({
