@@ -287,7 +287,12 @@ export function UpDialog({ sub, targets, onClose, onSave, onDelete, saving }: Up
 			onCancel={onClose}
 			width={560}
 			bodyClassName=""
-			bodyStyle={{ maxHeight: "90vh", display: "flex", flexDirection: "column" }}
+			bodyStyle={{
+				maxHeight: "90vh",
+				display: "flex",
+				flexDirection: "column",
+				overflow: "hidden",
+			}}
 		>
 			{/* Cover header */}
 			<div
