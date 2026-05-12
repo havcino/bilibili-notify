@@ -436,12 +436,7 @@ function HeadersEditor({
 			{entries.map(([k, v], idx) => (
 				// biome-ignore lint/suspicious/noArrayIndexKey: order-stable while editing
 				<div key={idx} className="flex gap-1.5">
-					<TInput
-						value={k}
-						onChange={(nk) => update(idx, nk, v)}
-						placeholder="Header-Name"
-						mono
-					/>
+					<TInput value={k} onChange={(nk) => update(idx, nk, v)} placeholder="Header-Name" mono />
 					<TInput value={v} onChange={(nv) => update(idx, k, nv)} placeholder="value" mono />
 					<Btn variant="ghost" size="sm" onClick={() => remove(idx)}>
 						删除
@@ -568,9 +563,7 @@ function TargetEditorModal({
 												// OneBot group/private are mutually exclusive — drop the other field
 												const old = value.session as OnebotSession;
 												const session: OnebotSession =
-													s.value === "group"
-														? { groupId: old.groupId }
-														: { userId: old.userId };
+													s.value === "group" ? { groupId: old.groupId } : { userId: old.userId };
 												onChange({ ...value, scope: s.value, session });
 											} else {
 												onChange({ ...value, scope: s.value });
@@ -1073,7 +1066,8 @@ export default function Targets() {
 						<div className="rounded-bn-card bg-white p-8 text-center shadow-bn-card">
 							<div className="mb-1 text-[14px] font-bold text-bn-text-primary">还没有适配器</div>
 							<div className="mb-4 text-[11.5px] text-bn-text-tertiary">
-								先在左侧新建一个适配器(OneBot HTTP / Webhook / Dashboard 通知中心),再为它配置推送目标。
+								先在左侧新建一个适配器(OneBot HTTP / Webhook / Dashboard
+								通知中心),再为它配置推送目标。
 							</div>
 							<Btn variant="primary" size="sm" onClick={startNewAdapter}>
 								+ 新建适配器
@@ -1101,15 +1095,24 @@ export default function Targets() {
 											) : null}
 										</div>
 										<div className="mt-0.5 truncate font-mono text-[11.5px] text-bn-text-tertiary">
-											{platformLabel(selectedAdapter.platform)} · {adapterEndpointSummary(selectedAdapter)}
+											{platformLabel(selectedAdapter.platform)} ·{" "}
+											{adapterEndpointSummary(selectedAdapter)}
 										</div>
 										{selectedAdapter.testStatus ? (
 											<div
 												className="mt-2 inline-block rounded-[4px] border-l-[3px] px-2 py-0.5 text-[11px]"
 												style={
 													selectedAdapter.testStatus.ok
-														? { background: "#f0fdf4", borderLeftColor: "#22c55e", color: "#166534" }
-														: { background: "#fffbeb", borderLeftColor: "#f59e0b", color: "#92400e" }
+														? {
+																background: "#f0fdf4",
+																borderLeftColor: "#22c55e",
+																color: "#166534",
+															}
+														: {
+																background: "#fffbeb",
+																borderLeftColor: "#f59e0b",
+																color: "#92400e",
+															}
 												}
 											>
 												{selectedAdapter.testStatus.ok
@@ -1141,7 +1144,11 @@ export default function Targets() {
 														? "失败"
 														: "测试"}
 										</Btn>
-										<Btn size="sm" variant="ghost" onClick={() => startEditAdapter(selectedAdapter)}>
+										<Btn
+											size="sm"
+											variant="ghost"
+											onClick={() => startEditAdapter(selectedAdapter)}
+										>
 											配置
 										</Btn>
 										<Btn
@@ -1169,11 +1176,7 @@ export default function Targets() {
 											本适配器下的会话:群号 / 用户 ID / dashboardUser。
 										</div>
 									</div>
-									<Btn
-										size="sm"
-										variant="outline"
-										onClick={() => startNewTarget(selectedAdapter)}
-									>
+									<Btn size="sm" variant="outline" onClick={() => startNewTarget(selectedAdapter)}>
 										+ 新建推送目标
 									</Btn>
 								</div>
