@@ -1,9 +1,20 @@
-import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useMemo, useState } from "react";
 import { Btn } from "../components/atoms";
+import { Field, LogLevelPicker, type LogLevelValue, TInput, TNum, TSelect } from "../components/forms";
+import { GlassBox } from "../components/glass-box";
+import { Icon } from "../components/icons";
 import { ApiError, api } from "../services/api";
 import { useAuthStore } from "../store/auth";
 import { BiliLoginStatus, type BiliLoginStatusValue } from "../types/auth";
+import type { PushTarget } from "../types/domain";
+import type {
+	AppConfig,
+	GlobalConfig,
+	GlobalConfigPatch,
+	LogLevel,
+	ModuleLogLevels,
+} from "../types/globals";
 
 const STATUS_LABELS: Record<BiliLoginStatusValue, string> = {
 	[BiliLoginStatus.NOT_LOGIN]: "未登录",
@@ -52,6 +63,199 @@ function QrCard({ data, msg }: { data: unknown; msg: string }) {
 	);
 }
 
+// ── System settings (app + master) ──────────────────────────────────────────
+
+const LOG_LEVELS: { value: LogLevel; label: string }[] = [
+	{ value: "error", label: "ERROR · 仅错误" },
+	{ value: "info", label: "INFO · 推荐" },
+	{ value: "debug", label: "DEBUG · 排查" },
+];
+
+/**
+ * Per-module log overrides shown in 系统 Tab. image / ai already have their own
+ * pickers in the Cards / 智能女仆 tabs, so we keep this list to the三个 the
+ * user explicitly asked for (core / dynamic / live). image / ai overrides in
+ * `app.logLevels` are preserved untouched on writes.
+ */
+const SYSTEM_MODULES: ReadonlyArray<{ id: "core" | "dynamic" | "live"; label: string; tone: string }> =
+	[
+		{ id: "core", label: "core 核心", tone: "#FB7299" },
+		{ id: "dynamic", label: "dynamic 动态", tone: "#00AEEC" },
+		{ id: "live", label: "live 直播", tone: "#FF6699" },
+	];
+
+const LOG_LEVEL_NUM: Record<LogLevel, LogLevelValue> = { error: 1, info: 2, debug: 3 };
+const NUM_TO_LOG: Record<LogLevelValue, LogLevel> = { 1: "error", 2: "info", 3: "debug" };
+
+function deepMerge<T>(base: T, patch: GlobalConfigPatch): T {
+	if (typeof patch !== "object" || patch === null || Array.isArray(patch)) return patch as T;
+	const out: Record<string, unknown> = { ...(base as Record<string, unknown>) };
+	for (const k of Object.keys(patch)) {
+		const pv = (patch as Record<string, unknown>)[k];
+		const bv = out[k];
+		if (
+			pv != null &&
+			typeof pv === "object" &&
+			!Array.isArray(pv) &&
+			bv != null &&
+			typeof bv === "object" &&
+			!Array.isArray(bv)
+		) {
+			out[k] = deepMerge(bv, pv as GlobalConfigPatch);
+		} else {
+			out[k] = pv;
+		}
+	}
+	return out as T;
+}
+
+function SystemSettingsSection({
+	draft,
+	targets,
+	onPatch,
+}: {
+	draft: GlobalConfig;
+	targets: PushTarget[];
+	onPatch: (delta: GlobalConfigPatch) => void;
+}) {
+	const app = draft.app;
+	const master = draft.master;
+
+	const setApp = <K extends keyof AppConfig>(key: K, v: AppConfig[K]) => {
+		onPatch({ app: { [key]: v } as Partial<AppConfig> });
+	};
+
+	// Only mutate `app.logLevels[id]` for this module; preserve any image / ai
+	// overrides that were set elsewhere.
+	function setModuleLevel(
+		id: "core" | "dynamic" | "live",
+		value: LogLevelValue | null,
+	): void {
+		const current: ModuleLogLevels = { ...(app.logLevels ?? {}) };
+		if (value === null) delete current[id];
+		else current[id] = NUM_TO_LOG[value];
+		onPatch({
+			app: { logLevels: Object.keys(current).length === 0 ? undefined : current },
+		});
+	}
+
+	const masterTarget = master.targetId ? targets.find((t) => t.id === master.targetId) : undefined;
+	const masterStatus = !master.targetId
+		? "未配置 · 出错时不会私聊提醒"
+		: masterTarget
+			? `→ ${masterTarget.name}`
+			: "目标已删除,请重新选择";
+
+	return (
+		<GlassBox
+			title="Core · 应用"
+			subtitle="后端运行参数 + Master 主人账号 · globals.app / globals.master"
+			accent="#FB7299"
+			icon={<Icon.sparkle size={14} />}
+			badge="app + master"
+		>
+			<Field
+				label="动态检查频率"
+				code="app.dynamicCron"
+				hint="cron 表达式 · 默认 */2 * * * * (每 2 分钟)"
+			>
+				<TInput value={app.dynamicCron} onChange={(v) => setApp("dynamicCron", v)} mono />
+			</Field>
+
+			<Field label="日志等级（全局）" code="app.logLevel" hint="未在下方按模块覆盖时的兜底">
+				<TSelect
+					value={app.logLevel}
+					onChange={(v) => setApp("logLevel", v as LogLevel)}
+					options={LOG_LEVELS}
+				/>
+			</Field>
+
+			<Field
+				label="按模块覆盖"
+				code="app.logLevels"
+				hint="留「跟随全局」即用 app.logLevel；改完保存后需重启服务（pino 等级在构造时定型）"
+				full
+			>
+				<div className="grid w-full grid-cols-1 gap-1.5 sm:grid-cols-3">
+					{SYSTEM_MODULES.map((m) => {
+						const current = app.logLevels?.[m.id];
+						return (
+							<div
+								key={m.id}
+								className="flex items-center justify-between gap-2 rounded-md border border-black/5 bg-white/60 px-2.5 py-1.5"
+							>
+								<span className="flex items-center gap-1.5 text-[12px] font-bold text-bn-text-primary">
+									<span
+										className="inline-block h-1.5 w-1.5 rounded-full"
+										style={{ background: m.tone }}
+									/>
+									{m.label}
+								</span>
+								<LogLevelPicker
+									value={current ? LOG_LEVEL_NUM[current] : null}
+									onChange={(v) => setModuleLevel(m.id, v)}
+									allowInherit
+								/>
+							</div>
+						);
+					})}
+				</div>
+			</Field>
+
+			<Field label="User-Agent" code="app.userAgent" hint="留空使用默认;遇 -352 风控可换" full>
+				<TInput
+					value={app.userAgent ?? ""}
+					onChange={(v) => setApp("userAgent", v || undefined)}
+					placeholder="留空 = 默认"
+					mono
+				/>
+			</Field>
+
+			<Field
+				label="健康检查间隔"
+				code="app.healthCheckMinutes"
+				hint="rate-limited master 通知的节流窗口"
+			>
+				<TNum
+					value={app.healthCheckMinutes}
+					onChange={(v) => setApp("healthCheckMinutes", v)}
+					min={1}
+					max={1440}
+					suffix="min"
+				/>
+			</Field>
+
+			<Field label="历史保留天数" code="app.historyRetentionDays" hint="到期的 jsonl 日志会被清理">
+				<TNum
+					value={app.historyRetentionDays}
+					onChange={(v) => setApp("historyRetentionDays", v)}
+					min={1}
+					max={365}
+					suffix="天"
+				/>
+			</Field>
+
+			<div className="mt-3 rounded-lg border border-bn-pink/20 bg-gradient-to-br from-bn-pink/8 to-transparent p-3">
+				<div className="mb-1.5 flex items-center justify-between">
+					<span className="text-[12.5px] font-bold text-bn-text-primary">主人账号 · master</span>
+					<span className="text-[10.5px] text-bn-text-tertiary">插件遇错误会私聊报告给这个目标</span>
+				</div>
+				<Field label="Master 推送目标" code="master.targetId">
+					<TSelect
+						value={master.targetId ?? ""}
+						onChange={(v) => onPatch({ master: { targetId: v || undefined } })}
+						options={[
+							{ value: "", label: "未配置" },
+							...targets.map((t) => ({ value: t.id, label: t.name })),
+						]}
+					/>
+				</Field>
+				<div className="mt-1.5 text-[11px] text-bn-text-secondary">{masterStatus}</div>
+			</div>
+		</GlassBox>
+	);
+}
+
 export default function Auth() {
 	const snapshot = useAuthStore((s) => s.snapshot);
 	const cookiesRefreshedAt = useAuthStore((s) => s.cookiesRefreshedAt);
@@ -61,6 +265,50 @@ export default function Auth() {
 	const status: BiliLoginStatusValue = snapshot?.status ?? BiliLoginStatus.LOADING_LOGIN_INFO;
 	const msg = snapshot?.msg ?? "";
 	const isQrPhase = status === BiliLoginStatus.LOGIN_QR || status === BiliLoginStatus.LOGGING_QR;
+
+	const globalsQuery = useQuery({
+		queryKey: ["globals"],
+		queryFn: () => api.get<GlobalConfig>("/api/globals"),
+	});
+	const targetsQuery = useQuery({
+		queryKey: ["targets"],
+		queryFn: () => api.get<PushTarget[]>("/api/targets"),
+	});
+
+	const [draft, setDraft] = useState<GlobalConfig | null>(null);
+	const [systemError, setSystemError] = useState<string | null>(null);
+
+	useEffect(() => {
+		if (globalsQuery.data) setDraft(globalsQuery.data);
+	}, [globalsQuery.data]);
+
+	const dirty = useMemo(() => {
+		if (!draft || !globalsQuery.data) return false;
+		return JSON.stringify(draft) !== JSON.stringify(globalsQuery.data);
+	}, [draft, globalsQuery.data]);
+
+	function patchDraft(delta: GlobalConfigPatch): void {
+		setDraft((d) => (d ? deepMerge(d, delta) : d));
+	}
+
+	function discard(): void {
+		if (globalsQuery.data) setDraft(globalsQuery.data);
+		setSystemError(null);
+	}
+
+	const save = useMutation({
+		mutationFn: async (next: GlobalConfig) => {
+			setSystemError(null);
+			try {
+				await api.patch<GlobalConfig>("/api/globals", next);
+			} catch (err) {
+				if (err instanceof ApiError) setSystemError(err.message);
+				else setSystemError(String(err));
+				throw err;
+			}
+		},
+		onSuccess: () => qc.invalidateQueries({ queryKey: ["globals"] }),
+	});
 
 	function wrap<T>(action: () => Promise<T>): () => Promise<T | undefined> {
 		return async () => {
@@ -94,9 +342,9 @@ export default function Auth() {
 		<div className="space-y-5">
 			<div className="flex items-center justify-between">
 				<div className="space-y-1">
-					<h2 className="text-base font-medium">账号登录</h2>
+					<h2 className="text-base font-medium">系统</h2>
 					<p className="text-xs text-gray-500">
-						通过扫码登录获取 Cookie；登录态由后端通过 WebSocket 实时同步。
+						账号登录 + 后端运行参数。Cookie 通过 WebSocket 实时同步;日志等级在保存后下次启动生效。
 					</p>
 				</div>
 				<StatusPill status={status} msg={msg} />
@@ -155,6 +403,43 @@ export default function Auth() {
 					{reset.isPending ? "处理中…" : "重置密钥与 Cookie"}
 				</Btn>
 			</div>
+
+			{draft ? (
+				<>
+					<SystemSettingsSection
+						draft={draft}
+						targets={targetsQuery.data ?? []}
+						onPatch={patchDraft}
+					/>
+					{systemError ? (
+						<div className="rounded border border-red-200 bg-red-50 p-2 text-xs text-red-700">
+							{systemError}
+						</div>
+					) : null}
+					{dirty ? (
+						<div className="flex items-center justify-end gap-2">
+							<span className="text-[11.5px] font-semibold text-bn-pink">未保存</span>
+							<Btn variant="outline" size="sm" onClick={discard} disabled={save.isPending}>
+								丢弃
+							</Btn>
+							<Btn
+								variant="primary"
+								size="sm"
+								onClick={() => save.mutate(draft)}
+								disabled={save.isPending}
+							>
+								{save.isPending ? "保存中…" : "保存"}
+							</Btn>
+						</div>
+					) : null}
+				</>
+			) : globalsQuery.isLoading ? (
+				<div className="text-xs text-bn-text-tertiary">加载系统配置中…</div>
+			) : globalsQuery.error ? (
+				<div className="rounded border border-red-200 bg-red-50 p-2 text-xs text-red-700">
+					拉取 /api/globals 失败：{String((globalsQuery.error as Error).message)}
+				</div>
+			) : null}
 
 			<details className="rounded border border-gray-200 bg-gray-50 p-3 text-xs text-gray-600">
 				<summary className="cursor-pointer font-medium text-gray-700">原始登录快照</summary>
