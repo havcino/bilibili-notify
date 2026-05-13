@@ -26,7 +26,7 @@ const NAV: ReadonlyArray<{
 	{ to: "/targets", label: "推送目标", countKey: "targets" },
 	{ to: "/history", label: "推送历史" },
 	{ to: "/rules", label: "高级规则" },
-	{ to: "/cards", label: "卡片预览 · 样式" },
+	{ to: "/cards", label: "卡片渲染 · 样式" },
 	{ to: "/ai", label: "智能女仆" },
 	{ to: "/system", label: "系统" },
 ];

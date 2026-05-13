@@ -269,7 +269,7 @@ export default function Cards() {
 					</div>
 					<div className="flex-1">
 						<div className="flex items-center gap-2 text-[15.5px] font-bold text-bn-text-primary">
-							卡片预览
+							卡片渲染
 							<Pill color="#a29bfe" subtle size="sm">
 								image
 							</Pill>
@@ -358,6 +358,28 @@ export default function Cards() {
 						icon={<KindIcon size={14} />}
 						badge={kind}
 					>
+						{/* 卡片类型切换 —— 决定下方表单字段 + 右侧渲染的卡片种类。 */}
+						<div className="mb-3 flex flex-wrap gap-1.5">
+							{(["live", "dyn", "sc", "guard"] as const).map((k) => {
+								const active = kind === k;
+								const tone = KIND_LABELS[k].tone;
+								return (
+									<button
+										type="button"
+										key={k}
+										onClick={() => setKind(k)}
+										className="rounded px-3 py-1 text-[11.5px] font-semibold transition"
+										style={
+											active
+												? { background: tone, color: "white" }
+												: { background: "rgba(0,0,0,0.04)", color: "#666" }
+										}
+									>
+										{KIND_LABELS[k].label}
+									</button>
+								);
+							})}
+						</div>
 						{kind === "live" ? (
 							<>
 								<Field label="直播间号" code="roomId" hint="纯数字，例如 5440">
@@ -381,7 +403,7 @@ export default function Cards() {
 										placeholder="留空则使用示例数据"
 									/>
 								</Field>
-								<Field label="第几条动态" code="offset" hint="1 = 最新，2 = 倒数第二条…">
+								<Field label="第几条动态" code="offset" hint="按 B 站列表顺序取第 N 条(可能含置顶)">
 									<TInput
 										value={String(content.dyn.offset)}
 										onChange={(v) => {
@@ -458,45 +480,6 @@ export default function Cards() {
 						)}
 					</GlassBox>
 
-					<GlassBox
-						title="测试推送"
-						subtitle="切换卡片类型预览"
-						accent="#FB7299"
-						icon={<Icon.bell size={14} />}
-					>
-						<div className="flex flex-wrap gap-1.5">
-							{(["live", "dyn", "sc", "guard"] as const).map((k) => {
-								const active = kind === k;
-								const tone = KIND_LABELS[k].tone;
-								return (
-									<button
-										type="button"
-										key={k}
-										onClick={() => setKind(k)}
-										className="rounded px-3 py-1 text-[11.5px] font-semibold transition"
-										style={
-											active
-												? { background: tone, color: "white" }
-												: { background: "rgba(0,0,0,0.04)", color: "#666" }
-										}
-									>
-										{k === "live"
-											? "直播开播"
-											: k === "dyn"
-												? "动态发布"
-												: k === "sc"
-													? "SC 提醒"
-													: "上舰提醒"}
-									</button>
-								);
-							})}
-						</div>
-						<div className="mt-3">
-							<Btn variant="primary" full icon={<Icon.bell size={13} />}>
-								发送测试推送
-							</Btn>
-						</div>
-					</GlassBox>
 				</div>
 
 				{/* RIGHT: live preview */}
