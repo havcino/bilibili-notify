@@ -398,6 +398,7 @@ export function createEngines(opts: CreateEnginesOptions): EnginesRuntime {
 		config: liveConfig(),
 		emitEngineError: (msg) => opts.bus.emit("engine-error", "live-engine", msg),
 		emitLiveState: (uid, status) => opts.bus.emit("live-state-changed", uid, status),
+		emitViewers: (uid, viewers) => opts.bus.emit("live-viewers-changed", uid, viewers),
 	});
 
 	// Initialise live with current subs.

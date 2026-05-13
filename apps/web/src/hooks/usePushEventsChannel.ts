@@ -1,6 +1,6 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
-import type { HistoryResponse } from "../services/dashboard";
+import type { HistoryResponse, LiveListenerSnapshot } from "../services/dashboard";
 import { onWsEvent, subscribeChannels } from "../services/wsSingleton";
 import { type PushEventView, useToastStore } from "../store/notifications";
 
@@ -34,6 +34,27 @@ export function usePushEventsChannel(): void {
 			// 后端只在真实 transition 时 emit("live-state-changed"),所以这里不会刷屏。
 			if (env.event === "live-state-changed") {
 				qc.invalidateQueries({ queryKey: ["live", "listening"] });
+				return;
+			}
+
+			// 累计观看人数变化 —— 后端 per-UID 2s 节流过的稀疏事件,直接 setQueryData
+			// 局部 patch 该房间的 viewers 字段。0 额外 HTTP,Dashboard 数字即时跳。
+			// 房间不在快照里(可能刚下播 / 列表还没拉)就静默跳过,下一次 invalidate
+			// 会顺带刷上。
+			if (env.event === "live-viewers-changed") {
+				const tuple = env.data as [string, string] | undefined;
+				if (!tuple || tuple.length !== 2) return;
+				const [uid, viewers] = tuple;
+				qc.setQueryData<LiveListenerSnapshot[]>(["live", "listening"], (old) => {
+					if (!old) return old;
+					let touched = false;
+					const next = old.map((r) => {
+						if (r.uid !== uid) return r;
+						touched = true;
+						return { ...r, viewers };
+					});
+					return touched ? next : old;
+				});
 				return;
 			}
 

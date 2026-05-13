@@ -81,7 +81,7 @@ function LiveNowPanel({ live, subs }: { live: LiveListenerSnapshot[]; subs: Subs
 				// auto-fit grid + max-h cap so the panel never grows beyond Trend's
 				// natural height. Items that don't fit silently clip (the header pill
 				// "● N 人在播" still reports the true live count).
-				<div className="grid max-h-[260px] grid-cols-[repeat(auto-fit,minmax(280px,1fr))] gap-2.5 overflow-hidden">
+				<div className="grid max-h-65 grid-cols-[repeat(auto-fit,minmax(280px,1fr))] gap-2.5 overflow-hidden">
 					{live.map((r) => {
 						const sub = subByUid.get(r.uid);
 						const name = sub ? displayName(sub) : `UID ${r.uid}`;

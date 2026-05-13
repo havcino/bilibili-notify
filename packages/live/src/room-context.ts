@@ -86,6 +86,15 @@ export interface RoomContextOptions {
 	 * 可选;缺省时不推送 —— 仅在 dashboard 走 WS 实时刷新"正在直播"面板时有意义。
 	 */
 	emitLiveState?: (uid: string, status: "live" | "idle") => void;
+	/**
+	 * 推送 per-UID 累计观看人数变化(B 站 `WATCHED_CHANGE` 帧节流后转发)。Adapter
+	 * 实现与 emitLiveState 同型:
+	 *   - standalone: `(uid, viewers) => bus.emit("live-viewers-changed", uid, viewers)`
+	 *   - koishi:     `(uid, viewers) => ctx.emit("bilibili-notify/live-viewers-changed", uid, viewers)`
+	 * 可选;缺省时不推送。room-session 在调用前做 per-UID 2s throttle,所以这里收到
+	 * 的频率已经稀疏(每个直播间最多每 2s 一次)。
+	 */
+	emitViewers?: (uid: string, viewers: string) => void;
 }
 
 /**
@@ -118,6 +127,7 @@ export class RoomContextBase {
 	private readonly _imageRenderer: ImageRenderer | null;
 	readonly emitEngineError: (message: string) => void;
 	private readonly _emitLiveState: ((uid: string, status: "live" | "idle") => void) | undefined;
+	private readonly _emitViewers: ((uid: string, viewers: string) => void) | undefined;
 
 	config: ListenerManagerConfig;
 
@@ -143,6 +153,7 @@ export class RoomContextBase {
 		this.config = opts.config;
 		this.emitEngineError = opts.emitEngineError;
 		this._emitLiveState = opts.emitLiveState;
+		this._emitViewers = opts.emitViewers;
 	}
 
 	/**
@@ -150,6 +161,13 @@ export class RoomContextBase {
 	 */
 	emitLiveState(uid: string, status: "live" | "idle"): void {
 		this._emitLiveState?.(uid, status);
+	}
+
+	/**
+	 * 同型 no-op 安全调用方。room-session 已做 per-UID 节流,这里只是分发。
+	 */
+	emitViewers(uid: string, viewers: string): void {
+		this._emitViewers?.(uid, viewers);
 	}
 
 	/** 受 `config.imageEnabled` 门控的渲染器视图;关闭时返回 null。 */

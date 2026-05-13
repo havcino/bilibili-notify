@@ -77,6 +77,12 @@ export interface LiveEngineOptions {
 	 * subscribing).
 	 */
 	emitLiveState?: (uid: string, status: "live" | "idle") => void;
+	/**
+	 * Optional — adapter pipe for per-UID watched-count updates. Adapter forwards
+	 * to `bus.emit("live-viewers-changed", uid, viewers)`. Throttled per-UID to
+	 * 2s at the room-session boundary.
+	 */
+	emitViewers?: (uid: string, viewers: string) => void;
 }
 
 /**
@@ -134,6 +140,7 @@ export class LiveEngine {
 			config: toListenerConfig(opts.config),
 			emitEngineError: opts.emitEngineError,
 			emitLiveState: opts.emitLiveState,
+			emitViewers: opts.emitViewers,
 		});
 	}
 

@@ -19,7 +19,13 @@ import { LiveType } from "./types";
  * periodic timer if the room is already live; subsequent state transitions
  * are driven by the events routed through these handlers.
  */
+/** Dashboard 端期望的"实时观看人数"采样间隔。B 站每几秒推一帧 WATCHED_CHANGE,
+ * 这里 per-UID 门控成 2s 最多一次,够人眼感知,WS 不会刷屏。 */
+const VIEWERS_EMIT_THROTTLE_MS = 2000;
+
 export class RoomSession extends RoomSessionBase {
+	private lastViewersEmitMs = 0;
+
 	// ── MsgHandler factory ────────────────────────────────────────────────────
 
 	protected buildHandler(): MsgHandler {
@@ -29,6 +35,11 @@ export class RoomSession extends RoomSessionBase {
 			onIncomeSuperChat: ({ body }) => this.onIncomeSuperChat(body),
 			onWatchedChange: ({ body }) => {
 				this.liveData.watchedNum = body.text_small;
+				const now = Date.now();
+				if (now - this.lastViewersEmitMs >= VIEWERS_EMIT_THROTTLE_MS) {
+					this.lastViewersEmitMs = now;
+					this.ctx.emitViewers(this.sub.uid, body.text_small);
+				}
 			},
 			onLikedChange: ({ body }) => {
 				this.liveData.likedNum = body.count;

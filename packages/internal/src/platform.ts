@@ -65,6 +65,12 @@ export interface BiliEvents {
 	 */
 	"history-recorded": (entry: HistoryEntry) => void;
 	"live-state-changed": (uid: string, status: "live" | "idle") => void;
+	/**
+	 * 直播间累计观看人数变化(B 站 WS `WATCHED_CHANGE` 帧 → live engine 节流后转发)。
+	 * Engine 端按 per-UID 2s throttle,所以高频帧不会打爆 bus。viewers 是 B 站预格式化
+	 * 后的中文压缩字符串(如 "1.2万");消费方直接展示,不二次转换。
+	 */
+	"live-viewers-changed": (uid: string, viewers: string) => void;
 }
 
 /** ConfigStore 在 set 后 emit 'config-changed' 时携带的范围标识。 */
