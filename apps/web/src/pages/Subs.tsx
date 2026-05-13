@@ -534,7 +534,7 @@ export default function Subs() {
 	}
 
 	return (
-		<div className="space-y-4">
+		<div className="bn-anim-fade-in space-y-4">
 			<div className="flex flex-wrap items-center gap-2.5">
 				<Input
 					value={q}
@@ -665,6 +665,24 @@ export default function Subs() {
 						onToggleEnabled={(on) => toggleEnabled(s, on)}
 					/>
 				))}
+				{/* 在 grid 末尾追加「+ 添加 UP 主」预选卡。仅在没有任何搜索 / 过滤时
+				    显示 —— 过滤视图下加这张卡会让人误以为它本来就在过滤集合里。点击
+				    等价右上「添加」Btn,打开 NewDialog。视觉走 Targets 的 AddCard 风
+				    格(1px dashed + 实色白底 + unicode 加号),保留 UpCard 的圆角 +
+				    min-h 让它在 grid 里跟其他卡视觉等高。 */}
+				{!q.trim() && filterId === "all" && !groupFilter ? (
+					<button
+						type="button"
+						onClick={() => setShowNewDialog(true)}
+						className="flex min-h-[220px] flex-col items-center justify-center rounded-xl border border-dashed border-gray-300 px-4 py-5 text-center transition hover:border-bn-pink focus:outline-none focus-visible:ring-2 focus-visible:ring-bn-pink"
+					>
+						<span className="text-[28px] leading-none text-bn-text-tertiary">＋</span>
+						<span className="mt-2 text-[13px] font-semibold text-bn-text-primary">
+							添加 UP 主
+						</span>
+						<span className="mt-0.5 text-[11px] text-bn-text-tertiary">UID / 名称搜索</span>
+					</button>
+				) : null}
 			</div>
 
 			{drawerSub ? (

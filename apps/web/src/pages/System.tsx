@@ -349,7 +349,7 @@ export default function System() {
 	});
 
 	return (
-		<div className="space-y-5">
+		<div className="bn-anim-fade-in space-y-5">
 			<div className="flex items-center justify-between">
 				<div className="space-y-1">
 					<h2 className="text-base font-medium">系统</h2>
