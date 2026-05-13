@@ -26,6 +26,9 @@ export interface HistoryEntryView {
 	ok: boolean;
 	text?: string;
 	imageRef?: string;
+	/** 写入时 snapshot 的 UP 主名称 / 头像;老 entry 无此字段。 */
+	unameSnapshot?: string;
+	uavatarSnapshot?: string;
 }
 
 export interface HistoryResponse {
@@ -70,6 +73,8 @@ export function createHistoryRoute(deps: RouteDeps): Hono {
 			ok: e.result.ok,
 			text: e.payload.text,
 			imageRef: e.payload.imageRef,
+			unameSnapshot: e.unameSnapshot,
+			uavatarSnapshot: e.uavatarSnapshot,
 		}));
 		return c.json<HistoryResponse>({ entries: view });
 	});

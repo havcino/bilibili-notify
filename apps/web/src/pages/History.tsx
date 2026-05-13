@@ -221,7 +221,9 @@ function HistoryRow({
 }) {
 	const family = FAMILY[entry.source];
 	const tone = FAMILY_TONE[family];
-	const upName = sub ? displayName(sub) : entry.uid || "未知";
+	// 优先 entry 写入期的 snapshot,订阅事后被删也能稳定显示。
+	const upName = entry.unameSnapshot ?? (sub ? displayName(sub) : entry.uid || "未知");
+	const upAvatar = entry.uavatarSnapshot ?? sub?.cachedProfile?.avatar;
 	const upColor = colorFromUid(entry.uid || entry.id);
 	const targetLabel =
 		targets.length === 0
@@ -240,7 +242,7 @@ function HistoryRow({
 			<span className="font-mono text-[11.5px] text-bn-text-tertiary">
 				{relativeTime(entry.ts)}
 			</span>
-			<Avatar name={upName} color={upColor} size={24} url={sub?.cachedProfile?.avatar} />
+			<Avatar name={upName} color={upColor} size={24} url={upAvatar} />
 			<Pill color={tone} subtle size="sm">
 				{SOURCE_LABEL[entry.source]}
 			</Pill>

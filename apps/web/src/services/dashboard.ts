@@ -36,6 +36,9 @@ export interface HistoryEntryView {
 	targetIds: string[];
 	ok: boolean;
 	text?: string;
+	/** 写入时由后端 snapshot 的 UP 主名称 / 头像;老 entry 无此字段,前端 fallback 走 sub 查询。 */
+	unameSnapshot?: string;
+	uavatarSnapshot?: string;
 }
 
 export interface HistoryResponse {

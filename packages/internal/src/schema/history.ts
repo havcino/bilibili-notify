@@ -40,5 +40,18 @@ export const HistoryEntrySchema = z.object({
 		per: z.array(HistoryDeliverySchema),
 	}),
 	payload: HistoryPayloadSchema,
+	/**
+	 * 写入时从 sub.cachedProfile 快照下来的 UP 主名称 / 头像。
+	 *
+	 * History 是 immutable 历史事实,但 UI 渲染依赖 sub.cachedProfile 查询当前
+	 * 名称 — 一旦用户后续删除该订阅,Dashboard 上的旧 history 条目只剩 "UID xxx" +
+	 * 默认头像,失去了"当时是谁"的信息。把名称 / 头像跟 entry 一起 snapshot
+	 * 进 jsonl 后,删除订阅不再影响历史展示。
+	 *
+	 * 老 entry(本字段加入前写入的)没有这两个字段,UI 仍走原 fallback(查
+	 * subByUid → fallback 到 UID 占位)。retention 30d 内会被自然淘汰。
+	 */
+	unameSnapshot: z.string().optional(),
+	uavatarSnapshot: z.string().optional(),
 });
 export type HistoryEntry = z.infer<typeof HistoryEntrySchema>;

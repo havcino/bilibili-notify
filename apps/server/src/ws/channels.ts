@@ -143,6 +143,8 @@ export function attachChannelWiring(deps: ChannelWiringDeps): Disposable {
 				ok: entry.result.ok,
 				text: entry.payload.text,
 				imageRef: entry.payload.imageRef,
+				unameSnapshot: entry.unameSnapshot,
+				uavatarSnapshot: entry.uavatarSnapshot,
 			};
 			deps.publish({
 				type: "push-events",

@@ -205,6 +205,10 @@ export function createEngines(opts: CreateEnginesOptions): EnginesRuntime {
 						},
 					],
 					payload: info.payload,
+					// Snapshot UP 主当时的名字 / 头像。订阅以后被删除,Dashboard 的
+					// timeline / history 仍能正确显示「当时是谁」,不退化成 UID 占位。
+					unameSnapshot: sub?.cachedProfile?.name,
+					uavatarSnapshot: sub?.cachedProfile?.avatar,
 				})
 				.catch((e) => log.warn(`[history] append failed: ${String(e)}`));
 		},

@@ -253,7 +253,9 @@ function TimelinePanel({
 					/>
 					{recent.map((h) => {
 						const sub = subByUid.get(h.uid);
-						const name = sub ? displayName(sub) : `UID ${h.uid}`;
+						// 优先 entry 自带的写入期 snapshot —— 订阅后续被删除仍能正确显示。
+						const name = h.unameSnapshot ?? (sub ? displayName(sub) : `UID ${h.uid}`);
+						const avatar = h.uavatarSnapshot ?? sub?.cachedProfile?.avatar;
 						const color = colorFromUid(h.uid);
 						const tone = TIMELINE_TONE[h.source] ?? "#999";
 						const targetNames = h.targetIds
@@ -274,7 +276,7 @@ function TimelinePanel({
 									className="flex flex-1 items-center gap-2.5 rounded-lg bg-white/70 px-3 py-2 text-[12.5px]"
 									style={!h.ok ? { borderLeft: "3px solid #ef4444" } : undefined}
 								>
-									<Avatar name={name} color={color} size={24} url={sub?.cachedProfile?.avatar} />
+									<Avatar name={name} color={color} size={24} url={avatar} />
 									<Pill color={tone} subtle size="sm">
 										{TIMELINE_LABEL[h.source] ?? h.source}
 									</Pill>
@@ -320,13 +322,7 @@ function formatDeltaNumber(n: number): string {
 function FansDeltaCol({ label, value }: { label: string; value: number | null }) {
 	const isNull = value == null;
 	const text = isNull ? "—" : value === 0 ? "±0" : formatDeltaNumber(value);
-	const color = isNull
-		? "#94a3b8"
-		: value === 0
-			? "#94a3b8"
-			: value > 0
-				? "#22c55e"
-				: "#ef4444";
+	const color = isNull ? "#94a3b8" : value === 0 ? "#94a3b8" : value > 0 ? "#22c55e" : "#ef4444";
 	return (
 		<div className="w-16 text-right">
 			<div className="font-mono text-[13px] font-bold" style={{ color }}>

@@ -36,6 +36,10 @@ export interface HistoryAppendInput {
 	subscriptionId: string;
 	targets: Array<{ targetId: string; ok: boolean; latencyMs: number; err?: string }>;
 	payload: NotificationPayload;
+	/** Snapshot of sub.cachedProfile.name at write time; survives订阅删除。 */
+	unameSnapshot?: string;
+	/** Snapshot of sub.cachedProfile.avatar at write time。 */
+	uavatarSnapshot?: string;
 }
 
 export interface HistoryQuery {
@@ -127,6 +131,8 @@ export function createHistoryStore(opts: CreateHistoryStoreOptions): HistoryStor
 				per: input.targets,
 			},
 			payload,
+			unameSnapshot: input.unameSnapshot,
+			uavatarSnapshot: input.uavatarSnapshot,
 		};
 		// Defensive validation — schema mismatches are programmer errors, but
 		// recording corrupt jsonl is worse than rejecting the write.

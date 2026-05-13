@@ -26,6 +26,10 @@ export interface PushEventView {
 	ok: boolean;
 	text?: string;
 	imageRef?: string;
+	/** 写入时 snapshot 的 UP 主名称 / 头像;后端永远会带,只是老 entry(本字段加入前
+	 * 写入的)缺失。前端 toast / timeline 优先用 snapshot,fallback 走 sub 查询。 */
+	unameSnapshot?: string;
+	uavatarSnapshot?: string;
 }
 
 export interface ToastItem extends PushEventView {
