@@ -57,8 +57,8 @@ pnpm-workspace.yaml glob: `["packages/*", "koishi/*", "apps/*"]`. Single workspa
 | `packages/internal` | `@bilibili-notify/internal` | Zod schemas (Subscription / PushTarget / GlobalConfig / HistoryEntry) + platform interfaces (ServiceContext / MessageBus / NotificationSink / NotificationPayload) + utils (withLock, retry, interpolate). Zero koishi deps. |
 | `packages/api` | `@bilibili-notify/api` | `BilibiliAPI` (HTTP + WBI signing) + `LoginFlow` (QR + cookie state machine). Constructed with `{ serviceCtx, ... }`. Zero koishi deps. |
 | `packages/storage` | `@bilibili-notify/storage` | `StorageManager` — cookie/key persistence + AES encryption. Zero koishi deps. |
-| `packages/push` | `@bilibili-notify/push` | `BilibiliPush` — push routing (still has koishi peer dep; refactor pending in stage 2). |
-| `packages/subscription` | `@bilibili-notify/subscription` | `SubscriptionManager` — current koishi-tainted form; will be rewritten as `SubscriptionStore` consuming `Subscription[]` in stage 2. |
+| `packages/push` | `@bilibili-notify/push` | `BilibiliPush` — push routing over a `PushLike` adapter; emits `history-recorded` on each delivery. Zero koishi deps. |
+| `packages/subscription` | `@bilibili-notify/subscription` | `SubscriptionStore` — in-memory CRUD over `Subscription[]` + diff emission via `subscription-changed`. Zero koishi deps. |
 | `packages/dynamic` | `@bilibili-notify/dynamic` | `DynamicEngine` — dynamic-poll cron + filter + render dispatch. Zero koishi deps. |
 | `packages/live` | `@bilibili-notify/live` | `LiveEngine` (split into ListenerManager / DanmakuCollector / WordcloudGenerator / TemplateRenderer / LiveSummaryRequester). Zero koishi deps. |
 | `packages/image` | `@bilibili-notify/image` | `ImageRenderer` — Vue/UnoCSS/JSDOM SSR + puppeteer wrapper via `PuppeteerLike` interface. Zero koishi deps. |
@@ -124,29 +124,38 @@ Each shell's `index.ts` re-exports as the koishi-standard `Config` / `apply`.
 ## Service dependency graph
 
 ```
-BilibiliAPI         (in @bilibili-notify/api, also exposed as bilibili-notify Service via core's getInternals)
-BilibiliPush        (still koishi-tainted; service: bilibili-notify-push)
-SubscriptionManager (still koishi-tainted; injected into push)
+BilibiliAPI        (in @bilibili-notify/api, also exposed as bilibili-notify Service via core's getInternals)
+BilibiliPush       (in @bilibili-notify/push; constructed inside the host shell, fed a PushLike adapter)
+SubscriptionStore  (in @bilibili-notify/subscription; in-memory authority over Subscription[])
 
 # Koishi shells consume the engines via direct construction
 koishi/dynamic   → DynamicEngine({ api, push: PushLike, image?, ai?, ... })   requires bilibili-notify
 koishi/live      → LiveEngine({ api, push, contentBuilder, image?, ai?, ... }) requires bilibili-notify; optional image/ai
 koishi/image     → ImageRenderer({ puppeteer: PuppeteerLike, ... })            requires puppeteer; provides bilibili-notify-image
 koishi/ai        → CommentaryGenerator({ api, ... })                            requires bilibili-notify
-koishi/advanced-subscription → emits bilibili-notify/advanced-sub event
+koishi/advanced-subscription → emits bilibili-notify/advanced-sub{,-adapters,-targets} events
 ```
 
-## Cross-plugin koishi events
+## Cross-plugin events (BiliEvents)
 
-Custom events declared on `Context` (prefix `bilibili-notify/`):
+The canonical event contract lives in `packages/internal/src/platform.ts#BiliEvents`. Koishi adapter
+bridges every event onto `ctx.emit("bilibili-notify/<event>")`; standalone wires the same events
+straight onto WS channels.
 
-- `login-status-report` — emitted by `LoginFlow` via MessageBus, consumed by `BilibiliNotifyDataServer`
-- `auth-lost` / `auth-restored` — login state transitions
+- `login-status-report` — emitted by `LoginFlow`; consumed by Koishi console UI + standalone `auth` WS channel
+- `auth-lost` / `auth-restored` — login state transitions (rate-limited master notify)
 - `cookies-refreshed` — triggers cookie persistence
-- `advanced-sub` — advanced-subscription schema → main subscription manager
-- `ready-to-receive` / `ready` — startup signals
-- `subscription-changed` — subscription list updated
-- `plugin-error` — error report from sub-plugins
+- `subscription-changed` — `SubscriptionOp[]` diff emitted by `SubscriptionStore` after CRUD
+- `config-changed` — emitted by standalone `ConfigStore` after a write; scope ∈ `globals|subscriptions|targets|adapters|secrets`. Engines reconcile cron / refresh state on this.
+- `engine-error` — `(source, message)` runtime error from an engine/subsystem. Replaces the old `plugin-error`. Consumed by `master-notifier` (Koishi → master DM) and `log` WS channel (standalone → AlertShell)
+- `history-recorded` — full `HistoryEntry` emitted by `BilibiliPush` after each delivery; standalone forwards on `push-events` WS channel
+- `live-state-changed` — `(uid, "live"|"idle")` open/close transition from `LiveEngine`
+- `live-viewers-changed` — `(uid, viewers)` per-uid 2s-throttled `WATCHED_CHANGE` frame from `room-session`
+- `fans-refreshed` — full `FansRefreshEntry[]` snapshot per tick of the standalone `FansPoller`
+- `ready` — business core fully booted
+- Koishi-only signaling events (not part of `BiliEvents`, raw `ctx.emit`):
+  - `ready-to-receive` — Koishi core signals subscription-loader ready for `advanced-sub` payloads
+  - `advanced-sub` / `advanced-sub-adapters` / `advanced-sub-targets` — advanced-subscription Schema → main `SubscriptionStore`
 
 ## Toolchain
 
@@ -164,6 +173,65 @@ Custom events declared on `Context` (prefix `bilibili-notify/`):
 - Prod: `resolve(__dirname, "../dist")`
 
 The standalone end uses a separate React + Vite dashboard under `apps/web/`; these don't share UI code.
+
+## Standalone dashboard (`apps/`)
+
+Two sub-packages share the root pnpm workspace:
+
+- `apps/server` — Hono HTTP + WS gateway. Single tsdown bundle to `apps/server/lib/index.mjs`.
+- `apps/web` — Vite + React 18 + Tailwind 4 + tanstack-query + Recharts. Served as static assets by `apps/server` in prod; `pnpm dev:web` for the Vite dev server in dev.
+
+### apps/server module map
+
+```
+src/
+  index.ts              ← CLI / bootstrap entry
+  app.ts                ← Hono app composition + basic-auth + route mounting
+  auth/                 ← QR + cookie state via @bilibili-notify/api LoginFlow
+  config/               ← ConfigStore: tmpfile+rename atomic writes to <dataDir>/state/*.json + emits config-changed
+  runtime/
+    bootstrap.ts        ← AppRuntime container (api/storage/push/store/engines/fansPoller/...)
+    engines.ts          ← Hot-reload engine wiring; consumes config-changed to swap dynamicCron + reseed templates without restart
+    fans-poller.ts      ← FansPoller — follows globals.app.dynamicCron, writes <dataDir>/fans/<uid>.jsonl, emits fans-refreshed
+    master-notifier.ts  ← Forwards engine-error to master target as DM
+    puppeteer.ts        ← puppeteer-core adapter for cards preview
+  fans/store.ts         ← append-only jsonl time-series + findNearestBefore(uid, ts)
+  history/store.ts      ← HistoryStore — <dataDir>/history/<YYYY-MM-DD>.jsonl with uname/avatar snapshots
+  routes/               ← REST: auth, subs, targets, adapters, globals, history, fans, live, cards, push, health
+  ws/
+    server.ts           ← ws upgrade + per-conn channel filter
+    channels.ts         ← bridges BiliEvents → 4 channels: auth / push-events / log / state
+    log-channel.ts      ← log-level filtering, ring buffer
+  sink/                 ← NotificationSink dispatch over PushTarget.id → platform adapter
+  platforms/            ← OneBot v11 + Webhook + WebDashboard adapters
+```
+
+### WS channel contract
+
+Envelope: `{ type: <channel>, event: <name>, data: <args> }`. Single-arg events unwrap to the arg
+itself; multi-arg events serialize as a tuple.
+
+| Channel | Source | Frontend consumer |
+|---|---|---|
+| `auth` | `login-status-report` | `useAuthChannel` → QR / login state |
+| `push-events` | `history-recorded` / `live-state-changed` / `live-viewers-changed` / `fans-refreshed` | `usePushEventsChannel` → tanstack-query `setQueryData` patches |
+| `log` | `engine-error` + ring-buffered server logs | `useAlertChannel` + `useLogStream` |
+| `state` | runtime health snapshots | `useStateChannel` |
+
+### apps/web layout
+
+```
+src/
+  pages/        ← Dashboard / Subs / Targets / History / Rules / Cards / Ai / System
+  components/   ← Shared atoms (Avatar/Btn/Pill/...) + icons
+  hooks/        ← useAuthChannel / usePushEventsChannel / useAlertChannel / useLogStream
+  services/     ← HTTP client (services/api.ts) + typed wrappers (services/dashboard.ts)
+  store/        ← zustand for transient UI state; tanstack-query cache for server state
+  styles.css    ← Tailwind 4 @theme tokens + bn-anim-* keyframes + bn-no-scrollbar
+```
+
+Page-level state is owned by tanstack-query; WS push frames patch the cache via `setQueryData` so
+no extra HTTP round-trips are needed for live updates.
 
 ## Branch model
 
