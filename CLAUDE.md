@@ -18,7 +18,7 @@ pnpm install
 pnpm build                          # pnpm -r run build (topo order) + koishi console UI
 pnpm --filter koishi-plugin-bilibili-notify run build   # build a single package
 pnpm typecheck                      # tsc --noEmit across the workspace
-pnpm test                           # vitest, all packages
+pnpm test                           # vp test run (vite-plus → vitest under the hood), all packages
 
 # Dashboard (apps/) dev — pnpm scripts at the root
 pnpm dev:server     # tsx watch on apps/server
@@ -34,6 +34,7 @@ pnpm check:fix      # lint + format auto-fix
 
 # Git hooks (Lefthook) installed automatically on pnpm install (prepare hook).
 # Pre-commit: biome check --staged --write on *.ts, *.js, *.mjs, *.json (lefthook.yml).
+# Commit-msg: commitlint --edit — conventional-commits enforced; non-compliant messages rejected.
 ```
 
 ## Top-level layout
@@ -191,6 +192,10 @@ src/
   config/               ← ConfigStore: tmpfile+rename atomic writes to <dataDir>/state/*.json + emits config-changed
   runtime/
     bootstrap.ts        ← AppRuntime container (api/storage/push/store/engines/fansPoller/...)
+    service-context.ts  ← NodeServiceContext (pino + setInterval/setTimeout/onDispose)
+    message-bus.ts      ← NodeMessageBus (mitt-like BiliEvents emitter)
+    subscription-store.ts ← Wires SubscriptionStore over the in-process MessageBus
+    content-builder.ts  ← Plain-text NotificationPayload builder (no koishi h(...))
     engines.ts          ← Hot-reload engine wiring; consumes config-changed to swap dynamicCron + reseed templates without restart
     fans-poller.ts      ← FansPoller — follows globals.app.dynamicCron, writes <dataDir>/fans/<uid>.jsonl, emits fans-refreshed
     master-notifier.ts  ← Forwards engine-error to master target as DM
@@ -215,7 +220,7 @@ itself; multi-arg events serialize as a tuple.
 |---|---|---|
 | `auth` | `login-status-report` | `useAuthChannel` → QR / login state |
 | `push-events` | `history-recorded` / `live-state-changed` / `live-viewers-changed` / `fans-refreshed` | `usePushEventsChannel` → tanstack-query `setQueryData` patches |
-| `log` | `engine-error` + ring-buffered server logs | `useAlertChannel` + `useLogStream` |
+| `log` | `engine-error` + ring-buffered server logs | `useAlertChannel` |
 | `state` | runtime health snapshots | `useStateChannel` |
 
 ### apps/web layout
@@ -224,7 +229,7 @@ itself; multi-arg events serialize as a tuple.
 src/
   pages/        ← Dashboard / Subs / Targets / History / Rules / Cards / Ai / System
   components/   ← Shared atoms (Avatar/Btn/Pill/...) + icons
-  hooks/        ← useAuthChannel / usePushEventsChannel / useAlertChannel / useLogStream
+  hooks/        ← useAuthChannel / usePushEventsChannel / useAlertChannel / useStateChannel / useAuthHydrate / useBackendReachable
   services/     ← HTTP client (services/api.ts) + typed wrappers (services/dashboard.ts)
   store/        ← zustand for transient UI state; tanstack-query cache for server state
   styles.css    ← Tailwind 4 @theme tokens + bn-anim-* keyframes + bn-no-scrollbar
@@ -244,7 +249,7 @@ Both product forms ship from `refactor` continuously:
 - Koishi side publishes to npm via `changesets` — touches `packages/*` and `koishi/*`.
 - Standalone side ships as a docker / GHCR image — touches `apps/*`. Never published to npm.
 
-`apps/` shares the single root pnpm workspace with `packages/` and `koishi/`. apps/server consumes business cores via `workspace:*`. With `node-linker=hoisted` (root `.npmrc`), the layout matches yarn-classic's flat `node_modules` so koishi's plugin loader keeps working.
+`apps/` shares the single root pnpm workspace with `packages/` and `koishi/`. apps/server consumes business cores via `workspace:*`. With `nodeLinker: hoisted` set in `pnpm-workspace.yaml` (pnpm 11 reads it from there, not `.npmrc`), the layout matches yarn-classic's flat `node_modules` so koishi's plugin loader keeps working.
 
 Earlier plan iterations described splitting `koishi/` and `standalone/` into separate long-lived branches with one-way merges from `refactor`. **That model has been dropped** — single-trunk maintenance is simpler, debugging is faster (one commit fixes both ends), and the directory split + pnpm isolation already gives sufficient separation.
 
