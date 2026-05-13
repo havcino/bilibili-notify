@@ -104,10 +104,9 @@ export class BilibiliAPI {
 	 * 仍走旧 UA。`undefined` / 空串 → 回退到内置默认 Firefox UA。
 	 */
 	setUserAgent(userAgent: string | undefined): void {
-		const ua =
-			userAgent && userAgent.trim()
-				? userAgent
-				: "Mozilla/5.0 (X11; Linux x86_64; rv:109.0) Gecko/20100101 Firefox/115.0";
+		const ua = userAgent?.trim()
+			? userAgent
+			: "Mozilla/5.0 (X11; Linux x86_64; rv:109.0) Gecko/20100101 Firefox/115.0";
 		this.config = { ...this.config, userAgent };
 		if (this.client) {
 			this.client.defaults.headers["User-Agent"] = ua;
