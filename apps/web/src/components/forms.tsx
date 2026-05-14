@@ -345,6 +345,86 @@ export function ArrayEditor({ value, onChange, placeholder }: ArrayEditorProps) 
 	);
 }
 
+/**
+ * QuietHoursEditor — TimeRange[] 编辑器,粒度按「时」。每行两个 hour picker (0-23),
+ * 跨午夜由 start > end 隐式表达(显示在文案上说明),add/remove 按 ArrayEditor 风格。
+ *
+ * 后端 `inQuietHours` 把 `[start, end)` 当半开区间处理;`start === end` 被 schema
+ * refine 拒绝,提交时若用户留了这种行会被后端 reject,前端不重复校验。
+ */
+export interface QuietHoursEditorProps {
+	value: { start: number; end: number }[];
+	onChange: (next: { start: number; end: number }[]) => void;
+}
+
+export function QuietHoursEditor({ value, onChange }: QuietHoursEditorProps) {
+	const hours = Array.from({ length: 24 }, (_, i) => i);
+	return (
+		<div className="flex w-full flex-col gap-1">
+			{value.map((r, i) => {
+				const crossMidnight = r.start > r.end;
+				return (
+					// biome-ignore lint/suspicious/noArrayIndexKey: positional row identity
+					<div key={i} className="flex items-center gap-1.5">
+						<span className="grid h-7.5 w-5.5 place-items-center font-mono text-[11px] text-bn-text-secondary">
+							{i + 1}
+						</span>
+						<select
+							value={r.start}
+							onChange={(e) => {
+								const n = [...value];
+								n[i] = { ...n[i], start: Number(e.target.value) };
+								onChange(n);
+							}}
+							className={`${INPUT_BASE} w-18 font-mono`}
+						>
+							{hours.map((h) => (
+								<option key={h} value={h}>
+									{String(h).padStart(2, "0")}:00
+								</option>
+							))}
+						</select>
+						<span className="text-[11px] text-bn-text-tertiary">至</span>
+						<select
+							value={r.end}
+							onChange={(e) => {
+								const n = [...value];
+								n[i] = { ...n[i], end: Number(e.target.value) };
+								onChange(n);
+							}}
+							className={`${INPUT_BASE} w-18 font-mono`}
+						>
+							{hours.map((h) => (
+								<option key={h} value={h}>
+									{String(h).padStart(2, "0")}:00
+								</option>
+							))}
+						</select>
+						<span className="text-[10.5px] text-bn-text-tertiary">
+							{crossMidnight ? "(跨次日)" : r.start === r.end ? "⚠ 区间为空" : ""}
+						</span>
+						<button
+							type="button"
+							onClick={() => onChange(value.filter((_, j) => j !== i))}
+							className="grid h-7.5 w-7.5 place-items-center rounded-md border border-gray-200 bg-white text-bn-text-secondary hover:text-red-500"
+							aria-label="移除"
+						>
+							×
+						</button>
+					</div>
+				);
+			})}
+			<button
+				type="button"
+				onClick={() => onChange([...value, { start: 23, end: 7 }])}
+				className="h-7.5 rounded-md border border-dashed border-gray-200 bg-white/60 text-[12px] text-bn-text-secondary hover:bg-white"
+			>
+				+ 添加免扰时段
+			</button>
+		</div>
+	);
+}
+
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 /** Immutably set a dot-path on an object (mirrors the design's setNested helper). */

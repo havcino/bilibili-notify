@@ -8,6 +8,7 @@ import { type ReactNode, useState } from "react";
 import { Toggle } from "../../components/atoms";
 import {
 	ArrayEditor,
+	QuietHoursEditor,
 	Field,
 	type FieldProps,
 	Picker,
@@ -296,6 +297,17 @@ export function LiveThresholdsSection({
 							size="sm"
 						/>
 					</div>
+				</FieldRow>
+				<FieldRow
+					label="免扰时段"
+					code="schedule.quietHours"
+					hint="落在区间内的推送直接丢弃,不补推;粒度按「时」,半开区间 [start, end)"
+					full
+				>
+					<QuietHoursEditor
+						value={schedule.quietHours}
+						onChange={(v) => setS("quietHours", v)}
+					/>
 				</FieldRow>
 			</div>
 		</GlassBox>

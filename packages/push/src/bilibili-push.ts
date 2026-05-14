@@ -1,12 +1,14 @@
 import type {
 	DeliveryResult,
 	FeatureKey,
+	GlobalDefaults,
 	Logger,
 	NotificationPayload,
 	NotificationSink,
 	PayloadSegment,
 	PushTarget,
 } from "@bilibili-notify/internal";
+import { inQuietHours, resolve } from "@bilibili-notify/internal";
 import type { SubscriptionStore } from "@bilibili-notify/subscription";
 
 /**
@@ -58,6 +60,15 @@ export interface BilibiliPushOptions {
 	/** Logger instance. */
 	logger: Logger;
 	/**
+	 * Latest `GlobalDefaults` provider — used to resolve `EffectiveSubscription`
+	 * per push so `features.X` and `schedule.quietHours` gates work against the
+	 * current globals state (not a stale snapshot).
+	 *
+	 * 可选:若不传,broadcastToFeature 退化为「仅 routing 决定是否发」的旧行为,
+	 * 用于过渡期的 Koishi adapter 还没接 globals 的场景。
+	 */
+	defaults?: () => GlobalDefaults;
+	/**
 	 * Optional hook fired after every successful or failed send. Receives the
 	 * resolved `target` plus the originating `uid` / `feature` — fields the
 	 * multiplex sink can't see. Standalone wires this to history-store append.
@@ -77,6 +88,7 @@ export class BilibiliPush {
 	private readonly store: SubscriptionStore;
 	private master: PushTarget | null;
 	private readonly logger: Logger;
+	private readonly defaults?: () => GlobalDefaults;
 	private readonly onSend?: (info: PushSendInfo) => void;
 	private disposed = false;
 
@@ -85,6 +97,7 @@ export class BilibiliPush {
 		this.store = opts.store;
 		this.master = opts.master ?? null;
 		this.logger = opts.logger;
+		this.defaults = opts.defaults;
 		this.onSend = opts.onSend;
 	}
 
@@ -136,6 +149,22 @@ export class BilibiliPush {
 		if (!sub) {
 			this.logger.debug(`[push] uid=${uid} 无订阅记录，跳过 feature=${feature}`);
 			return [];
+		}
+
+		// 「features 总开关」与「quietHours 免扰时段」两道 runtime gate。两者都需要把 sub
+		// 折叠成 EffectiveSubscription 才能读 —— 仅在 defaults provider 有传时启用,过渡期
+		// 没传则退化到「routing-only」的旧行为(顺带保持 BilibiliPush 单元测试的简单构造)。
+		const defaults = this.defaults?.();
+		if (defaults) {
+			const eff = resolve(sub, defaults);
+			if (!eff.features[feature]) {
+				this.logger.debug(`[push] uid=${uid} feature=${feature} 总开关 OFF，跳过`);
+				return [];
+			}
+			if (inQuietHours(eff.schedule.quietHours, new Date())) {
+				this.logger.debug(`[push] uid=${uid} feature=${feature} 落在免扰时段，跳过`);
+				return [];
+			}
 		}
 
 		const targetIds = sub.routing[feature] ?? [];

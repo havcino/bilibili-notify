@@ -13,7 +13,16 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { Avatar, Btn, Toggle } from "../../components/atoms";
-import { ArrayEditor, Field, Picker, TArea, TColor, TInput, TNum } from "../../components/forms";
+import {
+	ArrayEditor,
+	Field,
+	Picker,
+	QuietHoursEditor,
+	TArea,
+	TColor,
+	TInput,
+	TNum,
+} from "../../components/forms";
 import { GlassBox } from "../../components/glass-box";
 import { Icon } from "../../components/icons";
 import { ApiError, api } from "../../services/api";
@@ -428,6 +437,17 @@ function LiveOverrideBox({
 								size="sm"
 							/>
 						</div>
+					</Field>
+					<Field
+						label="免扰时段"
+						code="schedule.quietHours"
+						hint="该 UP 在此区间内的推送一律丢弃(覆盖全局)"
+						full
+					>
+						<QuietHoursEditor
+							value={sCur.quietHours ?? baselineSchedule.quietHours}
+							onChange={(v) => onSchedule({ ...sCur, quietHours: v })}
+						/>
 					</Field>
 				</div>
 			) : (

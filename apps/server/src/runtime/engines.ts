@@ -188,6 +188,7 @@ export function createEngines(opts: CreateEnginesOptions): EnginesRuntime {
 		store: opts.subscriptionStore,
 		master: masterTarget() ?? null,
 		logger: log,
+		defaults: () => globals().defaults,
 		onSend: (info) => {
 			// 私聊不走 history(语义上是给主人的运行状态通知,不是订阅推送)。
 			if (info.private) return;
@@ -422,7 +423,7 @@ export function createEngines(opts: CreateEnginesOptions): EnginesRuntime {
 
 	handles.push(
 		opts.bus.on("subscription-changed", (ops) => {
-			const dynOps = subscriptionOpsToDynamic(ops, opts.subscriptionStore);
+			const dynOps = subscriptionOpsToDynamic(ops, opts.subscriptionStore, globals());
 			dynamic.applyOps(dynOps);
 			const liveOps = subscriptionOpsToLive(ops, opts.subscriptionStore, globals());
 			live.applyOps(liveOps, (uid) => {
@@ -780,7 +781,9 @@ function buildDynamicSubsView(store: SubscriptionStore, globals: GlobalConfig): 
 	for (const sub of store.list()) {
 		if (!sub.enabled) continue;
 		const eff = resolve(sub, globals.defaults);
-		const hasDynamic = (eff.routing.dynamic?.length ?? 0) > 0;
+		// 「订阅总开关 ON」AND「routing 有目标」才纳入动态轮询;关 features.dynamic 时,
+		// dynamic-engine.startAll/applyOps 都自动跳过这个 UP,省一次 cron 拉取 + 过滤 + 渲染。
+		const hasDynamic = eff.features.dynamic && (eff.routing.dynamic?.length ?? 0) > 0;
 		view[sub.uid] = {
 			uid: sub.uid,
 			uname: sub.cachedProfile?.name ?? sub.uid,
@@ -812,17 +815,23 @@ function buildLiveSubViewSingle(sub: Subscription, globals: GlobalConfig): LiveS
 	const eff = resolve(sub, globals.defaults);
 	const danmakuUsers = sub.specialUsers.filter((u) => u.kinds.includes("danmaku"));
 	const enterUsers = sub.specialUsers.filter((u) => u.kinds.includes("enter"));
+	// SubItemView 上每个 feature 的布尔字段 = 「订阅总开关 ON」AND「routing 里至少有 1 个 target」。
+	// 前者(features.X)是 runtime 用户意图层,后者(routing 非空)是「发了也得有人收」。两者
+	// 全真才算这个 feature 实质 active —— `needsLiveMonitor` 据此决定 WS listener 开闭,关掉 features
+	// 时 listener 跟着关,省一条 WS + 心跳。
+	const feat = (k: keyof typeof eff.routing) =>
+		eff.features[k] && (eff.routing[k]?.length ?? 0) > 0;
 	return {
 		uid: sub.uid,
 		uname: sub.cachedProfile?.name ?? sub.uid,
 		roomId: "",
-		dynamic: (eff.routing.dynamic?.length ?? 0) > 0,
-		live: (eff.routing.live?.length ?? 0) > 0,
-		liveEnd: (eff.routing.liveEnd?.length ?? 0) > 0,
-		liveGuardBuy: (eff.routing.liveGuardBuy?.length ?? 0) > 0,
-		superchat: (eff.routing.superchat?.length ?? 0) > 0,
-		wordcloud: (eff.routing.wordcloud?.length ?? 0) > 0,
-		liveSummary: (eff.routing.liveSummary?.length ?? 0) > 0,
+		dynamic: feat("dynamic"),
+		live: feat("live"),
+		liveEnd: feat("liveEnd"),
+		liveGuardBuy: feat("liveGuardBuy"),
+		superchat: feat("superchat"),
+		wordcloud: feat("wordcloud"),
+		liveSummary: feat("liveSummary"),
 		target: eff.routing,
 		customCardStyle: {
 			enable: true,
@@ -877,17 +886,24 @@ function buildLiveSubViewSingle(sub: Subscription, globals: GlobalConfig): LiveS
 	};
 }
 
-function subscriptionOpsToDynamic(ops: SubscriptionOp[], store: SubscriptionStore): DynamicSubOp[] {
+function subscriptionOpsToDynamic(
+	ops: SubscriptionOp[],
+	store: SubscriptionStore,
+	globals: GlobalConfig,
+): DynamicSubOp[] {
 	const out: DynamicSubOp[] = [];
+	const hasDyn = (sub: Subscription): boolean => {
+		const eff = resolve(sub, globals.defaults);
+		return eff.features.dynamic && (eff.routing.dynamic?.length ?? 0) > 0;
+	};
 	for (const op of ops) {
 		if (op.type === "add") {
-			const hasDynamic = (op.sub.routing.dynamic?.length ?? 0) > 0;
 			out.push({
 				type: "add",
 				sub: {
 					uid: op.sub.uid,
 					uname: op.sub.cachedProfile?.name ?? op.sub.uid,
-					dynamic: hasDynamic,
+					dynamic: hasDyn(op.sub),
 					customCardStyle: op.sub.overrides.cardStyle
 						? {
 								enable: true,
@@ -905,7 +921,7 @@ function subscriptionOpsToDynamic(ops: SubscriptionOp[], store: SubscriptionStor
 			out.push({
 				type: "update",
 				uid: op.sub.uid,
-				changes: [{ scope: "dynamic", dynamic: (sub.routing.dynamic?.length ?? 0) > 0 }],
+				changes: [{ scope: "dynamic", dynamic: hasDyn(sub) }],
 			});
 		}
 	}

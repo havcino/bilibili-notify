@@ -69,11 +69,14 @@ function effFeature(sub: Subscription, k: FeatureKey): boolean {
 }
 
 /**
- * A target is in "custom" mode when its routing diverges from the
- * subscription's effective features for at least one feature.
+ * A target is in "custom" mode when its routing is **incomplete** —— 该 target 已被
+ * 至少从一个 feature 的 routing 里手动剔除。完整(9 features 全在)= follow-mode。
  *
- * Targets that aren't referenced by any routing entry are treated as
- * follow-mode (newly attached / never been individually customised).
+ * 注:features 总开关跟 routing **完全解耦**(由 runtime gate 兜底),所以这个判断
+ * 跟 effFeature 无关。只看 routing 自己的「完整 / 残缺」即可。
+ *
+ * 不在任何 routing 里的 target 视为「未被订阅引用」,inferCustomSet 不收(单独由
+ * sessionAttached 跟踪)。
  */
 function inferCustomSet(sub: Subscription | null, targets: PushTarget[]): Set<string> {
 	if (!sub) return new Set();
@@ -81,10 +84,8 @@ function inferCustomSet(sub: Subscription | null, targets: PushTarget[]): Set<st
 	for (const t of targets) {
 		const referenced = FEATURE_KEYS.some((k) => sub.routing[k].includes(t.id));
 		if (!referenced) continue;
-		const mismatched = FEATURE_KEYS.some(
-			(k) => effFeature(sub, k) !== sub.routing[k].includes(t.id),
-		);
-		if (mismatched) out.add(t.id);
+		const incomplete = FEATURE_KEYS.some((k) => !sub.routing[k].includes(t.id));
+		if (incomplete) out.add(t.id);
 	}
 	return out;
 }
@@ -147,12 +148,13 @@ export function UpDialog({ sub, targets, onClose, onSave, onDelete, saving }: Up
 	}
 
 	/**
-	 * Toggle a master feature on the subscription. Writes to overrides.features
-	 * (or clears the override when the new value matches the global default to
-	 * keep the schema clean), then mirrors the change into routing for every
-	 * attached follow-mode target. Unattached targets are left alone — the
-	 * subscription should never silently start pushing to a target the user
-	 * hasn't picked.
+	 * Toggle a master feature on the subscription. **只写 `overrides.features`**,
+	 * 不再级联 routing —— features 是 runtime 总开关,routing 是 per-target 细控,两条
+	 * 正交轴。关 features.X 时 routing 数据原样保留;backend `BilibiliPush` 头部 gate
+	 * `if (!eff.features[k]) return [];` 实际拦推送。重开 features.X 后,所有 routing
+	 * 里的 target 立刻恢复推送,不丢配置。
+	 *
+	 * value === global default 时删 override,保持 schema 干净。
 	 */
 	function setFeatureEnabled(k: FeatureKey, on: boolean): void {
 		setDraft((d) => {
@@ -161,33 +163,24 @@ export function UpDialog({ sub, targets, onClose, onSave, onDelete, saving }: Up
 			if (on === DEFAULT_FEATURE_FLAGS[k]) delete overrideObj[k];
 			else overrideObj[k] = on;
 			const features = Object.keys(overrideObj).length > 0 ? overrideObj : undefined;
-
-			let routing = d.routing;
-			for (const t of attachedTargets) {
-				if (customSet.has(t.id)) continue;
-				const inRouting = routing[k].includes(t.id);
-				if (on && !inRouting) routing = { ...routing, [k]: [...routing[k], t.id] };
-				else if (!on && inRouting)
-					routing = { ...routing, [k]: routing[k].filter((id) => id !== t.id) };
-			}
-
-			return { ...d, overrides: { ...d.overrides, features }, routing };
+			return { ...d, overrides: { ...d.overrides, features } };
 		});
 	}
 
 	/**
-	 * Pull a target into the subscription's push list. Starts in follow mode,
-	 * so its routing snaps to whatever the master features currently say.
-	 * Also recorded in sessionAttached so the card stays visible if the user
-	 * subsequently turns every master feature off.
+	 * Pull a target into the subscription's push list. Follow-mode 默认 = 加进所有 9 个
+	 * features 的 routing(features 总开关之后再单独控制是否实际推送)。这样用户
+	 * 关掉某 feature 再开回来时,这个 target 不会被遗漏。
+	 *
+	 * 不再按 effFeature 过滤添加:routing 是「per-target 收哪些 feature」的意图表达,
+	 * 跟 features 总开关解耦,新加 target 默认意图就是「全部都收」。
 	 */
 	function attachTarget(targetId: string): void {
 		setDraft((d) => {
 			if (!d) return d;
 			let routing = d.routing;
 			for (const k of FEATURE_KEYS) {
-				const featOn = effFeature(d, k);
-				if (featOn && !routing[k].includes(targetId)) {
+				if (!routing[k].includes(targetId)) {
 					routing = { ...routing, [k]: [...routing[k], targetId] };
 				}
 			}
@@ -286,10 +279,10 @@ export function UpDialog({ sub, targets, onClose, onSave, onDelete, saving }: Up
 	}
 
 	/**
-	 * Flip a target between follow and custom mode. Switching from custom to
-	 * follow snaps the routing back in line with the subscription's effective
-	 * features. Switching the other way leaves routing untouched so the user
-	 * can edit per-feature.
+	 * Flip a target between follow and custom mode.
+	 * - To custom: 只标 customSet,routing 不动 —— 用户接下来在矩阵里自己增删 feature
+	 * - To follow: 把 target 加回所有 9 个 features 的 routing(完整 = follow 的标志);
+	 *   atAll Map 里的 explicit override 一并清掉(features 总开关 + atAllDefaults 接管)
 	 */
 	function switchTargetMode(targetId: string, toCustom: boolean): void {
 		setCustomSet((prev) => {
@@ -303,13 +296,19 @@ export function UpDialog({ sub, targets, onClose, onSave, onDelete, saving }: Up
 				if (!d) return d;
 				let routing = d.routing;
 				for (const k of FEATURE_KEYS) {
-					const featOn = effFeature(d, k);
-					const inRouting = routing[k].includes(targetId);
-					if (featOn && !inRouting) routing = { ...routing, [k]: [...routing[k], targetId] };
-					else if (!featOn && inRouting)
-						routing = { ...routing, [k]: routing[k].filter((id) => id !== targetId) };
+					if (!routing[k].includes(targetId)) {
+						routing = { ...routing, [k]: [...routing[k], targetId] };
+					}
 				}
-				return { ...d, routing };
+				// 切回 follow 时,per-target atAll 显式覆写也清掉,回归「跟订阅默认走」
+				const atAll = { ...d.atAll };
+				for (const scope of ["dynamic", "live"] as const) {
+					if (targetId in atAll[scope]) {
+						const { [targetId]: _gone, ...rest } = atAll[scope];
+						atAll[scope] = rest;
+					}
+				}
+				return { ...d, routing, atAll };
 			});
 		}
 	}
