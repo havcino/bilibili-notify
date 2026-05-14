@@ -704,8 +704,8 @@ function TargetSessionFields({
 		// web-dashboard 是单用户 in-process 广播,无 session 字段可配。
 		return (
 			<div className="text-[12px] leading-relaxed text-bn-text-tertiary">
-				Web Dashboard 通知中心是单用户 in-process 通道,无需配置会话字段。所有保存的
-				web-dashboard target 都会通过 WS push-events 频道广播给当前 dashboard。
+				Web Dashboard 通知中心是单用户 in-process 通道,无需配置会话字段。所有保存的 web-dashboard
+				target 都会通过 WS push-events 频道广播给当前 dashboard。
 			</div>
 		);
 	}

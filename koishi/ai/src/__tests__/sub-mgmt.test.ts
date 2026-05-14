@@ -84,8 +84,10 @@ describe("buildSubManagement().addSub", () => {
 		expect(sub.routing.dynamic).toEqual([t.id]);
 		expect(sub.routing.live).toEqual([t.id]);
 		expect(sub.routing.wordcloud).toEqual([t.id]);
-		expect(sub.routing.dynamicAtAll).toEqual([]);
 		expect(sub.routing.liveSummary).toEqual([]);
+		// dynamicAtAll=false → 不进 sub.atAll.dynamic
+		expect(sub.atAll.dynamic).toEqual([]);
+		expect(sub.atAll.live).toEqual([]);
 	});
 
 	it("prefers the master (private-scope) target over a group target", async () => {

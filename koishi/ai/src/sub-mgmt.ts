@@ -60,15 +60,16 @@ export function buildSubManagement(deps: {
 			const routing = Object.fromEntries(FEATURE_KEYS.map((k) => [k, [] as string[]]));
 			if (targetIds.length > 0) {
 				if (dynamic) routing.dynamic = [...targetIds];
-				if (dynamicAtAll) routing.dynamicAtAll = [...targetIds];
 				if (live) routing.live = [...targetIds];
-				if (liveAtAll) routing.liveAtAll = [...targetIds];
 				if (liveGuardBuy) routing.liveGuardBuy = [...targetIds];
 				if (superchat) routing.superchat = [...targetIds];
 				if (wordcloud) routing.wordcloud = [...targetIds];
 				if (liveSummary) routing.liveSummary = [...targetIds];
 			}
 			sub.routing = routing as typeof sub.routing;
+			// @全体 只在父 feature 同时开启时生效("单独开 @ 无效")。
+			if (dynamic && dynamicAtAll) sub.atAll.dynamic = [...targetIds];
+			if (live && liveAtAll) sub.atAll.live = [...targetIds];
 			store.upsert(sub);
 			if (targetIds.length === 0) {
 				return `已订阅 ${name}（UID: ${uid}），但当前无 PushTarget 可路由，请到 dashboard 配置推送目标后再使用`;
@@ -90,10 +91,7 @@ export function buildSubManagement(deps: {
 				.filter((id, i, arr) => arr.indexOf(id) === i);
 			const routing = { ...sub.routing };
 			if (params.dynamic !== undefined) routing.dynamic = params.dynamic ? targetIds : [];
-			if (params.dynamicAtAll !== undefined)
-				routing.dynamicAtAll = params.dynamicAtAll ? targetIds : [];
 			if (params.live !== undefined) routing.live = params.live ? targetIds : [];
-			if (params.liveAtAll !== undefined) routing.liveAtAll = params.liveAtAll ? targetIds : [];
 			if (params.liveGuardBuy !== undefined)
 				routing.liveGuardBuy = params.liveGuardBuy ? targetIds : [];
 			if (params.superchat !== undefined) routing.superchat = params.superchat ? targetIds : [];
@@ -101,6 +99,15 @@ export function buildSubManagement(deps: {
 			if (params.liveSummary !== undefined)
 				routing.liveSummary = params.liveSummary ? targetIds : [];
 			updated.routing = routing;
+			// @全体 只在父 feature 实际启用时生效;关掉父 feature 时也连带清空对应 atAll。
+			const atAll = { dynamic: [...sub.atAll.dynamic], live: [...sub.atAll.live] };
+			if (params.dynamic === false) atAll.dynamic = [];
+			else if (params.dynamicAtAll !== undefined && (params.dynamic ?? routing.dynamic.length > 0))
+				atAll.dynamic = params.dynamicAtAll ? [...targetIds] : [];
+			if (params.live === false) atAll.live = [];
+			else if (params.liveAtAll !== undefined && (params.live ?? routing.live.length > 0))
+				atAll.live = params.liveAtAll ? [...targetIds] : [];
+			updated.atAll = atAll;
 			store.upsert(updated);
 			return `已成功更新（UID: ${params.uid}）的订阅设置`;
 		},

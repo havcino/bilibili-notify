@@ -114,7 +114,17 @@ export interface MessageBus {
 export type PayloadSegment =
 	| { type: "text"; text: string }
 	| { type: "image"; buffer: Buffer; mime: string }
-	| { type: "link"; href: string; title?: string };
+	| { type: "link"; href: string; title?: string }
+	/**
+	 * @全体成员 段。仅出现在 composite payload 中,由 BilibiliPush.broadcastToFeature
+	 * 在 per-target 时按 sub.atAll[feature] 判断是否前置。各 platform adapter 自行翻译:
+	 * - OneBot v11: `{ type: "at", data: { qq: "all" } }`(真实 @ 全体)
+	 * - Webhook: JSON 序列化时保留 `{ type: "at-all" }`,由接收方自行处理
+	 * - Web Dashboard: 渲染成可视化 "@全体" 文本(非真实 @)
+	 *
+	 * 不会作为单独 payload kind 出现 —— @ 永远是 dynamic/live 推送的"修饰",不能单独发。
+	 */
+	| { type: "at-all" };
 
 /**
  * 平台中立的消息载荷。Adapter 翻译为各平台原生格式：

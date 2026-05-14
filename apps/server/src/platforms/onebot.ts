@@ -81,6 +81,9 @@ export function createOnebotAdapter(opts: OnebotPlatformAdapterOptions): Platfor
 				};
 			case "link":
 				return { type: "text", data: { text: seg.title ? `${seg.title} ${seg.href}` : seg.href } };
+			case "at-all":
+				// OneBot v11 标准 at 全体 segment;NapCat / go-cqhttp / Lagrange 都支持。
+				return { type: "at", data: { qq: "all" } };
 		}
 	}
 

@@ -40,13 +40,13 @@ export type PushSegment = PushImagePart | PushTextPart | PushImageGroup;
  * adapter 负责把它翻译为具体平台的 channel 列表 / atAll / 图片折叠等行为。
  */
 export type PushKind =
-	| /** 主体动态卡片：可能携带图片 + 文本，allowAtAll 用于动态推送时附带 atAll */ "dynamic"
+	| /** 主体动态卡片：可能携带图片 + 文本 */ "dynamic"
 	| /** 动态附图（DYNAMIC_TYPE_DRAW 的多张原图，转发消息形式） */ "dynamic-images";
 
 export interface PushLike {
 	/**
 	 * 向某个 UP 主对应的全部订阅频道广播一段消息。
-	 * - kind="dynamic"：主卡片消息，包含 image + text 段；adapter 同时处理 dynamicAtAll。
+	 * - kind="dynamic"：主卡片消息，包含 image + text 段。
 	 * - kind="dynamic-images"：DYNAMIC_TYPE_DRAW 的图集，adapter 通常以 forward message 投递。
 	 */
 	broadcastDynamic(uid: string, segments: PushSegment[], kind: PushKind): Promise<void>;

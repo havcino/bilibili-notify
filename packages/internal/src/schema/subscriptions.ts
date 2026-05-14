@@ -63,6 +63,23 @@ export const AIOverrideSchema = z.object({
 export type AIOverride = z.infer<typeof AIOverrideSchema>;
 
 /**
+ * @全体 修饰符。dynamic / live 是 PushTarget.id 列表,语义:**在该 target 收到对应主推送时**
+ * 额外追加 `{ type: "at-all" }` 段。约束:必须是 routing[feature] 的子集 ——「单独开 @」无效。
+ *
+ * - `atAll.dynamic ⊆ routing.dynamic`:某 target 在 atAll.dynamic 但不在 routing.dynamic 时
+ *   不发任何东西(不会单独发 @)。
+ * - `atAll.live ⊆ routing.live`:仅作用于 LivePushType.Live (开播),不冲 liveEnd / SC /
+ *   上舰 / 词云 / AI 总结。这些子事件即便对应 target 在 atAll.live 里也不 @。
+ *
+ * SubscriptionSchema.refine() 强制子集约束;违反约束的旧数据 parse 时报错。
+ */
+export const SubscriptionAtAllSchema = z.object({
+	dynamic: z.array(z.uuid()).default([]),
+	live: z.array(z.uuid()).default([]),
+});
+export type SubscriptionAtAll = z.infer<typeof SubscriptionAtAllSchema>;
+
+/**
  * 单 UP 的覆盖配置；任意字段为 undefined 表示继承 GlobalConfig.defaults。
  */
 export const SubscriptionOverridesSchema = z.object({
@@ -103,18 +120,28 @@ export type SubscriptionState = z.infer<typeof SubscriptionStateSchema>;
  * 单一订阅模型，统一 SubItem (基础) + AdvancedSubItem (高级) 两套。
  * id 与 uid 分离：id 是 dashboard 内部稳定标识；uid 是 B 站用户 ID。
  */
-export const SubscriptionSchema = z.object({
-	id: z.uuid(),
-	uid: z.string().regex(/^\d+$/, "uid must be a numeric Bilibili UID string"),
-	enabled: z.boolean(),
-	groups: z.array(z.string()).default([]),
-	notes: z.string().optional(),
-	cachedProfile: CachedProfileSchema.optional(),
-	routing: SubscriptionRoutingSchema,
-	overrides: SubscriptionOverridesSchema,
-	specialUsers: z.array(SpecialUserSchema).default([]),
-	state: SubscriptionStateSchema,
-});
+export const SubscriptionSchema = z
+	.object({
+		id: z.uuid(),
+		uid: z.string().regex(/^\d+$/, "uid must be a numeric Bilibili UID string"),
+		enabled: z.boolean(),
+		groups: z.array(z.string()).default([]),
+		notes: z.string().optional(),
+		cachedProfile: CachedProfileSchema.optional(),
+		routing: SubscriptionRoutingSchema,
+		atAll: SubscriptionAtAllSchema.default({ dynamic: [], live: [] }),
+		overrides: SubscriptionOverridesSchema,
+		specialUsers: z.array(SpecialUserSchema).default([]),
+		state: SubscriptionStateSchema,
+	})
+	.refine((s) => s.atAll.dynamic.every((t) => s.routing.dynamic.includes(t)), {
+		message: "atAll.dynamic must be a subset of routing.dynamic",
+		path: ["atAll", "dynamic"],
+	})
+	.refine((s) => s.atAll.live.every((t) => s.routing.live.includes(t)), {
+		message: "atAll.live must be a subset of routing.live",
+		path: ["atAll", "live"],
+	});
 export type Subscription = z.infer<typeof SubscriptionSchema>;
 
 /** 工厂：创建一个完全继承全局默认的空 Subscription（routing 全空、overrides 全 undefined）。 */
@@ -130,6 +157,7 @@ export function makeEmptySubscription(opts: { id: string; uid: string }): Subscr
 		notes: undefined,
 		cachedProfile: undefined,
 		routing: emptyRouting,
+		atAll: { dynamic: [], live: [] },
 		overrides: {},
 		specialUsers: [],
 		state: {

@@ -29,11 +29,7 @@ export const BilibiliNotifyAdvancedSubConfig: Schema<BilibiliNotifyAdvancedSubCo
 				uid: Schema.string().required().description("要订阅的UP主的UID"),
 				roomId: Schema.string().default("").description("直播间号，留空则自动查询"),
 				dynamic: Schema.boolean().default(true).description("是否订阅动态通知（总开关）"),
-				dynamicAtAll: Schema.boolean()
-					.default(false)
-					.description("是否在动态通知中@所有人（总开关）"),
 				live: Schema.boolean().default(true).description("是否订阅直播开播通知（总开关）"),
-				liveAtAll: Schema.boolean().default(true).description("是否在开播通知中@所有人（总开关）"),
 				liveEnd: Schema.boolean().default(true).description("是否订阅直播下播通知（总开关）"),
 				liveGuardBuy: Schema.boolean().default(false).description("是否订阅上舰通知（总开关）"),
 				superchat: Schema.boolean().default(false).description("是否订阅SC通知（总开关）"),
@@ -49,9 +45,15 @@ export const BilibiliNotifyAdvancedSubConfig: Schema<BilibiliNotifyAdvancedSubCo
 							Schema.object({
 								channelId: Schema.string().required().description("频道或群组号"),
 								dynamic: Schema.boolean().default(true).description("动态通知"),
-								dynamicAtAll: Schema.boolean().default(false).description("动态@所有人"),
+								dynamicAtAll: Schema.boolean()
+									.default(false)
+									.description("动态通知 @全体(仅在该频道开启动态通知时生效)"),
 								live: Schema.boolean().default(true).description("直播通知"),
-								liveAtAll: Schema.boolean().default(true).description("开播@所有人"),
+								liveAtAll: Schema.boolean()
+									.default(false)
+									.description(
+										"开播通知 @全体(仅在该频道开启直播通知时生效;只冲开播,不冲 SC/上舰/总结)",
+									),
 								liveEnd: Schema.boolean().default(true).description("下播通知"),
 								liveGuardBuy: Schema.boolean().default(false).description("上舰通知"),
 								superchat: Schema.boolean().default(false).description("SC通知"),

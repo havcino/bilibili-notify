@@ -2,19 +2,22 @@ import { PushTargetSchema } from "@bilibili-notify/internal";
 import { describe, expect, it } from "vitest";
 import { type AdvancedSubRawConfigShape, buildAdvancedSubAndTargets } from "../convert";
 
-function makeRaw(uid: string, channelId: string, platform = "onebot") {
+function makeRaw(
+	uid: string,
+	channelId: string,
+	platform = "onebot",
+	opts: { dynamicAtAll?: boolean; liveAtAll?: boolean } = {},
+) {
 	return {
 		uid,
 		roomId: "",
 		dynamic: true,
 		live: true,
-		liveAtAll: false,
 		liveEnd: false,
 		liveGuardBuy: false,
 		superchat: false,
 		wordcloud: true,
 		liveSummary: true,
-		dynamicAtAll: false,
 		target: [
 			{
 				platform,
@@ -23,15 +26,15 @@ function makeRaw(uid: string, channelId: string, platform = "onebot") {
 						channelId,
 						dynamic: true,
 						live: true,
-						liveAtAll: false,
 						liveEnd: false,
 						liveGuardBuy: false,
 						superchat: false,
 						wordcloud: true,
 						liveSummary: true,
-						dynamicAtAll: false,
 						specialDanmaku: false,
 						specialUserEnter: false,
+						dynamicAtAll: opts.dynamicAtAll ?? false,
+						liveAtAll: opts.liveAtAll ?? false,
 					},
 				],
 			},
@@ -89,6 +92,24 @@ describe("buildAdvancedSubAndTargets()", () => {
 		// Both subs must reference the deduped target id.
 		expect(subs[0].routing.live?.[0]).toBe(targets[0].id);
 		expect(subs[1].routing.live?.[0]).toBe(targets[0].id);
+	});
+
+	it("populates sub.atAll.dynamic / sub.atAll.live from channel @全体 toggles", () => {
+		const cfg: AdvancedSubRawShim = {
+			subs: {
+				"UP-1": makeRaw("11", "111", "onebot", { dynamicAtAll: true, liveAtAll: true }),
+				"UP-2": makeRaw("22", "222", "onebot", { dynamicAtAll: false, liveAtAll: false }),
+			},
+		};
+		const { subs } = buildAdvancedSubAndTargets(cfg as unknown as AdvancedSubRawConfigShape);
+		expect(subs[0].atAll.dynamic).toHaveLength(1);
+		expect(subs[0].atAll.live).toHaveLength(1);
+		// UP-2 没勾 atAll
+		expect(subs[1].atAll.dynamic).toEqual([]);
+		expect(subs[1].atAll.live).toEqual([]);
+		// atAll 是 routing 的子集
+		expect(subs[0].routing.dynamic).toContain(subs[0].atAll.dynamic[0]);
+		expect(subs[0].routing.live).toContain(subs[0].atAll.live[0]);
 	});
 });
 

@@ -113,9 +113,15 @@ export const TOOL_DEFINITIONS: OpenAI.ChatCompletionTool[] = [
 					uid: { type: "string", description: "UP 主的 UID" },
 					name: { type: "string", description: "UP 主的昵称（用于显示）" },
 					dynamic: { type: "boolean", description: "订阅动态通知，默认 true" },
-					dynamicAtAll: { type: "boolean", description: "动态时@全体成员，默认 false" },
+					dynamicAtAll: {
+						type: "boolean",
+						description: "动态推送时本频道追加 @全体(仅在 dynamic=true 时生效)，默认 false",
+					},
 					live: { type: "boolean", description: "订阅直播通知，默认 true" },
-					liveAtAll: { type: "boolean", description: "开播时@全体成员，默认 false" },
+					liveAtAll: {
+						type: "boolean",
+						description: "开播推送时本频道追加 @全体(仅在 live=true 时生效)，默认 false",
+					},
 					liveGuardBuy: { type: "boolean", description: "订阅上舰消息，默认 false" },
 					superchat: { type: "boolean", description: "订阅 SC（醒目留言）消息，默认 false" },
 					wordcloud: { type: "boolean", description: "直播结束后生成弹幕词云，默认 true" },
@@ -149,9 +155,15 @@ export const TOOL_DEFINITIONS: OpenAI.ChatCompletionTool[] = [
 				properties: {
 					uid: { type: "string", description: "要修改的 UP 主 UID" },
 					dynamic: { type: "boolean", description: "是否订阅动态通知" },
-					dynamicAtAll: { type: "boolean", description: "动态时是否@全体成员" },
+					dynamicAtAll: {
+						type: "boolean",
+						description: "动态推送时本频道是否 @全体(仅在 dynamic=true 时生效)",
+					},
 					live: { type: "boolean", description: "是否订阅直播通知" },
-					liveAtAll: { type: "boolean", description: "开播时是否@全体成员" },
+					liveAtAll: {
+						type: "boolean",
+						description: "开播推送时本频道是否 @全体(仅在 live=true 时生效)",
+					},
 					liveGuardBuy: { type: "boolean", description: "是否订阅上舰消息" },
 					superchat: { type: "boolean", description: "是否订阅 SC（醒目留言）消息" },
 					wordcloud: { type: "boolean", description: "直播结束后是否生成弹幕词云" },

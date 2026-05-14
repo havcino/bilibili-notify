@@ -3,9 +3,7 @@ import { z } from "zod";
 /** 全部可订阅的特性键。新增或删除会扩散到 FeatureFlags、SubscriptionRouting、Subscription.overrides。 */
 export const FeatureKeySchema = z.enum([
 	"dynamic",
-	"dynamicAtAll",
 	"live",
-	"liveAtAll",
 	"liveEnd",
 	"liveGuardBuy",
 	"superchat",
@@ -21,9 +19,7 @@ export const FEATURE_KEYS = FeatureKeySchema.options;
 /** 每个特性的开关；使用 record 而非 z.record(boolean) 是为了让 inherit-merge 时类型保留键名。 */
 export const FeatureFlagsSchema = z.object({
 	dynamic: z.boolean(),
-	dynamicAtAll: z.boolean(),
 	live: z.boolean(),
-	liveAtAll: z.boolean(),
 	liveEnd: z.boolean(),
 	liveGuardBuy: z.boolean(),
 	superchat: z.boolean(),
@@ -166,9 +162,7 @@ export type CardStylePartial = z.infer<typeof CardStylePartialSchema>;
 /** 默认全局值；resolve() 在 per-UP overrides 缺失字段时回退到这里。 */
 export const DEFAULT_FEATURE_FLAGS: FeatureFlags = {
 	dynamic: true,
-	dynamicAtAll: false,
 	live: true,
-	liveAtAll: true,
 	liveEnd: true,
 	liveGuardBuy: false,
 	superchat: false,

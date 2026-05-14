@@ -6,9 +6,7 @@ import { activeFeatures, colorFromUid, displayName, relativeTime } from "./helpe
 
 const FEATURE_TONE: Record<string, string> = {
 	dynamic: "#00AEEC",
-	dynamicAtAll: "#00AEEC",
 	live: "#FB7299",
-	liveAtAll: "#FB7299",
 	liveEnd: "#FB7299",
 	liveGuardBuy: "#f2a053",
 	superchat: "#fdcb6e",

@@ -24,13 +24,15 @@ export interface SubscriptionLoaderHooks {
 /**
  * Maps the legacy master feature booleans to FeatureKeys.
  * These are the features that have per-sub toggles.
+ *
+ * NB:dynamicAtAll / liveAtAll 不再是独立 FeatureKey,而是 Subscription.atAll 的
+ * subset 标记。FlatSubConfigItem 没有 atAll 字段(简单 koishi config 不暴露 @
+ * 决策);advanced-subscription / Web Dashboard 才能编辑 per-target @全体。
  */
 const LEGACY_FEATURE_MAP: ReadonlyArray<{ legacy: keyof FlatSubConfigItem; feature: FeatureKey }> =
 	[
 		{ legacy: "dynamic", feature: "dynamic" },
-		{ legacy: "dynamicAtAll", feature: "dynamicAtAll" },
 		{ legacy: "live", feature: "live" },
-		{ legacy: "liveAtAll", feature: "liveAtAll" },
 		{ legacy: "liveEnd", feature: "liveEnd" },
 		{ legacy: "liveGuardBuy", feature: "liveGuardBuy" },
 		{ legacy: "superchat", feature: "superchat" },

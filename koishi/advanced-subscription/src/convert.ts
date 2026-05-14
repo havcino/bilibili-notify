@@ -21,7 +21,16 @@ import {
 
 type ChannelFeatureKey = FeatureKey;
 
-export type ChannelConfig = Partial<Record<ChannelFeatureKey, boolean>> & { channelId: string };
+/**
+ * `dynamicAtAll` / `liveAtAll` 不再是 FeatureKey,但 advanced-subscription Schema 仍允许
+ * 用户在 channelArr 上勾选;转换器把它们映射到 Subscription.atAll.dynamic / atAll.live。
+ * UP-level (`raw.dynamicAtAll` / `raw.liveAtAll`)已从 Schema 移除,不再支持。
+ */
+export type ChannelConfig = Partial<Record<ChannelFeatureKey, boolean>> & {
+	channelId: string;
+	dynamicAtAll?: boolean;
+	liveAtAll?: boolean;
+};
 
 export interface TargetConfig {
 	platform: string;
@@ -174,6 +183,15 @@ export function rawConfigToSubscription(_name: string, raw: SubItemRawConfig): C
 				if (!routing[featureKey].includes(targetId)) {
 					routing[featureKey].push(targetId);
 				}
+			}
+
+			// @全体 修饰符:仅在该 channel 同时开启对应主 feature 时生效("单独开 @ 无效")。
+			// schema-side 用户即便误勾 dynamicAtAll=true 而 dynamic=false 也不会进入 atAll 列表。
+			if (ch.dynamicAtAll && routing.dynamic?.includes(targetId)) {
+				if (!sub.atAll.dynamic.includes(targetId)) sub.atAll.dynamic.push(targetId);
+			}
+			if (ch.liveAtAll && routing.live?.includes(targetId)) {
+				if (!sub.atAll.live.includes(targetId)) sub.atAll.live.push(targetId);
 			}
 		}
 	}

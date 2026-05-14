@@ -479,7 +479,6 @@ export default function Cards() {
 							</>
 						)}
 					</GlassBox>
-
 				</div>
 
 				{/* RIGHT: live preview */}

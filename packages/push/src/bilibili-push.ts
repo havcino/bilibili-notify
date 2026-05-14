@@ -4,9 +4,31 @@ import type {
 	Logger,
 	NotificationPayload,
 	NotificationSink,
+	PayloadSegment,
 	PushTarget,
 } from "@bilibili-notify/internal";
 import type { SubscriptionStore } from "@bilibili-notify/subscription";
+
+/**
+ * 把 NotificationPayload 升级为 composite 并前置 `{ type: "at-all" }` 段。
+ * text → composite [at-all, text],image → composite [at-all, image-as-text-caption + image],
+ * composite → 复用 segments + at-all 头。caption 文本会作为额外 text 段保留。
+ */
+function prependAtAll(payload: NotificationPayload): NotificationPayload {
+	const head: PayloadSegment = { type: "at-all" };
+	switch (payload.kind) {
+		case "text":
+			return { kind: "composite", segments: [head, { type: "text", text: payload.text }] };
+		case "image": {
+			const segs: PayloadSegment[] = [head];
+			if (payload.caption) segs.push({ type: "text", text: payload.caption });
+			segs.push({ type: "image", buffer: payload.image.buffer, mime: payload.image.mime });
+			return { kind: "composite", segments: segs };
+		}
+		case "composite":
+			return { kind: "composite", segments: [head, ...payload.segments] };
+	}
+}
 
 const INITIAL_RETRY_DELAY_MS = 3000;
 const MAX_RETRY_DELAY_MS = INITIAL_RETRY_DELAY_MS * 2 ** 5;
@@ -93,6 +115,11 @@ export class BilibiliPush {
 	/**
 	 * Broadcast a notification to all targets registered for a given uid + feature.
 	 * Returns an array of DeliveryResult (one per target).
+	 *
+	 * @全体成员 修饰:`feature === "dynamic"` 时按 `sub.atAll.dynamic` 决定哪些 target
+	 * 收到的 payload 前置 at-all 段;`feature === "live"` 同理(仅作用于开播,SC/上舰/
+	 * 词云/总结/下播 等子事件以 `liveEnd`/`superchat`/... 它们自己的 feature key 走,
+	 * 不会进入这条 atAll 分支)。子集约束已在 schema refine 强制,这里不再二次校验。
 	 */
 	async broadcastToFeature(
 		uid: string,
@@ -113,8 +140,31 @@ export class BilibiliPush {
 			return [];
 		}
 
+		const atAllSet =
+			feature === "dynamic"
+				? new Set(sub.atAll.dynamic)
+				: feature === "live"
+					? new Set(sub.atAll.live)
+					: null;
+
 		this.logger.info(`[push] uid=${uid} feature=${feature} → ${targetIds.length} 个目标`);
-		return this.sendBatch(targetIds, payload, { uid, feature });
+		if (!atAllSet || atAllSet.size === 0) {
+			return this.sendBatch(targetIds, payload, { uid, feature });
+		}
+
+		// 有 atAll target 时按 target 拆批,分别带 / 不带 at-all 前缀。
+		const atAllTargets = targetIds.filter((id) => atAllSet.has(id));
+		const plainTargets = targetIds.filter((id) => !atAllSet.has(id));
+		const results: DeliveryResult[] = [];
+		if (plainTargets.length > 0) {
+			results.push(...(await this.sendBatch(plainTargets, payload, { uid, feature })));
+		}
+		if (atAllTargets.length > 0) {
+			results.push(
+				...(await this.sendBatch(atAllTargets, prependAtAll(payload), { uid, feature })),
+			);
+		}
+		return results;
 	}
 
 	/**

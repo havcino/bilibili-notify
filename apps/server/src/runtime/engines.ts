@@ -817,9 +817,7 @@ function buildLiveSubViewSingle(sub: Subscription, globals: GlobalConfig): LiveS
 		uname: sub.cachedProfile?.name ?? sub.uid,
 		roomId: "",
 		dynamic: (eff.routing.dynamic?.length ?? 0) > 0,
-		dynamicAtAll: (eff.routing.dynamicAtAll?.length ?? 0) > 0,
 		live: (eff.routing.live?.length ?? 0) > 0,
-		liveAtAll: (eff.routing.liveAtAll?.length ?? 0) > 0,
 		liveEnd: (eff.routing.liveEnd?.length ?? 0) > 0,
 		liveGuardBuy: (eff.routing.liveGuardBuy?.length ?? 0) > 0,
 		superchat: (eff.routing.superchat?.length ?? 0) > 0,
@@ -928,26 +926,34 @@ function subscriptionOpsToLive(
 		} else {
 			const sub = store.findByUid(op.sub.uid);
 			if (!sub) continue;
-			const eff = resolve(sub, globals.defaults);
-			// 路由布尔 + per-UP 阈值 / 调度 / AI 全部带上,engine 在 applyOps 里
-			// Object.assign 合进活跃 sub。pushTime 变化由 engine 自己 rearm。
+			// 用完整 SubItemView 投影出所有 LiveScopedChange 支持的字段——路由布尔、
+			// per-UP 阈值 / 调度 / AI override 之外,模板 / 上舰 / 特别关注 / 卡片样式
+			// 也跟着一起同步,避免活跃 listener 用旧值(本来 add 路径就走这里,update
+			// 没必要弱化语义)。pushTime 变化由 engine 在 applyOps 内单独 rearm。
+			const view = buildLiveSubViewSingle(sub, globals);
 			out.push({
 				type: "update",
 				uid: op.sub.uid,
 				changes: [
 					{
 						scope: "live",
-						live: (eff.routing.live?.length ?? 0) > 0,
-						liveEnd: (eff.routing.liveEnd?.length ?? 0) > 0,
-						liveGuardBuy: (eff.routing.liveGuardBuy?.length ?? 0) > 0,
-						superchat: (eff.routing.superchat?.length ?? 0) > 0,
-						wordcloud: (eff.routing.wordcloud?.length ?? 0) > 0,
-						liveSummary: (eff.routing.liveSummary?.length ?? 0) > 0,
-						minScPrice: eff.filters.minScPrice,
-						minGuardLevel: eff.filters.minGuardLevel,
-						pushTime: eff.schedule.pushTime,
-						restartPush: eff.schedule.restartPush,
-						aiOverride: buildAiOverride(eff),
+						live: view.live,
+						liveEnd: view.liveEnd,
+						liveGuardBuy: view.liveGuardBuy,
+						superchat: view.superchat,
+						wordcloud: view.wordcloud,
+						liveSummary: view.liveSummary,
+						minScPrice: view.minScPrice,
+						minGuardLevel: view.minGuardLevel,
+						pushTime: view.pushTime,
+						restartPush: view.restartPush,
+						aiOverride: view.aiOverride,
+						customCardStyle: view.customCardStyle,
+						customLiveMsg: view.customLiveMsg,
+						customGuardBuy: view.customGuardBuy,
+						customLiveSummary: view.customLiveSummary,
+						customSpecialDanmakuUsers: view.customSpecialDanmakuUsers,
+						customSpecialUsersEnterTheRoom: view.customSpecialUsersEnterTheRoom,
 					},
 				],
 			});

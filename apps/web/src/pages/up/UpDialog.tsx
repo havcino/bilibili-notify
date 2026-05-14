@@ -18,16 +18,12 @@ const FEATURE_GROUPS: ReadonlyArray<{
 }> = [
 	{
 		label: "动态",
-		keys: [
-			{ key: "dynamic", sub: "投稿 / 转发 / 专栏" },
-			{ key: "dynamicAtAll", sub: "动态推送时 @所有人" },
-		],
+		keys: [{ key: "dynamic", sub: "投稿 / 转发 / 专栏" }],
 	},
 	{
 		label: "直播",
 		keys: [
 			{ key: "live", sub: "开播提醒" },
-			{ key: "liveAtAll", sub: "开播时 @所有人" },
 			{ key: "liveEnd", sub: "下播提醒" },
 			{ key: "liveGuardBuy", sub: "舰长 / 提督 / 总督" },
 			{ key: "superchat", sub: "Super Chat 提醒" },
@@ -42,6 +38,15 @@ const FEATURE_GROUPS: ReadonlyArray<{
 			{ key: "specialUserEnter", sub: "特别关注用户进直播间" },
 		],
 	},
+];
+
+/**
+ * 哪些 feature 支持 @全体 修饰符。dynamic → atAll.dynamic;live → atAll.live(仅开播,
+ * 不冲 liveEnd/SC/上舰/词云/总结)。schema-side `atAll.X ⊆ routing.X` 由 refine 强制。
+ */
+const AT_ALL_FEATURES: ReadonlyArray<{ feature: FeatureKey; scope: "dynamic" | "live" }> = [
+	{ feature: "dynamic", scope: "dynamic" },
+	{ feature: "live", scope: "live" },
 ];
 
 export interface UpDialogProps {
@@ -223,6 +228,9 @@ export function UpDialog({ sub, targets, onClose, onSave, onDelete, saving }: Up
 	/**
 	 * Toggle one feature on a single target. Only ever invoked in custom mode
 	 * (the UI does not show the per-feature toggles in follow mode).
+	 *
+	 * Side effect:关掉 dynamic/live 时,同步把该 target 从对应 atAll.X 列表里剥掉
+	 * ——schema refine 强制 atAll ⊆ routing,留着会 parse 失败。
 	 */
 	function toggleRouteForTarget(targetId: string, k: FeatureKey, on: boolean): void {
 		setDraft((d) => {
@@ -231,7 +239,31 @@ export function UpDialog({ sub, targets, onClose, onSave, onDelete, saving }: Up
 			const has = list.includes(targetId);
 			const next =
 				on && !has ? [...list, targetId] : !on && has ? list.filter((id) => id !== targetId) : list;
-			return { ...d, routing: { ...d.routing, [k]: next } };
+			const routing = { ...d.routing, [k]: next };
+			let atAll = d.atAll;
+			if (!on && (k === "dynamic" || k === "live")) {
+				const scope = k;
+				if (atAll[scope].includes(targetId)) {
+					atAll = { ...atAll, [scope]: atAll[scope].filter((id) => id !== targetId) };
+				}
+			}
+			return { ...d, routing, atAll };
+		});
+	}
+
+	/**
+	 * Toggle @全体 修饰符 for a single target on a feature scope (dynamic / live).
+	 * 父 feature 关闭时该子勾选 UI 上 disabled,这里也不允许设 true。
+	 */
+	function toggleAtAllForTarget(targetId: string, scope: "dynamic" | "live", on: boolean): void {
+		setDraft((d) => {
+			if (!d) return d;
+			if (on && !d.routing[scope].includes(targetId)) return d;
+			const list = d.atAll[scope];
+			const has = list.includes(targetId);
+			const next =
+				on && !has ? [...list, targetId] : !on && has ? list.filter((id) => id !== targetId) : list;
+			return { ...d, atAll: { ...d.atAll, [scope]: next } };
 		});
 	}
 
@@ -417,6 +449,7 @@ export function UpDialog({ sub, targets, onClose, onSave, onDelete, saving }: Up
 										sub={draft}
 										onToggleMode={(toCustom) => switchTargetMode(t.id, toCustom)}
 										onToggleRoute={(k, on) => toggleRouteForTarget(t.id, k, on)}
+										onToggleAtAll={(scope, on) => toggleAtAllForTarget(t.id, scope, on)}
 										onDetach={() => detachTarget(t.id)}
 									/>
 								))
@@ -604,6 +637,7 @@ function TargetRoutingCard({
 	sub,
 	onToggleMode,
 	onToggleRoute,
+	onToggleAtAll,
 	onDetach,
 }: {
 	target: PushTarget;
@@ -611,6 +645,7 @@ function TargetRoutingCard({
 	sub: Subscription;
 	onToggleMode: (toCustom: boolean) => void;
 	onToggleRoute: (k: FeatureKey, on: boolean) => void;
+	onToggleAtAll: (scope: "dynamic" | "live", on: boolean) => void;
 	onDetach: () => void;
 }) {
 	const enabledCount = isCustom
@@ -656,15 +691,45 @@ function TargetRoutingCard({
 								{g.label}
 							</div>
 							<div className="grid grid-cols-2 gap-x-4 gap-y-1.5">
-								{g.keys.map(({ key, sub: featSub }) => (
-									<FeatureToggleRow
-										key={key}
-										label={FEATURE_LABELS[key]}
-										sub={featSub}
-										value={sub.routing[key].includes(target.id)}
-										onChange={(on) => onToggleRoute(key, on)}
-									/>
-								))}
+								{g.keys.map(({ key, sub: featSub }) => {
+									// 仅 dynamic / live 行下方挂 "+@全体" sub-checkbox(仅冲 dynamic / 开播)。
+									const atAllScope = AT_ALL_FEATURES.find((a) => a.feature === key)?.scope;
+									const parentOn = sub.routing[key].includes(target.id);
+									const atAllOn = atAllScope ? sub.atAll[atAllScope].includes(target.id) : false;
+									return (
+										<div key={key}>
+											<FeatureToggleRow
+												label={FEATURE_LABELS[key]}
+												sub={featSub}
+												value={parentOn}
+												onChange={(on) => onToggleRoute(key, on)}
+											/>
+											{atAllScope ? (
+												<label
+													className={`mt-0.5 ml-4 flex items-center gap-1.5 text-[11px] ${parentOn ? "cursor-pointer text-bn-text-secondary" : "cursor-not-allowed text-gray-300"}`}
+													title={
+														parentOn
+															? atAllScope === "live"
+																? "仅在开播推送时附加 @全体(SC / 上舰 / 词云 / 总结 不 @)"
+																: "动态推送到该 target 时附加 @全体"
+															: "需先开启父订阅项才能 @全体"
+													}
+												>
+													<input
+														type="checkbox"
+														className="h-3 w-3 cursor-inherit"
+														checked={parentOn && atAllOn}
+														disabled={!parentOn}
+														onChange={(e) =>
+															parentOn && onToggleAtAll(atAllScope, e.target.checked)
+														}
+													/>
+													<span>+ @全体</span>
+												</label>
+											) : null}
+										</div>
+									);
+								})}
 							</div>
 						</div>
 					))}

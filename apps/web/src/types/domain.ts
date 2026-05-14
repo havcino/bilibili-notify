@@ -12,9 +12,7 @@
 
 export const FEATURE_KEYS = [
 	"dynamic",
-	"dynamicAtAll",
 	"live",
-	"liveAtAll",
 	"liveEnd",
 	"liveGuardBuy",
 	"superchat",
@@ -28,9 +26,7 @@ export type FeatureKey = (typeof FEATURE_KEYS)[number];
 
 export const FEATURE_LABELS: Record<FeatureKey, string> = {
 	dynamic: "动态",
-	dynamicAtAll: "动态 @全体",
 	live: "开播",
-	liveAtAll: "开播 @全体",
 	liveEnd: "下播",
 	liveGuardBuy: "上舰",
 	superchat: "SC",
@@ -47,9 +43,7 @@ export const FEATURE_LABELS: Record<FeatureKey, string> = {
  */
 export const DEFAULT_FEATURE_FLAGS: Record<FeatureKey, boolean> = {
 	dynamic: true,
-	dynamicAtAll: false,
 	live: true,
-	liveAtAll: true,
 	liveEnd: true,
 	liveGuardBuy: false,
 	superchat: false,
@@ -244,6 +238,16 @@ export interface SubscriptionState {
 	liveStatus: "idle" | "live" | "unknown";
 }
 
+/**
+ * @全体成员 修饰符:`dynamic` / `live` 是 target.id 列表,语义同后端 schema:
+ * 在该 target 收到对应主推送时多带一个 @全体 段。**单独开 @ 无效** ——
+ * 不在 routing.dynamic / routing.live 里的 id 会在后端 schema refine 被拒。
+ */
+export interface SubscriptionAtAll {
+	dynamic: string[];
+	live: string[];
+}
+
 export interface Subscription {
 	id: string;
 	uid: string;
@@ -252,6 +256,7 @@ export interface Subscription {
 	notes?: string;
 	cachedProfile?: CachedProfile;
 	routing: SubscriptionRouting;
+	atAll: SubscriptionAtAll;
 	overrides: SubscriptionOverrides;
 	specialUsers: SpecialUser[];
 	state: SubscriptionState;
@@ -284,6 +289,7 @@ export function makeEmptySubscription(uid: string): Subscription {
 		notes: undefined,
 		cachedProfile: undefined,
 		routing: emptyRouting(),
+		atAll: { dynamic: [], live: [] },
 		overrides: {},
 		specialUsers: [],
 		state: {

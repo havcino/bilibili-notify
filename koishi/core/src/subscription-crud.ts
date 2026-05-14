@@ -7,9 +7,7 @@ import type { TargetRegistry } from "./target-registry";
 /** Subset of optional flags accepted by add/update — mirrors the AI command surface. */
 export interface SubFlagOverrides {
 	dynamic?: boolean;
-	dynamicAtAll?: boolean;
 	live?: boolean;
-	liveAtAll?: boolean;
 	liveEnd?: boolean;
 	liveGuardBuy?: boolean;
 	superchat?: boolean;
@@ -19,9 +17,7 @@ export interface SubFlagOverrides {
 
 const FLAG_KEYS: ReadonlyArray<keyof SubFlagOverrides> = [
 	"dynamic",
-	"dynamicAtAll",
 	"live",
-	"liveAtAll",
 	"liveEnd",
 	"liveGuardBuy",
 	"superchat",
@@ -31,9 +27,7 @@ const FLAG_KEYS: ReadonlyArray<keyof SubFlagOverrides> = [
 
 const ADD_DEFAULTS: Required<SubFlagOverrides> = {
 	dynamic: true,
-	dynamicAtAll: false,
 	live: true,
-	liveAtAll: false,
 	liveEnd: true,
 	liveGuardBuy: false,
 	superchat: false,

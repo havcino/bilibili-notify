@@ -8,7 +8,12 @@ import type {
 	TemplateBundle,
 } from "./common";
 import type { GlobalDefaults } from "./globals";
-import type { AIOverride, Subscription, SubscriptionRouting } from "./subscriptions";
+import type {
+	AIOverride,
+	Subscription,
+	SubscriptionAtAll,
+	SubscriptionRouting,
+} from "./subscriptions";
 
 /**
  * 折叠后的"实际生效"订阅。所有业务消费方（push / dynamic / live / AI / image）
@@ -22,6 +27,7 @@ export interface EffectiveSubscription {
 	notes: string | undefined;
 	cachedProfile: Subscription["cachedProfile"];
 	routing: SubscriptionRouting;
+	atAll: SubscriptionAtAll;
 	specialUsers: Subscription["specialUsers"];
 	state: Subscription["state"];
 
@@ -95,6 +101,7 @@ export function resolve(sub: Subscription, defaults: GlobalDefaults): EffectiveS
 		notes: sub.notes,
 		cachedProfile: sub.cachedProfile,
 		routing: sub.routing,
+		atAll: sub.atAll,
 		specialUsers: sub.specialUsers,
 		state: sub.state,
 

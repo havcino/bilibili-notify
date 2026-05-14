@@ -5,7 +5,6 @@
 export enum PushType {
 	Live = 0,
 	Dynamic = 1,
-	DynamicAtAll = 2,
 	StartBroadcasting = 3,
 	LiveGuardBuy = 4,
 	WordCloudAndLiveSummary = 5,
@@ -18,7 +17,6 @@ export enum PushType {
 export const PUSH_TYPE_LABEL: Record<PushType, string> = {
 	[PushType.Live]: "直播推送",
 	[PushType.Dynamic]: "动态推送",
-	[PushType.DynamicAtAll]: "动态推送+At全体",
 	[PushType.StartBroadcasting]: "开播推送",
 	[PushType.LiveGuardBuy]: "上舰推送",
 	[PushType.WordCloudAndLiveSummary]: "弹幕词云和直播总结推送",

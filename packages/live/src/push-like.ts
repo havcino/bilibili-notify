@@ -31,9 +31,7 @@ export enum LivePushType {
  */
 export type LivePushFeature =
 	| "dynamic"
-	| "dynamicAtAll"
 	| "live"
-	| "liveAtAll"
 	| "liveEnd"
 	| "liveGuardBuy"
 	| "superchat"
@@ -118,9 +116,7 @@ export interface SubItemView {
 	uname: string;
 	roomId: string;
 	dynamic: boolean;
-	dynamicAtAll: boolean;
 	live: boolean;
-	liveAtAll: boolean;
 	liveEnd: boolean;
 	liveGuardBuy: boolean;
 	superchat: boolean;
@@ -160,7 +156,6 @@ export type LiveScopedChange = { scope: "live" } & Partial<
 	Pick<
 		SubItemView,
 		| "live"
-		| "liveAtAll"
 		| "liveEnd"
 		| "liveGuardBuy"
 		| "superchat"
@@ -182,9 +177,7 @@ export type LiveScopedChange = { scope: "live" } & Partial<
 	>
 >;
 
-export type DynamicScopedChange = { scope: "dynamic" } & Partial<
-	Pick<SubItemView, "dynamic" | "dynamicAtAll">
->;
+export type DynamicScopedChange = { scope: "dynamic" } & Partial<Pick<SubItemView, "dynamic">>;
 
 export type TargetScopedChange = { scope: "target" } & Pick<SubItemView, "target">;
 
