@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { Btn, Input } from "../components/atoms";
+import { ModalShell } from "../components/dialog";
 import { Icon } from "../components/icons";
 import { ApiError, api } from "../services/api";
 import { makeEmptySubscription, type PushTarget, type Subscription } from "../types/domain";
@@ -167,71 +168,69 @@ function NewSubDialog({
 		: 1;
 
 	return (
-		<div className="bn-anim-fade-in fixed inset-0 z-30 flex items-center justify-center bg-black/30 backdrop-blur-sm">
-			<div className="w-105 rounded-bn-card border border-white/60 bg-white p-5 shadow-bn-elev">
-				<div className="mb-1 text-base font-bold text-bn-text-primary">添加 UP 主</div>
-				<div className="mb-4 text-[12px] text-bn-text-secondary">
-					输入纯数字走 UID 精确查询; 输入名字走搜索,点击结果直接订阅
-				</div>
-				<div className="flex gap-2">
-					<Input
-						full
-						value={input}
-						onChange={handleInputChange}
-						placeholder="搜索 UID 或 UP 主名字"
-						icon={<Icon.user size={14} />}
-					/>
-					<Btn variant="outline" size="sm" onClick={runQuery} disabled={queryDisabled}>
-						{busy ? `${queryLabel}中…` : queryLabel}
-					</Btn>
-				</div>
-				{duplicate ? (
-					<div className="mt-3 rounded border border-amber-200 bg-amber-50 p-2 text-xs text-amber-700">
-						该 UID 已经在订阅列表中,无需重复添加
-					</div>
-				) : null}
-				{opErr ? (
-					<div className="mt-3 rounded border border-red-200 bg-red-50 p-2 text-xs text-red-700">
-						{opErr}
-					</div>
-				) : null}
-				{profile ? (
-					<ProfilePreview profile={profile} subscribed={existingUids.has(profile.uid)} />
-				) : null}
-				{searchData ? (
-					<SearchResultList
-						data={searchData}
-						page={page}
-						totalPages={totalPages}
-						existingUids={existingUids}
-						pending={pending}
-						onPick={onSubmit}
-						onPrev={() => gotoPage(page - 1)}
-						onNext={() => gotoPage(page + 1)}
-					/>
-				) : null}
-				{error ? (
-					<div className="mt-3 rounded border border-red-200 bg-red-50 p-2 text-xs text-red-700">
-						{error}
-					</div>
-				) : null}
-				<div className="mt-4 flex justify-end gap-2">
-					<Btn variant="outline" size="sm" onClick={onCancel} disabled={pending}>
-						{searchData ? "关闭" : "取消"}
-					</Btn>
-					{profile ? (
-						<Btn
-							variant="primary"
-							size="sm"
-							onClick={() => onSubmit(profile)}
-							disabled={existingUids.has(profile.uid) || pending}
-						>
-							{pending ? "添加中…" : "添加"}
-						</Btn>
-					) : null}
-				</div>
+		<ModalShell onCancel={onCancel} width={420} bodyClassName="p-5">
+			<div className="mb-1 text-base font-bold text-bn-text-primary">添加 UP 主</div>
+			<div className="mb-4 text-[12px] text-bn-text-secondary">
+				输入纯数字走 UID 精确查询; 输入名字走搜索,点击结果直接订阅
 			</div>
-		</div>
+			<div className="flex gap-2">
+				<Input
+					full
+					value={input}
+					onChange={handleInputChange}
+					placeholder="搜索 UID 或 UP 主名字"
+					icon={<Icon.user size={14} />}
+				/>
+				<Btn variant="outline" size="sm" onClick={runQuery} disabled={queryDisabled}>
+					{busy ? `${queryLabel}中…` : queryLabel}
+				</Btn>
+			</div>
+			{duplicate ? (
+				<div className="mt-3 rounded border border-amber-200 bg-amber-50 p-2 text-xs text-amber-700">
+					该 UID 已经在订阅列表中,无需重复添加
+				</div>
+			) : null}
+			{opErr ? (
+				<div className="mt-3 rounded border border-red-200 bg-red-50 p-2 text-xs text-red-700">
+					{opErr}
+				</div>
+			) : null}
+			{profile ? (
+				<ProfilePreview profile={profile} subscribed={existingUids.has(profile.uid)} />
+			) : null}
+			{searchData ? (
+				<SearchResultList
+					data={searchData}
+					page={page}
+					totalPages={totalPages}
+					existingUids={existingUids}
+					pending={pending}
+					onPick={onSubmit}
+					onPrev={() => gotoPage(page - 1)}
+					onNext={() => gotoPage(page + 1)}
+				/>
+			) : null}
+			{error ? (
+				<div className="mt-3 rounded border border-red-200 bg-red-50 p-2 text-xs text-red-700">
+					{error}
+				</div>
+			) : null}
+			<div className="mt-4 flex justify-end gap-2">
+				<Btn variant="outline" size="sm" onClick={onCancel} disabled={pending}>
+					{searchData ? "关闭" : "取消"}
+				</Btn>
+				{profile ? (
+					<Btn
+						variant="primary"
+						size="sm"
+						onClick={() => onSubmit(profile)}
+						disabled={existingUids.has(profile.uid) || pending}
+					>
+						{pending ? "添加中…" : "添加"}
+					</Btn>
+				) : null}
+			</div>
+		</ModalShell>
 	);
 }
 

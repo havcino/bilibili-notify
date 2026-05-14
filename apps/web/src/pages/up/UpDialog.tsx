@@ -257,9 +257,7 @@ export function UpDialog({ sub, targets, onClose, onSave, onDelete, saving }: Up
 
 	/** 订阅级默认 atAll 切换(在 "订阅项 · 默认推送内容" section 里使用)。 */
 	function setAtAllDefault(scope: AtAllScope, on: boolean): void {
-		setDraft((d) =>
-			d ? { ...d, atAllDefaults: { ...d.atAllDefaults, [scope]: on } } : d,
-		);
+		setDraft((d) => (d ? { ...d, atAllDefaults: { ...d.atAllDefaults, [scope]: on } } : d));
 	}
 
 	/**
@@ -822,7 +820,7 @@ function TargetRoutingCard({
 									const atAllScope = AT_ALL_FEATURES.find((a) => a.feature === key)?.scope;
 									const parentOn = sub.routing[key].includes(target.id);
 									const explicit: boolean | undefined = atAllScope
-										? Object.prototype.hasOwnProperty.call(sub.atAll[atAllScope], target.id)
+										? Object.hasOwn(sub.atAll[atAllScope], target.id)
 											? sub.atAll[atAllScope][target.id]
 											: undefined
 										: undefined;
