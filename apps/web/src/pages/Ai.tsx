@@ -265,7 +265,7 @@ export default function Ai() {
 					<Field
 						label="日志等级"
 						code="app.logLevels.ai"
-						hint="只影响 ai 模块;选「跟随全局」时与 app.logLevel 同步。改完保存后需重启服务。"
+						hint="只影响 ai 模块;选「跟随全局」时与 app.logLevel 同步。保存后立即生效,无需重启。"
 						full
 					>
 						<LogLevelPicker

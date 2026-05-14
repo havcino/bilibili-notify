@@ -280,7 +280,8 @@ function migrateLegacyTargets(raw: unknown[]): {
 				session: {},
 			});
 		} else if (legacy.platform === "web-dashboard") {
-			const cfg = legacy.config as { dashboardUser?: string };
+			// 旧版 legacy `config.dashboardUser` 已无路由意义(WS server 单用户,无 per-user
+			// 过滤),迁移时直接丢弃,target session 留空对象。
 			const key = "web-dashboard";
 			let adapterId = adapterIdByKey.get(key);
 			if (!adapterId) {
@@ -301,7 +302,7 @@ function migrateLegacyTargets(raw: unknown[]): {
 				platform: "web-dashboard",
 				scope: legacy.scope,
 				enabled: legacy.enabled,
-				session: { dashboardUser: cfg.dashboardUser },
+				session: {},
 			});
 		}
 		// Unknown legacy platform — drop silently; the user will see the target

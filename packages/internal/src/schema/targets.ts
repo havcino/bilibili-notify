@@ -124,10 +124,9 @@ export type OnebotSession = z.infer<typeof OnebotSessionSchema>;
 export const WebhookSessionSchema = z.object({}).strict();
 export type WebhookSession = z.infer<typeof WebhookSessionSchema>;
 
-export const WebDashboardSessionSchema = z.object({
-	/** 可选过滤：仅推到指定 user 的会话；空则广播 */
-	dashboardUser: z.string().optional(),
-});
+// Web Dashboard 是单用户 in-process passthrough;无 per-user 概念,不需要 session 字段。
+// 任何 web-dashboard target 都会通过 WS 广播给所有连接的 dashboard 客户端。
+export const WebDashboardSessionSchema = z.object({}).strict();
 export type WebDashboardSession = z.infer<typeof WebDashboardSessionSchema>;
 
 export const KoishiBotSessionSchema = z.object({

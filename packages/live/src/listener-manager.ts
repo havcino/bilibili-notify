@@ -69,6 +69,14 @@ export class ListenerManager {
 		for (const session of this.sessionRecord.values()) session.rearmPeriodicTimer();
 	}
 
+	/**
+	 * 单个 UID 的 pushTime 热更入口。LiveEngine.applyOps 在 update 分支检测到
+	 * `LiveScopedChange.pushTime` 变化时调用,仅对该 uid 的活跃 session rearm。
+	 */
+	rearmPeriodicTimerForUid(uid: string): void {
+		this.sessionRecord.get(uid)?.rearmPeriodicTimer();
+	}
+
 	/** Whether any feature on this sub requires the live-room WS connection. */
 	needsLiveMonitor(sub: SubItemView): boolean {
 		return this.ctx.needsLiveMonitor(sub);

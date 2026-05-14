@@ -16,8 +16,9 @@ export interface AppConfig {
 	/**
 	 * Per-module level overrides — missing key falls back to `logLevel`. On the
 	 * standalone end maps to engine modules (core / dynamic / live / image / ai);
-	 * on Koishi端 maps to the same-named sub-plugins. Pino level is fixed at
-	 * server-construct time, so edits take effect on next restart.
+	 * on Koishi端 maps to the same-named sub-plugins. Standalone runtime hot-pushes
+	 * the new level onto each module's pino instance on config-changed, so edits
+	 * take effect immediately without a server restart.
 	 */
 	logLevels?: ModuleLogLevels;
 	userAgent?: string;

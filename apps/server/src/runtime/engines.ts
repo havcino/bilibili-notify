@@ -831,9 +831,11 @@ function buildLiveSubViewSingle(sub: Subscription, globals: GlobalConfig): LiveS
 			cardColorStart: eff.cardStyle.cardColorStart,
 			cardColorEnd: eff.cardStyle.cardColorEnd,
 		},
-		// Per-UP 阈值 / 调度 / AI;adapter 在每次 add 路径上灌入,room-session 在 SC /
+		// Per-UP 阈值 / 调度 / AI;adapter 在 add 路径上灌入,room-session 在 SC /
 		// guard / restartPush / pushTime / liveSummary 调用点先取 sub 值,缺失时回退全局。
-		// 已活跃的 listener 在 LiveScopedChange 上不会带这些字段,改完要等下次重建。
+		// 已活跃 listener 通过 LiveScopedChange 同步增量更新(`subscriptionOpsToLive`
+		// 在 update 分支把这些字段一并带上,LiveEngine.applyOps Object.assign 后即刻生效;
+		// pushTime 变化时 engine 额外 rearm 一次 setInterval)。
 		minScPrice: eff.filters.minScPrice,
 		minGuardLevel: eff.filters.minGuardLevel,
 		pushTime: eff.schedule.pushTime,
@@ -927,6 +929,8 @@ function subscriptionOpsToLive(
 			const sub = store.findByUid(op.sub.uid);
 			if (!sub) continue;
 			const eff = resolve(sub, globals.defaults);
+			// 路由布尔 + per-UP 阈值 / 调度 / AI 全部带上,engine 在 applyOps 里
+			// Object.assign 合进活跃 sub。pushTime 变化由 engine 自己 rearm。
 			out.push({
 				type: "update",
 				uid: op.sub.uid,
@@ -939,6 +943,11 @@ function subscriptionOpsToLive(
 						superchat: (eff.routing.superchat?.length ?? 0) > 0,
 						wordcloud: (eff.routing.wordcloud?.length ?? 0) > 0,
 						liveSummary: (eff.routing.liveSummary?.length ?? 0) > 0,
+						minScPrice: eff.filters.minScPrice,
+						minGuardLevel: eff.filters.minGuardLevel,
+						pushTime: eff.schedule.pushTime,
+						restartPush: eff.schedule.restartPush,
+						aiOverride: buildAiOverride(eff),
 					},
 				],
 			});

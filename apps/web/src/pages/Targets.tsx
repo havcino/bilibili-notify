@@ -14,7 +14,6 @@ import {
 	type PushTarget,
 	type PushTargetPlatform,
 	type PushTargetScope,
-	type WebDashboardSession,
 } from "../types/domain";
 
 /**
@@ -24,7 +23,7 @@ import {
  * dashboard bridge). Holds baseUrl / accessToken etc.
  *
  * **Target** = a session bound to an adapter (group/private/channel). Holds
- * groupId / userId / dashboardUser. References its adapter by `adapterId`.
+ * groupId / userId. References its adapter by `adapterId`.
  *
  * One adapter can drive many targets, so a single NapCat connection only needs
  * its credentials filled once even when pushing to N groups.
@@ -80,8 +79,8 @@ function targetSessionSummary(target: PushTarget): string {
 	if (target.platform === "webhook") {
 		return "→ webhook 终点";
 	}
-	const s = target.session as WebDashboardSession;
-	return s.dashboardUser ? `→ ${s.dashboardUser}` : "→ 广播";
+	// web-dashboard 是单用户 in-process 广播,session 没有 per-user 字段。
+	return "→ 广播给所有 dashboard 客户端";
 }
 
 // ── Adapter card ────────────────────────────────────────────────────────────
@@ -702,18 +701,12 @@ function TargetSessionFields({
 		);
 	}
 	if (target.platform === "web-dashboard") {
-		const s = target.session as WebDashboardSession;
+		// web-dashboard 是单用户 in-process 广播,无 session 字段可配。
 		return (
-			<Field
-				label="dashboardUser"
-				code="session.dashboardUser"
-				hint="留空 = 广播给所有 dashboard 客户端"
-			>
-				<TInput
-					value={s.dashboardUser ?? ""}
-					onChange={(v) => onChange({ ...target, session: { dashboardUser: v || undefined } })}
-				/>
-			</Field>
+			<div className="text-[12px] leading-relaxed text-bn-text-tertiary">
+				Web Dashboard 通知中心是单用户 in-process 通道,无需配置会话字段。所有保存的
+				web-dashboard target 都会通过 WS push-events 频道广播给当前 dashboard。
+			</div>
 		);
 	}
 	return null;
@@ -1283,7 +1276,7 @@ export default function Targets() {
 									<div>
 										<div className="text-[14px] font-bold text-bn-text-primary">推送目标</div>
 										<div className="text-[11.5px] text-bn-text-tertiary">
-											本适配器下的会话:群号 / 用户 ID / dashboardUser。
+											本适配器下的会话:群号 / 用户 ID 等。
 										</div>
 									</div>
 									<Btn size="sm" variant="outline" onClick={() => startNewTarget(selectedAdapter)}>

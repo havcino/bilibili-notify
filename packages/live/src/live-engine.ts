@@ -195,8 +195,13 @@ export class LiveEngine {
 
 					const existing = this.listener.getActiveSub(op.uid);
 					if (existing) {
+						// pushTime 是 setInterval 句柄,ms 参数 immutable,需要 dispose+rearm。
+						// 先记下旧值,assign 完成后比对决定是否走 rearm 分支。
+						const prevPushTime = existing.pushTime;
+						let nextPushTime = prevPushTime;
 						for (const change of liveChanges) {
 							const { scope: _scope, ...fields } = change;
+							if ("pushTime" in fields) nextPushTime = fields.pushTime;
 							Object.assign(existing, fields);
 						}
 						for (const change of targetChanges) {
@@ -204,6 +209,8 @@ export class LiveEngine {
 						}
 						if (!this.listener.needsLiveMonitor(existing)) {
 							this.listener.stopForUid(op.uid);
+						} else if (nextPushTime !== prevPushTime) {
+							this.listener.rearmPeriodicTimerForUid(op.uid);
 						}
 					} else {
 						const fullSub = lookupFullSub(op.uid);

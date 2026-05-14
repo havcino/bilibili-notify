@@ -12,7 +12,7 @@ import type {
  * constructed with shared deps (HTTP client, WS server reference, etc.) and
  * exposes a single async `send(adapter, target, payload, opts)` method —
  * `adapter` carries the connection params (baseUrl, token, …), `target`
- * carries the session (groupId, dashboardUser, …). The sink dispatches by
+ * carries the session (groupId, userId, …). The sink dispatches by
  * matching `adapter.platform`.
  *
  * Adapters should NOT throw — return `{ ok: false, err: "..." }` instead.

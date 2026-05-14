@@ -173,7 +173,7 @@ function SystemSettingsSection({
 			<Field
 				label="按模块覆盖"
 				code="app.logLevels"
-				hint="留「跟随全局」即用 app.logLevel；改完保存后需重启服务（pino 等级在构造时定型）"
+				hint="留「跟随全局」即用 app.logLevel；保存后会立即推到对应模块的 pino 实例,无需重启"
 				full
 			>
 				<div className="grid w-full grid-cols-1 gap-1.5 sm:grid-cols-3">

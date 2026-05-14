@@ -111,9 +111,8 @@ export interface OnebotSession {
 // no session-level config (the webhook URL is the endpoint)
 export type WebhookSession = Record<string, never>;
 
-export interface WebDashboardSession {
-	dashboardUser?: string;
-}
+// Web Dashboard 是单用户 in-process passthrough,无 per-user 概念,session 永远是空对象。
+export type WebDashboardSession = Record<string, never>;
 
 interface PushTargetCommon {
 	id: string;

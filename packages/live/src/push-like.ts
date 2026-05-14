@@ -138,9 +138,9 @@ export interface SubItemView {
 	 * 这里只保留实际跟全局可能不同的字段;undefined 表示「按全局走」。room-session /
 	 * room-session-base / live-summary-requester 在用值前一律 `?? ctx.config.X` 回退。
 	 *
-	 * 这些字段不上 LiveScopedChange —— LiveEngine.applyOps 只把 routing 布尔合进
-	 * 活跃 sub,新阈值要等下次监听重建(用户改完订阅或服务重启)才生效。同步热重载
-	 * 的修法见审计文档 #4。
+	 * 这些字段也会随 LiveScopedChange 增量推送给 LiveEngine.applyOps,Object.assign
+	 * 合进活跃 sub 后,SC / 上舰 / restartPush / liveSummary 调用点会读到新值;pushTime
+	 * 因 setInterval 句柄 ms 不可变,engine 在 update 时检测变化后会单独 rearm。
 	 */
 	minScPrice?: number;
 	minGuardLevel?: 1 | 2 | 3;
@@ -174,6 +174,11 @@ export type LiveScopedChange = { scope: "live" } & Partial<
 		| "customLiveSummary"
 		| "customSpecialDanmakuUsers"
 		| "customSpecialUsersEnterTheRoom"
+		| "minScPrice"
+		| "minGuardLevel"
+		| "pushTime"
+		| "restartPush"
+		| "aiOverride"
 	>
 >;
 
