@@ -349,7 +349,12 @@ export class CommentaryGenerator {
 			`[api] baseURL=${baseURL}, model=${model}, temperature=${temperature ?? "default"}, messages=${messages.length}, tools=${toolOptions ? "yes" : "no"}, images=${imageUrls?.length ?? 0}`,
 		);
 		const { default: OpenAI } = await import("openai");
-		const client = new OpenAI({ apiKey, baseURL });
+		// 单次 chat.completions.create 的硬超时。下播总结/动态点评偶发的 LLM 长尾(模型 hang
+		// 或服务端 stuck)会让 Promise.all 整体派发卡住,影响 dispatchWordCloudAndSummary
+		// 与 dispatchDynamic 的后续逻辑。120s 给模型留充足思考空间,超过即 reject,上层
+		// 走 catch 路径(logger.warn + 降级文字)。tool-calling 多轮独立计时,不累加。
+		const PER_REQUEST_TIMEOUT_MS = 120_000;
+		const client = new OpenAI({ apiKey, baseURL, timeout: PER_REQUEST_TIMEOUT_MS });
 
 		const apiMessages: OpenAI.ChatCompletionMessageParam[] = [
 			{ role: "system", content: systemPrompt },

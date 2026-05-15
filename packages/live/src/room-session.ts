@@ -23,8 +23,26 @@ import { LiveType } from "./types";
  * 这里 per-UID 门控成 2s 最多一次,够人眼感知,WS 不会刷屏。 */
 const VIEWERS_EMIT_THROTTLE_MS = 2000;
 
+/**
+ * onError 触发后的退避重连节奏(单位 ms)。失败时按下标顺序消耗,直到耗尽 → 真正放弃。
+ * 重连成功后 `reconnectAttempts` 复位到 0,后续新一轮 onError 重新从 1s 开始。
+ */
+const RECONNECT_BACKOFF_MS = [1000, 2000, 4000, 8000, 16000] as const;
+
 export class RoomSession extends RoomSessionBase {
 	private lastViewersEmitMs = 0;
+	/**
+	 * 当前 RoomSession 是否已被外层(stopForUid / disposeAll / liveEnd 主动关闭)取消。
+	 * 一旦设为 true,onError 跳过重连。listener-manager.stopForUid 在 closeListener
+	 * 之前调用 cancel() 设置。
+	 */
+	private cancelled = false;
+	private reconnectAttempts = 0;
+
+	/** 外层主动停止 listener 时调用,阻止 onError 触发重连。 */
+	cancel(): void {
+		this.cancelled = true;
+	}
 
 	// ── MsgHandler factory ────────────────────────────────────────────────────
 
@@ -60,12 +78,44 @@ export class RoomSession extends RoomSessionBase {
 	// ── Event handlers ────────────────────────────────────────────────────────
 
 	private async onError(): Promise<void> {
+		if (this.cancelled || this.ctx.isDisposed()) return;
 		this.setLiveStatus(false);
 		this.cancelPeriodicTimer();
 		this.ctx.closeListener(this.sub.roomId);
-		if (this.ctx.isDisposed()) return;
-		await this.ctx.push.sendPrivateMsg(`[${this.sub.roomId}] 直播间连接发生错误`);
-		this.ctx.logger.error(`[conn] 直播间 [${this.sub.roomId}] 连接发生错误`);
+
+		// 退避重连耗尽 → 真正放弃 + 走 engine-error(adapter 转 master DM / log channel)。
+		if (this.reconnectAttempts >= RECONNECT_BACKOFF_MS.length) {
+			const attempts = RECONNECT_BACKOFF_MS.length;
+			this.reconnectAttempts = 0;
+			const msg = `直播间 [${this.sub.roomId}] 连接持续失败,重试 ${attempts} 次后放弃监听`;
+			this.ctx.logger.error(`[conn] ${msg}`);
+			this.ctx.emitEngineError(msg);
+			return;
+		}
+
+		const delay = RECONNECT_BACKOFF_MS[this.reconnectAttempts];
+		this.reconnectAttempts++;
+		this.ctx.logger.warn(
+			`[conn] 直播间 [${this.sub.roomId}] 连接错误,${delay / 1000}s 后重连(第 ${this.reconnectAttempts}/${RECONNECT_BACKOFF_MS.length} 次)`,
+		);
+		await new Promise<void>((resolveSleep) => {
+			this.ctx.serviceCtx.setTimeout(resolveSleep, delay);
+		});
+		if (this.cancelled || this.ctx.isDisposed()) return;
+
+		try {
+			await this.ctx.startLiveRoomListener(this.sub.roomId, this.buildHandler());
+			this.ctx.logger.info(`[conn] 直播间 [${this.sub.roomId}] 重连成功`);
+			this.reconnectAttempts = 0;
+		} catch (e) {
+			this.ctx.logger.warn(
+				`[conn] 直播间 [${this.sub.roomId}] 重连发起失败:${(e as Error).message}`,
+			);
+			// 让出栈,继续走退避链路。setTimeout(0) 防止深栈递归。
+			this.ctx.serviceCtx.setTimeout(() => {
+				void this.onError();
+			}, 0);
+		}
 	}
 
 	private onIncomeDanmu(body: { content: string; user: { uname: string; uid: number } }): void {

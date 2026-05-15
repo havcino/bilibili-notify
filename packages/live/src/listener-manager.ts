@@ -152,6 +152,9 @@ export class ListenerManager {
 		// 若停止时这位 UP 正在直播,等价于"idle"——前端面板需要把这条移出。
 		const session = this.sessionRecord.get(uid);
 		if (session?.isLive) this.ctx.emitLiveState(uid, "idle");
+		// 在 closeListener 触发 onError 之前打 cancelled,避免 onError 跑退避重连
+		// 反而把这条已主动停止的 listener 重新接上。
+		session?.cancel();
 		const timer = this.ctx.livePushTimerManager.get(sub.roomId);
 		timer?.();
 		this.ctx.livePushTimerManager.delete(sub.roomId);
