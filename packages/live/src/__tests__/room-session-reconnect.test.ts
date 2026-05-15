@@ -37,25 +37,34 @@ function makeSub(): SubItemView {
 	};
 }
 
+interface ScheduledItem {
+	fn: () => void;
+	ms: number;
+}
+
 interface MockBag {
 	closeListener: ReturnType<typeof vi.fn>;
 	startLiveRoomListener: ReturnType<typeof vi.fn>;
 	emitEngineError: ReturnType<typeof vi.fn>;
 	emitLiveState: ReturnType<typeof vi.fn>;
-	scheduled: Array<() => void>; // 待跑的 sleep callback
+	scheduled: ScheduledItem[]; // 待跑的 sleep callback + 对应 delay
+	delays: () => number[]; // 至今 schedule 过的 delay 列表(按顺序)
 	runScheduled: () => Promise<void>; // 把队列里所有 callback 跑一遍
+	flushAll: (maxIters?: number) => Promise<void>; // 反复 runScheduled 直到队列空
 }
 
 function makeMockCtx(opts?: {
 	startThrows?: boolean;
 }): { ctx: RoomContext; mocks: MockBag } {
-	const scheduled: Array<() => void> = [];
+	const scheduled: ScheduledItem[] = [];
+	const delayLog: number[] = [];
 	const fakeServiceCtx: ServiceContext = {
 		logger: { debug() {}, info() {}, warn() {}, error() {} },
 		setInterval: vi.fn(),
-		// 把每个 setTimeout 的 callback 收集起来,测试手动驱动
-		setTimeout: (fn) => {
-			scheduled.push(fn);
+		// 把每个 setTimeout 的 callback + delay 收集起来,测试手动驱动 + 校验退避序列
+		setTimeout: (fn, ms) => {
+			scheduled.push({ fn, ms });
+			delayLog.push(ms);
 			return { dispose: () => {} };
 		},
 		onDispose: () => {},
@@ -69,13 +78,22 @@ function makeMockCtx(opts?: {
 		emitEngineError: vi.fn(),
 		emitLiveState: vi.fn(),
 		scheduled,
+		delays: () => [...delayLog],
 		runScheduled: async () => {
 			// snapshot 后清空,避免新 schedule 立即被同一轮跑掉造成递归
 			const batch = [...scheduled];
 			scheduled.length = 0;
-			for (const fn of batch) fn();
+			for (const item of batch) item.fn();
 			// 让 microtask 跑一轮
 			await new Promise((r) => setImmediate(r));
+		},
+		flushAll: async (maxIters = 50) => {
+			for (let i = 0; i < maxIters && scheduled.length > 0; i++) {
+				const batch = [...scheduled];
+				scheduled.length = 0;
+				for (const item of batch) item.fn();
+				await new Promise((r) => setImmediate(r));
+			}
 		},
 	};
 
@@ -152,5 +170,69 @@ describe("RoomSession.cancel() — P1-C 短期-c", () => {
 
 		expect(mocks.startLiveRoomListener).toHaveBeenCalledTimes(1);
 		expect(mocks.emitEngineError).not.toHaveBeenCalled();
+	});
+});
+
+describe("RoomSession 退避状态机 — codex review minor-4", () => {
+	it("连续失败 5 次 → 退避序列 = [1000, 2000, 4000, 8000, 16000]", async () => {
+		const { ctx, mocks } = makeMockCtx({ startThrows: true });
+		const session = new RoomSession(ctx, makeSub());
+
+		// biome-ignore lint/suspicious/noExplicitAny: 测试 private 方法
+		void (session as any).onError();
+		// catch 路径用 setTimeout(0) 再次进入 onError;flushAll 把全链路 drive 出来
+		// 直到第 5 次 schedule 完(16s)或耗尽。
+		await mocks.flushAll();
+
+		// delays 应该恰好按退避表的 5 档出现一次(setTimeout(0) 的让出栈不在此表里
+		// — 它的 ms 是 0,backoff 表是 [1000..16000],期望过滤掉 0)。
+		const backoffOnly = mocks.delays().filter((d) => d > 0);
+		expect(backoffOnly).toEqual([1000, 2000, 4000, 8000, 16000]);
+	});
+
+	it("第 6 次失败时退避耗尽 → emitEngineError + 不再 schedule 新 backoff", async () => {
+		const { ctx, mocks } = makeMockCtx({ startThrows: true });
+		const session = new RoomSession(ctx, makeSub());
+
+		// biome-ignore lint/suspicious/noExplicitAny: 测试 private 方法
+		void (session as any).onError();
+		await mocks.flushAll();
+
+		// 5 次 startLiveRoomListener 都失败 → 第 6 次 onError 入口检测耗尽
+		expect(mocks.startLiveRoomListener).toHaveBeenCalledTimes(5);
+		expect(mocks.emitEngineError).toHaveBeenCalledTimes(1);
+		expect(mocks.emitEngineError.mock.calls[0][0]).toMatch(/重试 5 次后放弃监听/);
+
+		// 耗尽路径之后不应该再 schedule 新 backoff
+		const backoffOnly = mocks.delays().filter((d) => d > 0);
+		expect(backoffOnly).toHaveLength(5); // 不会多出第 6 个 backoff
+	});
+
+	it("重连成功 → reconnectAttempts 复位,下一轮 onError 从 1000ms 重新开始", async () => {
+		// 第一次 startLiveRoomListener 抛错,第二次成功;第三次再抛错。期望 delay
+		// 序列:第一轮 [1000(失败) → 1000(再次进入 onError 因 catch)]…等等。
+		// 改用 vi.fn 行为脚本:第 1 次 throw,第 2 次 ok,第 3 次 throw。
+		const { ctx, mocks } = makeMockCtx();
+		mocks.startLiveRoomListener
+			.mockRejectedValueOnce(new Error("blip 1"))
+			.mockResolvedValueOnce(undefined)
+			.mockRejectedValueOnce(new Error("blip 2"));
+
+		const session = new RoomSession(ctx, makeSub());
+		// 第一轮 onError(failure)
+		// biome-ignore lint/suspicious/noExplicitAny: 测试 private 方法
+		void (session as any).onError();
+		await mocks.flushAll();
+		// 期望:1000ms backoff → startListener 抛 → catch setTimeout(0) → onError →
+		//      2000ms backoff → startListener resolve → reconnectAttempts 复位
+		expect(mocks.delays().filter((d) => d > 0)).toEqual([1000, 2000]);
+		expect(mocks.startLiveRoomListener).toHaveBeenCalledTimes(2);
+
+		// 第二轮 onError(failure):因为上一轮 success 复位,下一轮还是从 1000 开始
+		// biome-ignore lint/suspicious/noExplicitAny: 测试 private 方法
+		void (session as any).onError();
+		await mocks.flushAll();
+		const round2 = mocks.delays().filter((d) => d > 0).slice(2);
+		expect(round2[0]).toBe(1000); // 不是 4000 / 8000
 	});
 });

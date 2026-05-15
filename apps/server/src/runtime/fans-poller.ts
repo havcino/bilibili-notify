@@ -5,6 +5,7 @@ import type {
 	FansRefreshEntry,
 	Logger,
 	MessageBus,
+	ServiceContext,
 } from "@bilibili-notify/internal";
 import type { SubscriptionStore } from "@bilibili-notify/subscription";
 import { CronJob } from "cron";
@@ -22,6 +23,12 @@ export interface FansPollerOptions {
 	subscriptionStore: SubscriptionStore;
 	fansStore: FansStore;
 	api: BilibiliAPI;
+	/**
+	 * 用于 dispose-safe 延时(首次 tick 等 auth 起来的 3s 窗口)。dispose() 时
+	 * runtime 一并清掉 pending timer,避免 stop/restart 期间裸 setTimeout 留 3s
+	 * 空跑句柄。同 packages/push / packages/api 的 P1-B 风格。
+	 */
+	serviceCtx: ServiceContext;
 }
 
 export interface FansPollerHandle extends Disposable {
@@ -50,7 +57,7 @@ export interface FansPollerHandle extends Disposable {
  * 端面板会显示 "—"。这样 auth 恢复后无需重新初始化 poller。
  */
 export function startFansPoller(opts: FansPollerOptions): FansPollerHandle {
-	const { bus, logger, configStore, subscriptionStore, fansStore, api } = opts;
+	const { bus, logger, configStore, subscriptionStore, fansStore, api, serviceCtx } = opts;
 
 	let currentCron = configStore.getGlobals().app.dynamicCron;
 	let job: CronJob | undefined;
@@ -99,10 +106,12 @@ export function startFansPoller(opts: FansPollerOptions): FansPollerHandle {
 		const target7dIso = new Date(now.getTime() - SEVEN_DAYS_MS).toISOString();
 
 		for (const sub of subs) {
-			// dispose 期间(stop/restart 链路)中断剩余 uid 循环,避免持续写盘 / emit。
+			// 每个 await 之后必须重新 check disposed,否则 await 期间 dispose 触发,
+			// 返回后会继续 append/patch/emit 出残留副作用。
 			if (disposed) return;
 			try {
 				const res = await api.getUserCardInfo(sub.uid);
+				if (disposed) return;
 				if (res.code !== 0 || !res.data?.card) {
 					logger.warn(
 						`[fans-poller] uid=${sub.uid} upstream code=${res.code} msg=${
@@ -115,11 +124,13 @@ export function startFansPoller(opts: FansPollerOptions): FansPollerHandle {
 				if (typeof current !== "number" || current < 0) continue;
 
 				await fansStore.append(sub.uid, { ts: nowIso, value: current });
+				if (disposed) return;
 
 				const [near24h, near7d] = await Promise.all([
 					fansStore.findNearestBefore(sub.uid, target24hIso),
 					fansStore.findNearestBefore(sub.uid, target7dIso),
 				]);
+				if (disposed) return;
 
 				const baseline = sub.state.fansBaseline;
 				const nextBaseline = baseline ?? { value: current, ts: nowIso };
@@ -149,6 +160,7 @@ export function startFansPoller(opts: FansPollerOptions): FansPollerHandle {
 				} catch (err) {
 					logger.warn(`[fans-poller] persist ${sub.uid} failed: ${String(err)}`);
 				}
+				if (disposed) return;
 
 				const entry: FansRefreshEntry = {
 					uid: sub.uid,
@@ -168,6 +180,7 @@ export function startFansPoller(opts: FansPollerOptions): FansPollerHandle {
 
 		// 每轮固定 emit 一次「全部 enabled subs 的当前快照」,前端做覆盖式
 		// setQueryData,从而正确反映"本轮失败保留旧值"+"删除订阅即时撤掉"两种语义。
+		if (disposed) return;
 		const snapshot = Array.from(lastByUid.values());
 		bus.emit("fans-refreshed", snapshot);
 		logger.debug(`[fans-poller] tick done, snapshot=${snapshot.length}`);
@@ -230,7 +243,9 @@ export function startFansPoller(opts: FansPollerOptions): FansPollerHandle {
 	void (async () => {
 		await restoreFromDisk();
 		if (disposed) return;
-		await new Promise<void>((resolveFirstTick) => setTimeout(resolveFirstTick, 3000));
+		await new Promise<void>((resolveFirstTick) => {
+			serviceCtx.setTimeout(resolveFirstTick, 3000);
+		});
 		if (disposed) return;
 		tick();
 	})();

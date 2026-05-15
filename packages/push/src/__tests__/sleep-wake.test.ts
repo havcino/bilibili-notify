@@ -43,15 +43,23 @@ function makeUnreachableSink(): NotificationSink {
 const emptyStore = { list: () => [] } as unknown as SubscriptionStore;
 
 describe("BilibiliPush.stop() — P1-B 短期-a sleepWakers 唤醒", () => {
-	it("target 持续不可达进入 sleep,stop() 后 sendToTarget 立即返回(不等 backoff)", async () => {
+	it("fake serviceCtx 永不自动 fire timer:sendToTarget 必须靠 stop() 唤醒才返回", async () => {
+		// 这个 fake setTimeout 故意不自动 invoke fn — 把 sleep 拘在 pending 态。
+		// 任何"伪造唤醒"或被 release.dispose 误触发的代码路径都会让本 case 在
+		// stop() 之前就提前 resolve;断言会因此失败。
+		const pendingTimers: Array<() => void> = [];
 		const fakeServiceCtx: ServiceContext = {
 			logger: silentLogger,
 			setInterval: vi.fn(),
-			setTimeout: (fn, _ms) => {
-				// 立即调用 fn —— 在 fake serviceCtx 下"零延迟",但实际行为靠 stop() 唤醒
-				// 这里返回一个 Disposable 句柄,sleep release 调用即可
-				const handle = setTimeout(fn, 0);
-				return { dispose: () => clearTimeout(handle) };
+			setTimeout: (fn) => {
+				pendingTimers.push(fn);
+				// dispose 仅从 pendingTimers 移除,**不** invoke fn(否则就退化成 setTimeout(0))
+				return {
+					dispose: () => {
+						const idx = pendingTimers.indexOf(fn);
+						if (idx >= 0) pendingTimers.splice(idx, 1);
+					},
+				};
 			},
 			onDispose: () => {},
 		};
@@ -64,23 +72,30 @@ describe("BilibiliPush.stop() — P1-B 短期-a sleepWakers 唤醒", () => {
 		});
 		push.start();
 
-		// 启动 send,target 不可达 → sleep 3s + 重试。
-		const sendPromise = push.sendToTarget("target-x", { kind: "text", text: "x" });
+		let settled = false;
+		const sendPromise = push
+			.sendToTarget("target-x", { kind: "text", text: "x" })
+			.then((r) => {
+				settled = true;
+				return r;
+			});
 
 		// 给 sendToTarget 跑到第一次 sleep 调用的机会
 		await new Promise((r) => setImmediate(r));
+		await new Promise((r) => setImmediate(r));
 
-		// stop() 应该立即唤醒 sleepWakers,sleep 立刻 resolve,下一轮 disposed=true → 返回
-		const t0 = Date.now();
+		// 关键断言 #1:stop() 之前 sendPromise 必须 pending。
+		// 如果 wake 逻辑被改坏,setTimeout 在 fake 下永不 fire,Promise 永远不 resolve,
+		// settled 应保持 false。
+		expect(settled).toBe(false);
+		expect(pendingTimers.length).toBeGreaterThanOrEqual(1);
+
+		// 关键断言 #2:stop() 后必须立即 wake → sleep resolve → 下一轮 disposed=true → return。
 		push.stop();
 		const result = await sendPromise;
-		const elapsed = Date.now() - t0;
-
+		expect(settled).toBe(true);
 		expect(result.ok).toBe(false);
 		expect(result.err).toBe("disposed");
-		// 即使 fake serviceCtx 的 setTimeout(0) 也有几 ms 抖动,放宽到 100ms 上限。
-		// 关键是远小于 INITIAL_RETRY_DELAY_MS=3000。
-		expect(elapsed).toBeLessThan(100);
 	});
 
 	it("不传 serviceCtx(退化路径)也能被 stop() 唤醒", async () => {

@@ -84,6 +84,11 @@ export class ListenerManager {
 
 	/** Start listeners for everything in `subs` that needs one. */
 	startAll(subs: Record<string, SubItemView>): void {
+		// 先把旧 session 全部 cancel,**再**翻 setDisposed=false。否则若旧 session
+		// 还在退避 sleep 里,setDisposed=false 后 cancelled=false → 醒来时
+		// onError 会重新调 startLiveRoomListener,把 listener 装回 listenerRecord,
+		// 形成隐性重复监听(sessionRecord 已 clear,但 ctx 内 listener 实存在)。
+		for (const session of this.sessionRecord.values()) session.cancel();
 		this.ctx.setDisposed(false);
 		this.ctx.clearPushTimers();
 		this.ctx.clearListeners();

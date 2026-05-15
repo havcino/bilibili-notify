@@ -171,6 +171,10 @@ export async function bringUp(deps: LifecycleDeps): Promise<boolean> {
 		// `needsRestore=true` 的前提下 emit `auth-restored`（用于已登录态恢复），
 		// 全新冷启动这条路径走不到，因此这里订阅 `login-status-report` 并按
 		// 状态码过滤首次 LOGGED_IN 转换。
+		//
+		// 同时把 release 推入 slots.cleanups,tearDown 时一并清。否则未登录状态
+		// 下 `bn restart` 会让旧 listener 永远挂着,下次登录成功触发已经 tearDown
+		// 的 subLoader.loadInitialSubscriptions → null deref。
 		let subsLoaded = false;
 		const release = bus.on("login-status-report", (snap: LoginSnapshot) => {
 			if (subsLoaded) return;
@@ -181,6 +185,7 @@ export async function bringUp(deps: LifecycleDeps): Promise<boolean> {
 				deps.logger.error(`[sub] 登录后加载订阅失败：${e}`);
 			});
 		});
+		deps.slots.cleanups.push(() => release.dispose());
 		return true;
 	}
 	await loginBridge.flow.reportAccountInfo();

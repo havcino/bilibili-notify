@@ -126,6 +126,7 @@ async function main(): Promise<void> {
 		subscriptionStore: subBinding.store,
 		fansStore: runtime.fansStore,
 		api: authSystem.api,
+		serviceCtx: runtime.serviceCtx,
 	});
 	runtime.attachFansPoller(fansPoller);
 	runtime.serviceCtx.onDispose(() => fansPoller.dispose());
