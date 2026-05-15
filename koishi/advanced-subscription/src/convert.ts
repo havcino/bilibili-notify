@@ -79,6 +79,19 @@ export type SubItemRawConfig = MasterFlagMap & {
 		supervisorImgUrl?: string;
 		governorImgUrl?: string;
 	};
+	customAi?: {
+		enable: boolean;
+		personaName?: string;
+		addressUser?: string;
+		addressSelf?: string;
+		personaTraits?: string;
+		catchphrase?: string;
+		baseRole?: string;
+		extraSystemPrompt?: string;
+		dynamicPrompt?: string;
+		liveSummaryPrompt?: string;
+		temperature?: number;
+	};
 	customSpecialDanmakuUsers: {
 		enable: boolean;
 		specialDanmakuUsers?: string[];
@@ -343,6 +356,33 @@ export function rawConfigToSubscription(_name: string, raw: SubItemRawConfig): C
 			...(sub.overrides.templates ?? {}),
 			liveSummary: liveSummary.liveSummary.join("\n"),
 		};
+	}
+
+	// ---- per-UP AI override ----
+	// enable=true 时写完整 persona(5 个 required string 走 koishi schema default
+	// 兜底)+ 按需补 prompts/temperature。preset 固定为 "custom"——koishi 端不暴露
+	// preset 选择(dashboard 用户才能选内置 preset),enable 即「我自己填」。
+	// dynamicPrompt / liveSummaryPrompt 留空字符串时不写,让 resolve 时 fallback
+	// 到 globals.ai 对应字段。baseRole / extraSystemPrompt 留空字符串时仍写——
+	// AIPersonaSchema 把它们 default(""),不会破坏 zod parse。
+	const aiCfg = raw.customAi;
+	if (aiCfg?.enable) {
+		const ai: NonNullable<Subscription["overrides"]["ai"]> = {
+			preset: "custom",
+			persona: {
+				name: aiCfg.personaName ?? "",
+				addressUser: aiCfg.addressUser ?? "",
+				addressSelf: aiCfg.addressSelf ?? "",
+				traits: aiCfg.personaTraits ?? "",
+				catchphrase: aiCfg.catchphrase ?? "",
+				baseRole: aiCfg.baseRole ?? "",
+				extraSystemPrompt: aiCfg.extraSystemPrompt ?? "",
+			},
+		};
+		if (aiCfg.dynamicPrompt) ai.dynamicPrompt = aiCfg.dynamicPrompt;
+		if (aiCfg.liveSummaryPrompt) ai.liveSummaryPrompt = aiCfg.liveSummaryPrompt;
+		if (aiCfg.temperature !== undefined) ai.temperature = aiCfg.temperature;
+		sub.overrides.ai = ai;
 	}
 
 	// Special users

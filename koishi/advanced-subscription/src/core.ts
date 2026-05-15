@@ -226,6 +226,47 @@ export const BilibiliNotifyAdvancedSubConfig: Schema<BilibiliNotifyAdvancedSubCo
 					]),
 				]),
 
+				customAi: Schema.intersect([
+					Schema.object({
+						enable: Schema.boolean()
+							.default(false)
+							.description(
+								"是否为该 UP 启用 AI 自定义。关 = 沿用全局 GlobalDefaults.ai;开 = 用下方所有字段(留空字符串 = 沿用全局对应字段)",
+							),
+					}),
+					Schema.union([
+						Schema.object({
+							enable: Schema.const(true).required(),
+							personaName: Schema.string().default("小绫").description("AI 角色名字"),
+							addressUser: Schema.string().default("主人").description("AI 对用户的称呼"),
+							addressSelf: Schema.string().default("小绫").description("AI 对自己的称呼"),
+							personaTraits: Schema.string()
+								.default("温柔、体贴、说话轻声细语")
+								.description("性格特征(逗号分隔多个特征,如「温柔、毒舌、爱用反问」)"),
+							catchphrase: Schema.string().default("").description("口头禅(可空)"),
+							baseRole: Schema.string()
+								.default("")
+								.description("基础角色描述,用于 system prompt 起手段(留空 = 用全局默认)"),
+							extraSystemPrompt: Schema.string()
+								.default("")
+								.description("追加到 system prompt 末尾的额外指令(留空 = 用全局默认)"),
+							dynamicPrompt: Schema.string()
+								.default("")
+								.description("动态点评的 prompt(留空 = 沿用全局 GlobalDefaults.ai.dynamicPrompt)"),
+							liveSummaryPrompt: Schema.string()
+								.default("")
+								.description("直播总结的 prompt(留空 = 沿用全局)"),
+							temperature: Schema.number()
+								.min(0)
+								.max(2)
+								.step(0.1)
+								.default(0.7)
+								.description("AI temperature (0-2),越高越随机,默认 0.7"),
+						}),
+						Schema.object({}),
+					]),
+				]),
+
 				customSpecialDanmakuUsers: Schema.intersect([
 					Schema.object({
 						enable: Schema.boolean().default(false).description("是否启用特别关注弹幕用户监测"),
