@@ -356,12 +356,15 @@ export abstract class RoomSessionBase {
 		if (this.ctx.isDisposed()) return;
 		const wcMsg = img ? this.ctx.contentBuilder.image(img, "image/jpeg") : undefined;
 		const summaryMsg = summary ? this.ctx.contentBuilder.text(summary) : undefined;
-		if (wcMsg || summaryMsg) {
+		if (wcMsg) {
 			await this.ctx.push.broadcastToTargets(
 				this.sub.uid,
-				[wcMsg, summaryMsg],
+				wcMsg,
 				LivePushType.WordCloudAndLiveSummary,
 			);
+		}
+		if (summaryMsg) {
+			await this.ctx.push.broadcastToTargets(this.sub.uid, summaryMsg, LivePushType.LiveSummary);
 		}
 	}
 }

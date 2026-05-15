@@ -723,6 +723,8 @@ function liveTypeToFeature(type: number): FeatureKey {
 			return "specialUserEnter";
 		case 9:
 			return "liveEnd";
+		case 10:
+			return "liveSummary";
 		default:
 			return "live";
 	}

@@ -17,11 +17,13 @@ export enum LivePushType {
 	Live = 0,
 	StartBroadcasting = 3,
 	LiveGuardBuy = 4,
+	/** 历史上承载词云+总结合包推送;现在仅用于词云,总结走 {@link LiveSummary}。 */
 	WordCloudAndLiveSummary = 5,
 	Superchat = 6,
 	UserDanmakuMsg = 7,
 	UserActions = 8,
 	LiveEnd = 9,
+	LiveSummary = 10,
 }
 
 /**

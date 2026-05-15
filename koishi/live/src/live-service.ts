@@ -45,6 +45,7 @@ function buildAiOverride(eff: EffectiveSubscription): CommentaryCallOverride {
 		temperature: eff.ai.temperature,
 	};
 }
+
 import { makeKoishiServiceContext } from "@bilibili-notify/koishi-runtime";
 import {
 	type LiveContentBuilder,
@@ -192,17 +193,19 @@ function adaptPush(push: BilibiliPush): PushLike {
 		async broadcastToTargets(uid, content, type) {
 			// Map LivePushType numeric values to FeatureKey strings
 			// LivePushType values: Live=0, StartBroadcasting=3, LiveGuardBuy=4,
-			//   WordCloudAndLiveSummary=5, Superchat=6, UserDanmakuMsg=7, UserActions=8, LiveEnd=9
+			//   WordCloudAndLiveSummary=5, Superchat=6, UserDanmakuMsg=7, UserActions=8,
+			//   LiveEnd=9, LiveSummary=10
 			type FeatureKey = import("@bilibili-notify/internal").FeatureKey;
 			const typeToFeature: Record<number, FeatureKey> = {
 				0: "live",
 				3: "live",
 				4: "liveGuardBuy",
-				5: "wordcloud", // wordcloud+liveSummary: use wordcloud as primary
+				5: "wordcloud",
 				6: "superchat",
 				7: "specialDanmaku",
 				8: "specialUserEnter",
 				9: "liveEnd",
+				10: "liveSummary",
 			};
 			const feature = typeToFeature[type as number] ?? "live";
 
