@@ -47,13 +47,23 @@ async function main(): Promise<void> {
 		throw err;
 	}
 
-	// Warn loudly when no dashboard auth is configured — local dev is fine bare,
-	// but anything reachable beyond localhost should set BN_DASHBOARD_USER/PASS or
-	// auth.basicAuth in the YAML. We do NOT refuse to start (per plan §4.2).
+	// Dashboard 鉴权策略:监听 loopback 时允许 bare(本地 dev / 反代后端);否则
+	// fail-closed 拒绝启动,避免裸暴露公网。绕过开关是 BN_ALLOW_NO_AUTH=1 — 留给
+	// 明确知道自己在做什么的运维(例如已经在 nginx 层做了 IP 白名单 / mTLS)。
 	const basicAuthCredentials = bootstrap.auth?.basicAuth;
+	const host = bootstrap.server.host;
+	const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "::1"]);
+	const isLoopback = LOOPBACK_HOSTS.has(host);
+	const allowNoAuth = process.env.BN_ALLOW_NO_AUTH === "1";
 	if (!basicAuthCredentials) {
+		if (!isLoopback && !allowNoAuth) {
+			log.error(
+				`auth not configured but listening on ${host} (non-loopback). 拒绝启动以避免裸暴露。请设置 auth.basicAuth.{username,password} 或 BN_DASHBOARD_USER/BN_DASHBOARD_PASS;或者把 server.host 改为 127.0.0.1 / BN_HOST=127.0.0.1;或者用 BN_ALLOW_NO_AUTH=1 强制允许(自担风险)。`,
+			);
+			process.exit(1);
+		}
 		log.warn(
-			"auth not configured, dashboard exposed without auth (set auth.basicAuth.{username,password} or BN_DASHBOARD_USER/BN_DASHBOARD_PASS)",
+			`auth not configured, dashboard exposed without auth (host=${host}${allowNoAuth ? " allow_no_auth=1" : ""})`,
 		);
 	}
 	if (!bootstrap.auth?.allowedOrigins || bootstrap.auth.allowedOrigins.length === 0) {

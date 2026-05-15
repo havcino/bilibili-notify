@@ -2,8 +2,8 @@ import { readFileSync } from "node:fs";
 import { join as joinPath } from "node:path";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { Hono } from "hono";
-import { basicAuth } from "hono/basic-auth";
 import { HTTPException } from "hono/http-exception";
+import { createRateLimitedBasicAuth } from "./auth/basic-auth-rate-limited.js";
 import type { AuthSystem } from "./auth/index.js";
 import type { WsTicketStore } from "./auth/ws-ticket.js";
 import { createAdaptersRoute } from "./routes/adapters.js";
@@ -102,13 +102,27 @@ export function createApp(runtime: AppRuntime, options: CreateAppOptions = {}): 
 		return c.json({ error: "not_found" }, 404);
 	});
 
-	// Basic-auth gate. Mounted BEFORE the route table so every /api/* request
-	// (health probes included — this is a backend service, not anonymous-probe
-	// territory) is challenged when credentials are configured. When omitted we
-	// skip the middleware entirely; the warn log lives at the bootstrap layer.
+	// Basic-auth gate + 速率限制。挂在路由表之前覆盖整个 /api/*。
+	// 失败 5 次 → 该 IP block 60s。当 credentials 不配置时整段跳过,bootstrap
+	// 层已经做过 fail-closed / loopback 检查。
 	if (options.basicAuthCredentials) {
 		const { username, password } = options.basicAuthCredentials;
-		app.use("/api/*", basicAuth({ username, password }));
+		app.use(
+			"/api/*",
+			createRateLimitedBasicAuth({
+				username,
+				password,
+				onEvent: (event) => {
+					if (event.type === "blocked") {
+						runtime.serviceCtx.logger.warn(
+							`basic-auth ip=${event.ip} blocked retryAfterMs=${event.retryAfterMs}`,
+						);
+					} else if (event.type === "failure" && event.failures >= 3) {
+						runtime.serviceCtx.logger.warn(`basic-auth ip=${event.ip} failures=${event.failures}`);
+					}
+				},
+			}),
+		);
 	}
 
 	app.route("/api/health", createHealthRoute(deps));
