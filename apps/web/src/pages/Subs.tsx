@@ -170,8 +170,11 @@ function NewSubDialog({
 	return (
 		<ModalShell onCancel={onCancel} width={420} bodyClassName="p-5">
 			<div className="mb-1 text-base font-bold text-bn-text-primary">添加 UP 主</div>
-			<div className="mb-4 text-[12px] text-bn-text-secondary">
+			<div className="mb-3 text-[12px] text-bn-text-secondary">
 				输入纯数字走 UID 精确查询; 输入名字走搜索,点击结果直接订阅
+			</div>
+			<div className="mb-4 rounded border border-amber-200 bg-amber-50 p-2 text-[11px] leading-relaxed text-amber-700">
+				添加后立即开始监听该 UP 的动态/直播。请尽快配置推送目标——未配置期间的事件将直接丢弃,不缓存。
 			</div>
 			<div className="flex gap-2">
 				<Input

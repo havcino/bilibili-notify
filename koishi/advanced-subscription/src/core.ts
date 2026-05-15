@@ -71,7 +71,9 @@ export const BilibiliNotifyAdvancedSubConfig: Schema<BilibiliNotifyAdvancedSubCo
 						)
 							.role("table")
 							.required()
-							.description("推送目标配置"),
+							.description(
+								"推送目标配置。注意:channelArr 留空期间该 UP 已经在监听动态/直播,但事件会直接丢弃不缓存——请尽快配置至少一个频道",
+							),
 					}),
 				).description("推送平台和频道/群组列表"),
 
