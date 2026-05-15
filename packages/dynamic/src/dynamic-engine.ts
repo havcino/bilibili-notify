@@ -404,7 +404,7 @@ export class DynamicEngine {
 			// 单独关掉所有屏蔽规则」—— 与全局 filter 完全脱钩，符合用户意图。
 			const subForFilter = this.dynamicSubManager.get(uid);
 			const effFilter = subForFilter?.filter ?? this.config.filter ?? {};
-			const filterResult = filterDynamic(item, effFilter);
+			const filterResult = filterDynamic(item, effFilter, this.logger);
 			if (filterResult.blocked) {
 				this.logger.debug(`[filter] 动态 ID=${item.id_str} 被过滤，原因：${filterResult.reason}`);
 				if (effFilter.notify) {

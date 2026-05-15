@@ -1,3 +1,4 @@
+import type { Logger } from "@bilibili-notify/internal";
 import type { Dynamic, DynamicFilterConfig, DynamicFilterResult } from "./types";
 import { DynamicFilterReason as Reason } from "./types";
 
@@ -23,12 +24,13 @@ function getDynamicText(dynamic: Dynamic): string {
 	return texts.join("\n");
 }
 
-function safeRegexTest(pattern: string | undefined, text: string): boolean {
+function safeRegexTest(pattern: string | undefined, text: string, logger?: Logger): boolean {
 	if (!pattern) return false;
 	try {
 		return new RegExp(pattern).test(text);
 	} catch (e) {
-		console.warn(
+		// logger 缺省 = silent(纯函数语义);引擎层应传入 ctx.logger 让 warn 走标准日志通道。
+		logger?.warn(
 			`[bilibili-notify-dynamic] 无效的正则表达式 "${pattern}": ${(e as Error).message}`,
 		);
 		return false;
@@ -40,7 +42,11 @@ function testKeywordMatched(text: string, keywords: string[] | undefined): boole
 	return keywords.some((kw) => kw && text.includes(kw));
 }
 
-export function filterDynamic(dynamic: Dynamic, config: DynamicFilterConfig): DynamicFilterResult {
+export function filterDynamic(
+	dynamic: Dynamic,
+	config: DynamicFilterConfig,
+	logger?: Logger,
+): DynamicFilterResult {
 	const cfg = {
 		enable: false,
 		regex: "",
@@ -62,7 +68,7 @@ export function filterDynamic(dynamic: Dynamic, config: DynamicFilterConfig): Dy
 		if (cfg.article && dynamic.type === "DYNAMIC_TYPE_ARTICLE") {
 			return { blocked: true, reason: Reason.BlacklistArticle };
 		}
-		if (safeRegexTest(cfg.regex, text) || testKeywordMatched(text, cfg.keywords)) {
+		if (safeRegexTest(cfg.regex, text, logger) || testKeywordMatched(text, cfg.keywords)) {
 			return { blocked: true, reason: Reason.BlacklistKeyword };
 		}
 	}
@@ -71,7 +77,7 @@ export function filterDynamic(dynamic: Dynamic, config: DynamicFilterConfig): Dy
 		const hasRule = !!cfg.whitelistRegex || cfg.whitelistKeywords.length > 0;
 		if (
 			hasRule &&
-			!safeRegexTest(cfg.whitelistRegex, text) &&
+			!safeRegexTest(cfg.whitelistRegex, text, logger) &&
 			!testKeywordMatched(text, cfg.whitelistKeywords)
 		) {
 			return { blocked: true, reason: Reason.WhitelistUnmatched };
