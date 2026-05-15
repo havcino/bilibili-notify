@@ -46,6 +46,8 @@ export type SubItemRawConfig = MasterFlagMap & {
 	roomId: string;
 	dynamicAtAll?: boolean;
 	liveAtAll?: boolean;
+	/** per-UP 免打扰时段;覆盖全局 quietHours。留空/undefined = 继承全局。 */
+	quietHours?: Array<{ start: number; end: number }>;
 	target: TargetConfig[];
 	customLiveSummary: { enable: boolean; liveSummary?: string[] };
 	customLiveMsg: {
@@ -202,6 +204,33 @@ export function rawConfigToSubscription(_name: string, raw: SubItemRawConfig): C
 	}
 
 	sub.routing = routing;
+
+	// UP 级 features 总开关 → sub.overrides.features。
+	// 之前 convert.ts 只用 raw.X=false 来 gate routing 计算(routing.X 跳过该 channel),
+	// 但没写到 overrides.features——导致 resolve 后 eff.features.X 仍等于全局默认(全 true),
+	// LiveEngine `needsLiveMonitor` 仍开 WS、payload 仍 build,只是 broadcastToFeature 内
+	// routing 空兜底不发。这跟「features 决定监听」mental model 矛盾。
+	//
+	// 现在显式写 overrides.features:仅在 raw.X === false 时写(true 留空 = 继承全局
+	// 默认 = schema 默认 true)。这样 PR2 接通的 features-only 监听层在 koishi 端真生效。
+	const featureOverrides: Partial<Record<FeatureKey, boolean>> = {};
+	for (const k of FEATURE_KEYS) {
+		if (raw[k as keyof SubItemRawConfig] === false) featureOverrides[k] = false;
+	}
+	if (Object.keys(featureOverrides).length > 0) {
+		sub.overrides.features = featureOverrides;
+	}
+
+	// UP 级 quietHours → sub.overrides.schedule.quietHours。
+	// 用户在 advanced-subscription 配 per-UP quietHours 即可覆盖全局;留空 / undefined
+	// 则不写 override → resolve 时 fallback 到 globals.schedule.quietHours(koishi config
+	// 顶层 quietHours)。
+	if (raw.quietHours && raw.quietHours.length > 0) {
+		sub.overrides.schedule = {
+			...(sub.overrides.schedule ?? {}),
+			quietHours: raw.quietHours,
+		};
+	}
 
 	// UP 级 @全体 默认。Schema 给了 default(false / true),所以 raw.X 不会是 undefined,
 	// 但为安全起见仍走 fallback。

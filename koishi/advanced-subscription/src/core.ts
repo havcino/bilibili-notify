@@ -44,6 +44,18 @@ export const BilibiliNotifyAdvancedSubConfig: Schema<BilibiliNotifyAdvancedSubCo
 				wordcloud: Schema.boolean().default(true).description("是否订阅弹幕词云（总开关）"),
 				liveSummary: Schema.boolean().default(true).description("是否订阅直播总结（总开关）"),
 
+				quietHours: Schema.array(
+					Schema.object({
+						start: Schema.number().min(0).max(23).step(1).required().description("起始小时(0-23)"),
+						end: Schema.number().min(0).max(23).step(1).required().description("结束小时(0-23,不含)"),
+					}),
+				)
+					.role("table")
+					.default([])
+					.description(
+						"per-UP 免打扰时段:落进任一区间的推送直接丢弃。粒度按「时」,半开区间 [start, end);end<start 视为跨午夜。留空则继承全局 quietHours(在主插件 koishi config 顶层配置)。",
+					),
+
 				target: Schema.array(
 					Schema.object({
 						platform: Schema.string()

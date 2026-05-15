@@ -212,12 +212,15 @@ export function getKoishiDefaults(): GlobalDefaults {
 
 function applyConfigToDefaults(config: BilibiliNotifyConfig): void {
 	const fresh = makeDefaultGlobalConfig().defaults;
+	// features 不在 koishi config 全局暴露——koishi 端通过 advanced-subscription / subs[]
+	// 的 Schema.boolean().default(true) 直接给 per-UP 默认值,「全局 features 默认值」
+	// 在 koishi 端是冗余概念。features 永远走 schema 默认全 true,per-UP 通过
+	// overrides.features 个别覆盖(advanced-subscription/convert.ts 负责接通)。
 	koishiDefaults = {
 		...fresh,
-		features: { ...fresh.features, ...(config.defaults?.features ?? {}) },
 		schedule: {
 			...fresh.schedule,
-			quietHours: config.defaults?.quietHours ?? fresh.schedule.quietHours,
+			quietHours: config.quietHours ?? fresh.schedule.quietHours,
 		},
 	};
 }

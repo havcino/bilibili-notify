@@ -1,16 +1,7 @@
-import type { FeatureKey } from "@bilibili-notify/internal";
 import type { FlatSubConfigItem } from "@bilibili-notify/subscription";
 import { Schema } from "koishi";
 
 export type { FlatSubConfigItem };
-
-/**
- * 订阅级 features 总开关。任一关闭则 koishi 端「全局」该特性的监听 / build / 推送都
- * 不再进行——是 PR2 接通的 BilibiliPush.broadcastToFeature 头部 gate +
- * 派生视图 gate 的配置入口。per-UP 想精细控制目前只能走 dashboard;koishi 端
- * 目前只暴露全局默认。
- */
-export type KoishiFeaturesConfig = Partial<Record<FeatureKey, boolean>>;
 
 /** 免打扰时段:落进任一区间内的推送直接丢弃,粒度按「时」,半开区间 [start, end)。 */
 export interface KoishiQuietHourRange {
@@ -30,10 +21,16 @@ export interface BilibiliNotifyConfig {
 		masterAccount?: string;
 		masterAccountGuildId?: string;
 	};
-	defaults?: {
-		features?: KoishiFeaturesConfig;
-		quietHours?: KoishiQuietHourRange[];
-	};
+	/**
+	 * 全局免打扰时段。per-UP 不自定义则继承本字段;per-UP 在 advanced-subscription
+	 * schema 里可以单独配 quietHours 覆盖。
+	 *
+	 * features 总开关之所以不在 koishi config 暴露,是因为 koishi 端添加新订阅时
+	 * 已经由 advanced-subscription / subs[] 的 Schema.boolean().default(true) 提供
+	 * 默认值——「全局 features 默认值」这个语义在 koishi 端冗余;它只对 dashboard
+	 * 的「添加新订阅时的初始勾选」流程有意义。
+	 */
+	quietHours?: KoishiQuietHourRange[];
 }
 
 export const BilibiliNotifyConfigSchema: Schema<BilibiliNotifyConfig> = Schema.object({
@@ -131,30 +128,15 @@ export const BilibiliNotifyConfigSchema: Schema<BilibiliNotifyConfig> = Schema.o
 		]),
 	]),
 
-	defaults: Schema.object({
-		features: Schema.object({
-			dynamic: Schema.boolean().default(true).description("是否监听动态(关掉则所有 UP 都不拉取动态)"),
-			live: Schema.boolean().default(true).description("是否监听直播开播"),
-			liveEnd: Schema.boolean().default(true).description("是否推送下播"),
-			liveGuardBuy: Schema.boolean().default(true).description("是否推送上舰"),
-			superchat: Schema.boolean().default(true).description("是否推送 SC"),
-			wordcloud: Schema.boolean().default(true).description("是否生成弹幕词云"),
-			liveSummary: Schema.boolean().default(true).description("是否生成直播 AI 总结"),
-			specialDanmaku: Schema.boolean().default(true).description("是否监听特别关注弹幕"),
-			specialUserEnter: Schema.boolean().default(true).description("是否监听特别关注进直播间"),
-		}).description(
-			"订阅级总开关:任一关闭则该特性在所有 UP 上停止监听 / 推送。这是 source-side gate, 跟 routing 解耦——关掉 features.X 时连 WS / cron 都不开,routing 配了也没用。",
+	quietHours: Schema.array(
+		Schema.object({
+			start: Schema.number().min(0).max(23).step(1).required().description("起始小时(0-23)"),
+			end: Schema.number().min(0).max(23).step(1).required().description("结束小时(0-23,不含)"),
+		}),
+	)
+		.role("table")
+		.default([])
+		.description(
+			"全局免打扰时段:落进任一区间的推送直接丢弃,不补推。粒度按「时」,半开区间 [start, end);end<start 视为跨午夜(如 22 → 7 表示晚 22 点到次日 7 点)。per-UP 想单独配置可在 advanced-subscription 里覆盖。",
 		),
-		quietHours: Schema.array(
-			Schema.object({
-				start: Schema.number().min(0).max(23).step(1).required().description("起始小时(0-23)"),
-				end: Schema.number().min(0).max(23).step(1).required().description("结束小时(0-23,不含)"),
-			}),
-		)
-			.role("table")
-			.default([])
-			.description(
-				"免打扰时段:落进任一区间的推送直接丢弃,不补推。粒度按「时」,半开区间 [start, end);end<start 视为跨午夜(如 22 → 7 表示晚 22 点到次日 7 点)。",
-			),
-	}).description("全局默认值:features 总开关 + 免打扰时段。dashboard 端有同步入口。"),
 });
