@@ -56,7 +56,14 @@ function makeSink(opts?: { available?: boolean }): {
 			return { ok: true, latencyMs: 1 } as DeliveryResult;
 		},
 		resolve: (id) =>
-			({ id, name: id, adapterId: "a", platform: "test", scope: "group", enabled: true }) as PushTarget,
+			({
+				id,
+				name: id,
+				adapterId: "a",
+				platform: "test",
+				scope: "group",
+				enabled: true,
+			}) as unknown as PushTarget,
 	};
 	return { sink, calls };
 }

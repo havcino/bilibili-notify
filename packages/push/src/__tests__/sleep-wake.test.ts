@@ -36,7 +36,7 @@ function makeUnreachableSink(): NotificationSink {
 			latencyMs: 0,
 			err: "unreachable",
 		}),
-		resolve: (id) => ({ id, name: id, platform: "test" }) as PushTarget,
+		resolve: (id) => ({ id, name: id, platform: "test" }) as unknown as PushTarget,
 	};
 }
 

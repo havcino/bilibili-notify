@@ -99,21 +99,27 @@ export function createCardsRoute(opts: CardsRouteOptions): Hono {
 	// One ImageRenderer reused across requests. Lazy — only constructed when
 	// the first real-fetch / sc / guard path actually runs, so deployments
 	// without BN_CHROME_PATH don't spin one up needlessly.
+	//
+	// 每次请求都 updateConfig 一遍传入的 style — 否则用户在 Cards 页改完颜色后
+	// 第一次 /preview 构造一个 renderer 后,后续改色就不生效(renderer 是 lazy 单例)。
 	let imageRenderer: ImageRenderer | null = null;
 	function getImageRenderer(style: PreviewStyle): ImageRenderer | null {
 		if (!opts.puppeteer) return null;
+		const config = {
+			cardColorStart: style.cardColorStart,
+			cardColorEnd: style.cardColorEnd,
+			font: style.font ?? "PingFang SC, sans-serif",
+			hideDesc: style.hideDesc ?? false,
+			followerDisplay: style.followerDisplay ?? true,
+		};
 		if (!imageRenderer) {
 			imageRenderer = new ImageRenderer({
 				serviceCtx: opts.deps.runtime.serviceCtx,
 				puppeteer: opts.puppeteer,
-				config: {
-					cardColorStart: style.cardColorStart,
-					cardColorEnd: style.cardColorEnd,
-					font: style.font ?? "PingFang SC, sans-serif",
-					hideDesc: style.hideDesc ?? false,
-					followerDisplay: style.followerDisplay ?? true,
-				},
+				config,
 			});
+		} else {
+			imageRenderer.updateConfig(config);
 		}
 		return imageRenderer;
 	}

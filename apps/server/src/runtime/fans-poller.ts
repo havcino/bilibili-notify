@@ -55,11 +55,13 @@ export function startFansPoller(opts: FansPollerOptions): FansPollerHandle {
 	let currentCron = configStore.getGlobals().app.dynamicCron;
 	let job: CronJob | undefined;
 	let running = false;
+	let disposed = false;
 	// uid → 最近一次成功采样。replace,不累加。每轮跑完整体替换为新一批,但
 	// 跳过本轮没采到的 uid(保留上一轮的值,避免间歇性失败导致 dashboard 数字闪烁)。
 	const lastByUid = new Map<string, FansRefreshEntry>();
 
 	function tick(): void {
+		if (disposed) return;
 		if (running) {
 			logger.debug("[fans-poller] previous tick still running, skipping");
 			return;
@@ -73,6 +75,7 @@ export function startFansPoller(opts: FansPollerOptions): FansPollerHandle {
 	}
 
 	async function runTick(): Promise<void> {
+		if (disposed) return;
 		const subs = subscriptionStore.list().filter((s) => s.enabled);
 		// Sweep:lastByUid 只保留当前 enabled subs;被删除 / 禁用的 uid 同步 dropUid
 		// 清掉时序文件。这样下游 emit 出去的快照不会再含失效 uid,前端覆盖式 setQueryData
@@ -96,6 +99,8 @@ export function startFansPoller(opts: FansPollerOptions): FansPollerHandle {
 		const target7dIso = new Date(now.getTime() - SEVEN_DAYS_MS).toISOString();
 
 		for (const sub of subs) {
+			// dispose 期间(stop/restart 链路)中断剩余 uid 循环,避免持续写盘 / emit。
+			if (disposed) return;
 			try {
 				const res = await api.getUserCardInfo(sub.uid);
 				if (res.code !== 0 || !res.data?.card) {
@@ -183,9 +188,52 @@ export function startFansPoller(opts: FansPollerOptions): FansPollerHandle {
 		startJob();
 	}
 
+	/**
+	 * 重启恢复:从每个 enabled sub 的 fans/<uid>.jsonl 末尾读最近一条样本,填进
+	 * lastByUid 并立即 emit 一次。这样 Dashboard 首屏不会因为新一轮 tick 还没跑完
+	 * 就空白。窗口 delta(24h/7d)留给第一次正式 tick 计算。
+	 */
+	async function restoreFromDisk(): Promise<void> {
+		if (disposed) return;
+		// 用一个"远未来"时间戳让 findNearestBefore 退化为"取最近一条"。
+		const futureIso = "9999-12-31T00:00:00.000Z";
+		const subs = subscriptionStore.list().filter((s) => s.enabled);
+		for (const sub of subs) {
+			if (disposed) return;
+			try {
+				const last = await fansStore.findNearestBefore(sub.uid, futureIso);
+				if (!last) continue;
+				const baseline = sub.state.fansBaseline;
+				const deltaSubscribed = baseline ? last.value - baseline.value : 0;
+				lastByUid.set(sub.uid, {
+					uid: sub.uid,
+					current: last.value,
+					ts: last.ts,
+					deltaSubscribed,
+					delta24h: null,
+					delta7d: null,
+				});
+			} catch (err) {
+				logger.debug(`[fans-poller] restore ${sub.uid} skipped: ${String(err)}`);
+			}
+		}
+		if (lastByUid.size > 0 && !disposed) {
+			bus.emit("fans-refreshed", Array.from(lastByUid.values()));
+			logger.info(`[fans-poller] restored ${lastByUid.size} entries from disk`);
+		}
+	}
+
 	startJob();
-	// 启动后立即跑一次,避免 Dashboard 首屏空窗(等不到下一个 cron tick)。
-	tick();
+	// 先从磁盘恢复历史 entries 给首屏用,然后延后 3s 才发首轮 tick — 给 auth /
+	// LoginFlow 起来的窗口期,降低"第一次 tick 撞 auth 未就绪 → 每个 sub 打一行
+	// warn + 首屏全 —"的概率。
+	void (async () => {
+		await restoreFromDisk();
+		if (disposed) return;
+		await new Promise<void>((resolveFirstTick) => setTimeout(resolveFirstTick, 3000));
+		if (disposed) return;
+		tick();
+	})();
 
 	const offConfig = bus.on("config-changed", (scope: ConfigScope) => {
 		if (scope !== "globals") return;
@@ -211,9 +259,12 @@ export function startFansPoller(opts: FansPollerOptions): FansPollerHandle {
 
 	return {
 		dispose(): void {
+			disposed = true;
 			job?.stop();
 			offConfig.dispose();
 			offSubs.dispose();
+			// 不主动 await in-flight tick(Disposable 接口为 void);runTick 内会在每个
+			// await 后 check disposed,中途返回,新副作用不会出现。
 		},
 		getLastEntries(): FansRefreshEntry[] {
 			return Array.from(lastByUid.values());
