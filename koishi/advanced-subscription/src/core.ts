@@ -56,6 +56,43 @@ export const BilibiliNotifyAdvancedSubConfig: Schema<BilibiliNotifyAdvancedSubCo
 						"per-UP 免打扰时段:落进任一区间的推送直接丢弃。粒度按「时」,半开区间 [start, end);end<start 视为跨午夜。留空则继承全局 quietHours(在主插件 koishi config 顶层配置)。",
 					),
 
+				// ---- per-UP 过滤器(覆盖 globals.defaults.filters) ----
+				blockForward: Schema.boolean()
+					.default(false)
+					.description("是否丢弃「转发」动态(转发自其他 UP 的二级动态)"),
+				blockArticle: Schema.boolean().default(false).description("是否丢弃「专栏文章」动态"),
+				blockKeywords: Schema.array(String)
+					.default([])
+					.description("关键词黑名单:动态内容命中任一关键词(子串匹配)则丢弃,每行一条"),
+				blockRegex: Schema.array(String)
+					.default([])
+					.description("正则黑名单:动态内容匹配任一正则则丢弃。无效正则会被忽略并打 warn"),
+				whitelistKeywords: Schema.array(String)
+					.default([])
+					.description("关键词白名单:非空时只有命中任一关键词的动态才放行(black 优先于 white)"),
+				whitelistRegex: Schema.array(String)
+					.default([])
+					.description("正则白名单:同关键词白名单,但走正则匹配"),
+				minScPrice: Schema.number()
+					.min(0)
+					.step(1)
+					.default(0)
+					.description("SC 最低价格(元):低于此值的 SC 不推。0 = 全部推"),
+				minGuardLevel: Schema.union([1, 2, 3])
+					.default(3)
+					.description("舰长最低等级:3=舰长 / 2=提督 / 1=总督。低于此等级的上舰不推(数值越低越严)"),
+
+				// ---- per-UP 调度(覆盖 globals.defaults.schedule) ----
+				pushTime: Schema.number()
+					.min(0)
+					.max(24)
+					.step(1)
+					.default(0)
+					.description("「正在直播」复推间隔(小时):0 = 不复推。开播后每隔此小时数复推一次直播间状态"),
+				restartPush: Schema.boolean()
+					.default(false)
+					.description("Koishi 重启后如果该 UP 正在直播,是否立即补推一次「开播」通知"),
+
 				target: Schema.array(
 					Schema.object({
 						platform: Schema.string()

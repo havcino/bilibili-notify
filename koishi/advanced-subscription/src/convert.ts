@@ -48,6 +48,17 @@ export type SubItemRawConfig = MasterFlagMap & {
 	liveAtAll?: boolean;
 	/** per-UP 免打扰时段;覆盖全局 quietHours。留空/undefined = 继承全局。 */
 	quietHours?: Array<{ start: number; end: number }>;
+	// ---- per-UP filters/schedule overrides ----
+	blockForward?: boolean;
+	blockArticle?: boolean;
+	blockKeywords?: string[];
+	blockRegex?: string[];
+	whitelistKeywords?: string[];
+	whitelistRegex?: string[];
+	minScPrice?: number;
+	minGuardLevel?: 1 | 2 | 3;
+	pushTime?: number;
+	restartPush?: boolean;
 	target: TargetConfig[];
 	customLiveSummary: { enable: boolean; liveSummary?: string[] };
 	customLiveMsg: {
@@ -229,6 +240,49 @@ export function rawConfigToSubscription(_name: string, raw: SubItemRawConfig): C
 		sub.overrides.schedule = {
 			...(sub.overrides.schedule ?? {}),
 			quietHours: raw.quietHours,
+		};
+	}
+
+	// ---- per-UP filters override ----
+	// 策略:数组类(blockKeywords/...)length>0 才写(空 = 继承全局);
+	// boolean / number 类总是写(显式值 — 包括 false / 0 都是有意义的选择)。
+	// 用 partial 模式,只写真正出现在 raw 上的字段(undefined 跳过,不污染未配置项)。
+	const filterOverrides: Partial<{
+		blockForward: boolean;
+		blockArticle: boolean;
+		blockKeywords: string[];
+		blockRegex: string[];
+		whitelistKeywords: string[];
+		whitelistRegex: string[];
+		minScPrice: number;
+		minGuardLevel: 1 | 2 | 3;
+	}> = {};
+	if (raw.blockForward !== undefined) filterOverrides.blockForward = raw.blockForward;
+	if (raw.blockArticle !== undefined) filterOverrides.blockArticle = raw.blockArticle;
+	if (raw.blockKeywords && raw.blockKeywords.length > 0)
+		filterOverrides.blockKeywords = raw.blockKeywords;
+	if (raw.blockRegex && raw.blockRegex.length > 0) filterOverrides.blockRegex = raw.blockRegex;
+	if (raw.whitelistKeywords && raw.whitelistKeywords.length > 0)
+		filterOverrides.whitelistKeywords = raw.whitelistKeywords;
+	if (raw.whitelistRegex && raw.whitelistRegex.length > 0)
+		filterOverrides.whitelistRegex = raw.whitelistRegex;
+	if (raw.minScPrice !== undefined) filterOverrides.minScPrice = raw.minScPrice;
+	if (raw.minGuardLevel !== undefined) filterOverrides.minGuardLevel = raw.minGuardLevel;
+	if (Object.keys(filterOverrides).length > 0) {
+		sub.overrides.filters = filterOverrides;
+	}
+
+	// ---- per-UP schedule override (pushTime / restartPush) ----
+	if (raw.pushTime !== undefined) {
+		sub.overrides.schedule = {
+			...(sub.overrides.schedule ?? {}),
+			pushTime: raw.pushTime,
+		};
+	}
+	if (raw.restartPush !== undefined) {
+		sub.overrides.schedule = {
+			...(sub.overrides.schedule ?? {}),
+			restartPush: raw.restartPush,
 		};
 	}
 

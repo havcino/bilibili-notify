@@ -260,6 +260,13 @@ function storeToLiveView(store: any, defaults: GlobalDefaults): SubscriptionsVie
 						msgTemplate: sub.overrides.templates?.specialUserEnter ?? "",
 					}
 				: { enable: false, msgTemplate: "" },
+			// per-UP filters / schedule(对齐 standalone `apps/server/src/runtime/engines.ts`
+			// buildLiveSubViewSingle:846-849)。LiveEngine 在 SC / 上舰 / restartPush /
+			// 复推 timer 调用点会优先用这些 per-UP 值,缺失时回退到 adapter 全局。
+			minScPrice: eff.filters.minScPrice,
+			minGuardLevel: eff.filters.minGuardLevel,
+			pushTime: eff.schedule.pushTime,
+			restartPush: eff.schedule.restartPush,
 		};
 		view[sub.uid] = liveView;
 	}
@@ -449,5 +456,10 @@ function storeToSubItemView(sub: Subscription, defaults: GlobalDefaults): SubIte
 					msgTemplate: sub.overrides.templates?.specialUserEnter ?? "",
 				}
 			: { enable: false, msgTemplate: "" },
+		// per-UP filters / schedule(对齐 standalone)
+		minScPrice: eff.filters.minScPrice,
+		minGuardLevel: eff.filters.minGuardLevel,
+		pushTime: eff.schedule.pushTime,
+		restartPush: eff.schedule.restartPush,
 	};
 }
