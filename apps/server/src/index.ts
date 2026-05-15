@@ -1,6 +1,7 @@
 import type { Server as HttpServer } from "node:http";
 import { type ServerType, serve } from "@hono/node-server";
 import { createApp } from "./app.js";
+import { shouldRefuseBareAuth } from "./auth/bare-auth-policy.js";
 import { type AuthSystem, createAuthSystem } from "./auth/index.js";
 import { createWsTicketStore } from "./auth/ws-ticket.js";
 import { loadBootstrapConfig } from "./config/loader.js";
@@ -50,13 +51,12 @@ async function main(): Promise<void> {
 	// Dashboard 鉴权策略:监听 loopback 时允许 bare(本地 dev / 反代后端);否则
 	// fail-closed 拒绝启动,避免裸暴露公网。绕过开关是 BN_ALLOW_NO_AUTH=1 — 留给
 	// 明确知道自己在做什么的运维(例如已经在 nginx 层做了 IP 白名单 / mTLS)。
+	// 决策本身在 auth/bare-auth-policy.ts 做纯函数测试。
 	const basicAuthCredentials = bootstrap.auth?.basicAuth;
 	const host = bootstrap.server.host;
-	const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "::1"]);
-	const isLoopback = LOOPBACK_HOSTS.has(host);
 	const allowNoAuth = process.env.BN_ALLOW_NO_AUTH === "1";
 	if (!basicAuthCredentials) {
-		if (!isLoopback && !allowNoAuth) {
+		if (shouldRefuseBareAuth({ host, hasBasicAuth: false, allowNoAuth })) {
 			log.error(
 				`auth not configured but listening on ${host} (non-loopback). 拒绝启动以避免裸暴露。请设置 auth.basicAuth.{username,password} 或 BN_DASHBOARD_USER/BN_DASHBOARD_PASS;或者把 server.host 改为 127.0.0.1 / BN_HOST=127.0.0.1;或者用 BN_ALLOW_NO_AUTH=1 强制允许(自担风险)。`,
 			);

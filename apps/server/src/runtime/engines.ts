@@ -706,7 +706,7 @@ function collapseSegments(segments: PayloadSegment[]): NotificationPayload {
 	return { kind: "composite", segments };
 }
 
-function liveTypeToFeature(type: number): FeatureKey {
+export function liveTypeToFeature(type: number): FeatureKey {
 	switch (type) {
 		case 0:
 		case 3:

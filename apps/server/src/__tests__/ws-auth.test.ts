@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { WebSocket } from "ws";
 import type { BootstrapConfig } from "../config/schema.js";
 import { type ConfigStore, createConfigStore } from "../config/store.js";
+import { createWsTicketStore } from "../auth/ws-ticket.js";
 import { createNodeMessageBus } from "../runtime/message-bus.js";
 import { createNodeServiceContext, type NodeServiceContext } from "../runtime/service-context.js";
 import { createWsServer, type WsServer } from "../ws/server.js";
@@ -267,6 +268,59 @@ describe("WS upgrade gate", () => {
 		});
 		expect(result.outcome).toBe("open");
 		result.ws?.close();
+	});
+
+	// P0-4: ?ticket=<one-shot> 是浏览器 WS 上行的唯一鉴权方式(不让真实凭证落
+	// 反代日志)。下面两个 case 锁住 ticket 路径接进 checkAuth + 一次性消费语义。
+
+	it("basic-auth + valid one-shot ticket: upgrade succeeds, ticket then unusable", async () => {
+		const wsTicketStore = createWsTicketStore({ ttlMs: 30_000 });
+		wsServer = createWsServer({
+			httpServer,
+			bus,
+			store,
+			serviceCtx,
+			heartbeatIntervalMs: 0,
+			heartbeatTimeoutMs: 0,
+			basicAuthCredentials: { username: "admin", password: "s3cret" },
+			wsTicketStore,
+		});
+
+		const { ticket } = wsTicketStore.issue();
+		const first = await tryConnect(
+			`ws://127.0.0.1:${port}/ws?ticket=${encodeURIComponent(ticket)}`,
+		);
+		expect(first.outcome).toBe("open");
+		first.ws?.close();
+
+		// 同一 ticket 第二次必须被拒(consume 是一次性的)。
+		const second = await tryConnect(
+			`ws://127.0.0.1:${port}/ws?ticket=${encodeURIComponent(ticket)}`,
+		);
+		expect(second.outcome).toBe("rejected");
+		expect(second.statusCode).toBe(401);
+
+		wsTicketStore.dispose();
+	});
+
+	it("basic-auth + unknown ticket: rejected (401)", async () => {
+		const wsTicketStore = createWsTicketStore({ ttlMs: 30_000 });
+		wsServer = createWsServer({
+			httpServer,
+			bus,
+			store,
+			serviceCtx,
+			heartbeatIntervalMs: 0,
+			heartbeatTimeoutMs: 0,
+			basicAuthCredentials: { username: "admin", password: "s3cret" },
+			wsTicketStore,
+		});
+
+		const result = await tryConnect(`ws://127.0.0.1:${port}/ws?ticket=fabricated-token`);
+		expect(result.outcome).toBe("rejected");
+		expect(result.statusCode).toBe(401);
+
+		wsTicketStore.dispose();
 	});
 
 	it("no auth + no origin gate: upgrade succeeds (local dev mode)", async () => {

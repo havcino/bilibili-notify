@@ -9,6 +9,7 @@ import type {
 	SubscriptionOp,
 } from "@bilibili-notify/internal";
 import { BILIBILI_NOTIFY_TOKEN, resolve } from "@bilibili-notify/internal";
+import { liveTypeToFeature } from "./live-type-map";
 
 /**
  * Gate fn: features.X = source-side 订阅开关。routing 由推送层 BilibiliPush 在
@@ -191,23 +192,7 @@ function koishiElementToPayload(content: unknown): NotificationPayload {
 function adaptPush(push: BilibiliPush): PushLike {
 	return {
 		async broadcastToTargets(uid, content, type) {
-			// Map LivePushType numeric values to FeatureKey strings
-			// LivePushType values: Live=0, StartBroadcasting=3, LiveGuardBuy=4,
-			//   WordCloudAndLiveSummary=5, Superchat=6, UserDanmakuMsg=7, UserActions=8,
-			//   LiveEnd=9, LiveSummary=10
-			type FeatureKey = import("@bilibili-notify/internal").FeatureKey;
-			const typeToFeature: Record<number, FeatureKey> = {
-				0: "live",
-				3: "live",
-				4: "liveGuardBuy",
-				5: "wordcloud",
-				6: "superchat",
-				7: "specialDanmaku",
-				8: "specialUserEnter",
-				9: "liveEnd",
-				10: "liveSummary",
-			};
-			const feature = typeToFeature[type as number] ?? "live";
+			const feature = liveTypeToFeature(type as number);
 
 			// content is a koishi h() element (or fragment / string). Translate to a
 			// platform-neutral NotificationPayload so the sink can re-render image
