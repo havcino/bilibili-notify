@@ -47,11 +47,11 @@ export const BilibiliNotifyConfigSchema: Schema<BilibiliNotifyConfig> = Schema.o
 			dynamic: Schema.boolean().default(true).description("动态"),
 			dynamicAtAll: Schema.boolean()
 				.default(false)
-				.description("动态推送时是否 @全体(订阅级默认;per-target 可在 dashboard 里单独覆写)"),
+				.description("动态@全体"),
 			live: Schema.boolean().default(true).description("直播"),
 			liveAtAll: Schema.boolean()
 				.default(true)
-				.description("开播推送时是否 @全体(订阅级默认;只冲开播,不冲 SC/上舰/总结)"),
+				.description("开播@全体"),
 			liveEnd: Schema.boolean().default(true).description("下播通知"),
 			liveGuardBuy: Schema.boolean().default(false).description("上舰消息"),
 			superchat: Schema.boolean().default(false).description("SC消息"),
@@ -86,6 +86,18 @@ export const BilibiliNotifyConfigSchema: Schema<BilibiliNotifyConfig> = Schema.o
 		.default(30)
 		.description(
 			"登录状态周期检测的间隔（分钟）。女仆会按这个频率悄悄帮主人确认账号还在线哦～如果发现失效会立刻汇报呢 (๑•̀ㅂ•́)و✧",
+		),
+
+	quietHours: Schema.array(
+		Schema.object({
+			start: Schema.number().min(0).max(23).step(1).required().description("起始小时(0-23)"),
+			end: Schema.number().min(0).max(23).step(1).required().description("结束小时(0-23,不含)"),
+		}),
+	)
+		.role("table")
+		.default([])
+		.description(
+			"全局免打扰时段:落进任一区间的推送直接丢弃,不补推。粒度按「时」,半开区间 [start, end);end<start 视为跨午夜(如 22 → 7 表示晚 22 点到次日 7 点)。per-UP 想单独配置可在 advanced-subscription 里覆盖。",
 		),
 
 	master: Schema.intersect([
@@ -127,16 +139,4 @@ export const BilibiliNotifyConfigSchema: Schema<BilibiliNotifyConfig> = Schema.o
 			Schema.object({}),
 		]),
 	]),
-
-	quietHours: Schema.array(
-		Schema.object({
-			start: Schema.number().min(0).max(23).step(1).required().description("起始小时(0-23)"),
-			end: Schema.number().min(0).max(23).step(1).required().description("结束小时(0-23,不含)"),
-		}),
-	)
-		.role("table")
-		.default([])
-		.description(
-			"全局免打扰时段:落进任一区间的推送直接丢弃,不补推。粒度按「时」,半开区间 [start, end);end<start 视为跨午夜(如 22 → 7 表示晚 22 点到次日 7 点)。per-UP 想单独配置可在 advanced-subscription 里覆盖。",
-		),
 });
