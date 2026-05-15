@@ -15,7 +15,10 @@ import type {
 import { BILIBILI_NOTIFY_TOKEN, resolve } from "@bilibili-notify/internal";
 
 function hasDynamicGate(eff: EffectiveSubscription): boolean {
-	return eff.features.dynamic && (eff.routing.dynamic?.length ?? 0) > 0;
+	// features.dynamic = source-side 订阅开关。routing 由推送层 BilibiliPush 在
+	// broadcast 时按 routing 空 = 无 sink 兜底,这里不 AND routing——features=true /
+	// routing.dynamic=[] 的 UP 仍纳入 cron,加 routing 后下个轮询周期立即生效。
+	return eff.features.dynamic;
 }
 import { makeKoishiMessageBus, makeKoishiServiceContext } from "@bilibili-notify/koishi-runtime";
 import type { BilibiliPush } from "@bilibili-notify/push";

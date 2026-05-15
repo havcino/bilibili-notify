@@ -10,11 +10,13 @@ import type {
 import { BILIBILI_NOTIFY_TOKEN, resolve } from "@bilibili-notify/internal";
 
 /**
- * Gate fn: feature ON 且 routing 非空才视为「订阅 + 有人收」。
+ * Gate fn: features.X = source-side 订阅开关。routing 由推送层 BilibiliPush 在
+ * broadcast 时按 routing 空 = 无 sink 兜底,这里不 AND routing——features=true /
+ * routing=[] 的 UP 仍开监听 / build payload,加 routing 后下次事件立即生效。
  * 对齐 standalone `apps/server/src/runtime/engines.ts` 的 `feat(k)` helper。
  */
 function gate(eff: EffectiveSubscription, k: FeatureKey): boolean {
-	return eff.features[k] && (eff.routing[k]?.length ?? 0) > 0;
+	return eff.features[k];
 }
 import { makeKoishiServiceContext } from "@bilibili-notify/koishi-runtime";
 import {

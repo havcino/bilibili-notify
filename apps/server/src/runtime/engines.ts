@@ -781,9 +781,10 @@ function buildDynamicSubsView(store: SubscriptionStore, globals: GlobalConfig): 
 	for (const sub of store.list()) {
 		if (!sub.enabled) continue;
 		const eff = resolve(sub, globals.defaults);
-		// 「订阅总开关 ON」AND「routing 有目标」才纳入动态轮询;关 features.dynamic 时,
-		// dynamic-engine.startAll/applyOps 都自动跳过这个 UP,省一次 cron 拉取 + 过滤 + 渲染。
-		const hasDynamic = eff.features.dynamic && (eff.routing.dynamic?.length ?? 0) > 0;
+		// features.dynamic 决定是否纳入动态轮询(source-side)。routing 由推送层(BilibiliPush)
+		// 在 broadcast 时按 routing 空 = 无 sink 自然兜底——所以 features.dynamic=true /
+		// routing.dynamic=[] 的 UP 仍跑 cron,后续加 routing 时下一个轮询周期立即生效。
+		const hasDynamic = eff.features.dynamic;
 		view[sub.uid] = {
 			uid: sub.uid,
 			uname: sub.cachedProfile?.name ?? sub.uid,
@@ -815,12 +816,11 @@ function buildLiveSubViewSingle(sub: Subscription, globals: GlobalConfig): LiveS
 	const eff = resolve(sub, globals.defaults);
 	const danmakuUsers = sub.specialUsers.filter((u) => u.kinds.includes("danmaku"));
 	const enterUsers = sub.specialUsers.filter((u) => u.kinds.includes("enter"));
-	// SubItemView 上每个 feature 的布尔字段 = 「订阅总开关 ON」AND「routing 里至少有 1 个 target」。
-	// 前者(features.X)是 runtime 用户意图层,后者(routing 非空)是「发了也得有人收」。两者
-	// 全真才算这个 feature 实质 active —— `needsLiveMonitor` 据此决定 WS listener 开闭,关掉 features
-	// 时 listener 跟着关,省一条 WS + 心跳。
-	const feat = (k: keyof typeof eff.routing) =>
-		eff.features[k] && (eff.routing[k]?.length ?? 0) > 0;
+	// SubItemView 上每个 feature 的布尔字段 = features.X(source-side gate)。routing 由推送层
+	// BilibiliPush 在 broadcastToFeature 时按 routing 空 = 无 sink 自然兜底,这里不再 AND routing。
+	// 即:features.X=true / routing.X=[] 的 UP 也开 WS / build payload,加 routing 后下一次事件
+	// 立即生效。
+	const feat = (k: keyof typeof eff.routing) => eff.features[k];
 	return {
 		uid: sub.uid,
 		uname: sub.cachedProfile?.name ?? sub.uid,
@@ -894,7 +894,7 @@ function subscriptionOpsToDynamic(
 	const out: DynamicSubOp[] = [];
 	const hasDyn = (sub: Subscription): boolean => {
 		const eff = resolve(sub, globals.defaults);
-		return eff.features.dynamic && (eff.routing.dynamic?.length ?? 0) > 0;
+		return eff.features.dynamic;
 	};
 	for (const op of ops) {
 		if (op.type === "add") {
