@@ -45,6 +45,7 @@ export interface LifecycleDeps {
  */
 export async function bringUp(deps: LifecycleDeps): Promise<boolean> {
 	const config = deps.getConfig();
+	applyConfigToDefaults(config);
 	const apiServiceCtx = makeKoishiServiceContext(deps.ctx, "bilibili-notify-api", config.logLevel);
 	const bus = makeKoishiMessageBus(deps.ctx);
 
@@ -95,9 +96,9 @@ export async function bringUp(deps: LifecycleDeps): Promise<boolean> {
 		store,
 		master: masterTarget,
 		logger: pushServiceCtx.logger,
-		// PR3 #4 给 koishi config 接入 defaults 段后,这里改为读 koishi config。
-		// 当前用 schema 默认值——features 全 true / quietHours 空,等价于无 gate。
-		defaults: () => KOISHI_DEFAULTS,
+		// 读 mutable holder——koishi reload 触发 bringUp,applyConfigToDefaults 会先于
+		// BilibiliPush 重建,所以 holder 总是最新值。
+		defaults: () => koishiDefaults,
 	});
 
 	await api.start();
@@ -195,14 +196,31 @@ export function tearDown(deps: { logger: Logger; slots: ManagerSlots }): void {
 }
 
 /**
- * Module-level GlobalDefaults snapshot for the Koishi side.
+ * GlobalDefaults snapshot for the Koishi side. Mutable—bringUp() reads
+ * `BilibiliNotifyConfig.defaults` and merges into this holder. BilibiliPush /
+ * sub-plugins capture `() => koishiDefaults` so they always see the latest
+ * value after a config reload triggers another bringUp().
  *
- * PR3 #4 will replace this with a value derived from `BilibiliNotifyConfig`
- * (once koishi config exposes a `defaults` section). Until then it stays at
- * schema defaults — features all true, quietHours empty — which is behavior-
- * equivalent to "no gate", matching how Koishi worked pre-PR2.
+ * 当前从 koishi config 读 features + quietHours;其他子段(filters/templates/ai/
+ * cardStyle)沿用 schema 默认值,后续按需暴露。
  */
-export const KOISHI_DEFAULTS: GlobalDefaults = makeDefaultGlobalConfig().defaults;
+let koishiDefaults: GlobalDefaults = makeDefaultGlobalConfig().defaults;
+
+export function getKoishiDefaults(): GlobalDefaults {
+	return koishiDefaults;
+}
+
+function applyConfigToDefaults(config: BilibiliNotifyConfig): void {
+	const fresh = makeDefaultGlobalConfig().defaults;
+	koishiDefaults = {
+		...fresh,
+		features: { ...fresh.features, ...(config.defaults?.features ?? {}) },
+		schedule: {
+			...fresh.schedule,
+			quietHours: config.defaults?.quietHours ?? fresh.schedule.quietHours,
+		},
+	};
+}
 
 /** Shape returned by `BilibiliNotifyServerManager.getInternals(BILIBILI_NOTIFY_TOKEN)`. */
 export interface InternalsShape {
@@ -244,6 +262,6 @@ export function buildInternals(args: {
 		push: args.push,
 		store: args.store,
 		registry: args.registry,
-		defaults: KOISHI_DEFAULTS,
+		defaults: koishiDefaults,
 	};
 }
