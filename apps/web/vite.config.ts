@@ -1,9 +1,18 @@
+/// <reference types="vitest" />
 import tailwind from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 
 export default defineConfig({
 	plugins: [react(), tailwind()],
+	// 4 个 channel hook 的事件分发逻辑已经拆成纯 handler 函数(handleAuthEnvelope /
+	// handleLogEnvelope / handleStateEnvelope / handlePushEnvelope),测试不渲染 React,
+	// 也就不需要 jsdom — 直接用 vitest 默认 node 环境就够。其余 web 内的工具函数测试
+	// 也走这一套。
+	test: {
+		environment: "node",
+		include: ["src/**/*.test.ts", "src/**/__tests__/**/*.test.ts"],
+	},
 	server: {
 		port: 5173,
 		proxy: {
