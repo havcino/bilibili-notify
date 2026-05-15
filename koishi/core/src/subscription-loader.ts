@@ -135,6 +135,12 @@ export class SubscriptionLoader {
 	private readonly registry: TargetRegistry;
 	private readonly api: BilibiliAPI;
 	private subNotifier?: Notifier;
+	/**
+	 * advanced-sub 三个 ctx.on listener 的 release。`bn restart` 调 dispose 时统一
+	 * 清掉,避免下一次 bringUp 重新注册时 listener 累积(重复 store.replaceAll
+	 * + 重复 registry.set)。
+	 */
+	private listenerReleases: Array<() => void> = [];
 
 	constructor(opts: SubscriptionLoaderOptions) {
 		this.ctx = opts.ctx;
@@ -146,6 +152,14 @@ export class SubscriptionLoader {
 	}
 
 	dispose(): void {
+		for (const release of this.listenerReleases) {
+			try {
+				release();
+			} catch (e) {
+				this.logger.warn(`[sub] cleanup 释放失败:${(e as Error).message}`);
+			}
+		}
+		this.listenerReleases = [];
 		this.subNotifier?.dispose();
 		this.subNotifier = undefined;
 		this.store.replaceAll([]);
@@ -176,25 +190,31 @@ export class SubscriptionLoader {
 		// `advanced-sub-adapters` then `advanced-sub-targets` then `advanced-sub`
 		// land in that order so the registry resolves adapter/target references
 		// before subscriptions try to use them. Fix 6 (extended).
-		this.ctx.on("bilibili-notify/advanced-sub-adapters", (adapters: PushAdapter[]) => {
-			for (const a of adapters) {
-				this.registry.setAdapter(a);
-			}
-		});
-		this.ctx.on("bilibili-notify/advanced-sub-targets", (targets: PushTarget[]) => {
-			for (const t of targets) {
-				this.registry.set(t);
-			}
-		});
-		this.ctx.on("bilibili-notify/advanced-sub", async (incoming: Subscription[]) => {
-			if (!incoming.length) {
-				this.logger.info("[sub] 订阅加载完毕，但未添加任何订阅");
-				return;
-			}
-			// incoming are already Subscription[] (translated by advanced-sub adapter)
-			this.store.replaceAll(incoming);
-			this.updateSubNotifier();
-		});
+		this.listenerReleases.push(
+			this.ctx.on("bilibili-notify/advanced-sub-adapters", (adapters: PushAdapter[]) => {
+				for (const a of adapters) {
+					this.registry.setAdapter(a);
+				}
+			}),
+		);
+		this.listenerReleases.push(
+			this.ctx.on("bilibili-notify/advanced-sub-targets", (targets: PushTarget[]) => {
+				for (const t of targets) {
+					this.registry.set(t);
+				}
+			}),
+		);
+		this.listenerReleases.push(
+			this.ctx.on("bilibili-notify/advanced-sub", async (incoming: Subscription[]) => {
+				if (!incoming.length) {
+					this.logger.info("[sub] 订阅加载完毕，但未添加任何订阅");
+					return;
+				}
+				// incoming are already Subscription[] (translated by advanced-sub adapter)
+				this.store.replaceAll(incoming);
+				this.updateSubNotifier();
+			}),
+		);
 	}
 
 	/** Translate a flat config array into Subscription[], registering PushTargets. */

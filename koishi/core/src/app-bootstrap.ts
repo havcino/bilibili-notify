@@ -39,6 +39,7 @@ class BilibiliNotifyServerManager extends Service<BilibiliNotifyConfig> {
 		store: null,
 		registry: null,
 		subLoader: null,
+		cleanups: [],
 	};
 	private running = false;
 	storageMgr!: StorageManager;

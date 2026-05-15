@@ -26,6 +26,12 @@ export interface ManagerSlots {
 	store: SubscriptionStore | null;
 	registry: TargetRegistry | null;
 	subLoader: SubscriptionLoader | null;
+	/**
+	 * Listener release 数组。bringUp 内通过 `deps.ctx.on(...)` 注册的事件 handler
+	 * 必须把返回的 release 函数 push 到这里;tearDown 时统一调用,避免 `bn restart`
+	 * 后 listener 累积(每次重启多挂一份导致 subscription-changed 重复 warn / 私聊)。
+	 */
+	cleanups: Array<() => void>;
 }
 
 export interface LifecycleDeps {
@@ -96,6 +102,7 @@ export async function bringUp(deps: LifecycleDeps): Promise<boolean> {
 		store,
 		master: masterTarget,
 		logger: pushServiceCtx.logger,
+		serviceCtx: pushServiceCtx,
 		// 读 mutable holder——koishi reload 触发 bringUp,applyConfigToDefaults 会先于
 		// BilibiliPush 重建,所以 holder 总是最新值。
 		defaults: () => koishiDefaults,
@@ -143,11 +150,12 @@ export async function bringUp(deps: LifecycleDeps): Promise<boolean> {
 
 	subLoader.registerAdvancedSubListener();
 
-	deps.ctx.on("bilibili-notify/subscription-changed", async () => {
+	const releaseSubChanged = deps.ctx.on("bilibili-notify/subscription-changed", async () => {
 		await deps.ctx.sleep(5000);
 		const subs = store.list();
 		await warnMissingPlugins(deps.ctx, push, deps.logger, subs);
 	});
+	deps.slots.cleanups.push(releaseSubChanged);
 
 	deps.registerCommands();
 
@@ -182,6 +190,15 @@ export async function bringUp(deps: LifecycleDeps): Promise<boolean> {
 
 /** Tear down the api / push / login bridge and reset slots. */
 export function tearDown(deps: { logger: Logger; slots: ManagerSlots }): void {
+	// 先卸 ctx.on listener,避免 dispose 期间还接到事件触发已释放的 push/store。
+	for (const release of deps.slots.cleanups) {
+		try {
+			release();
+		} catch (e) {
+			deps.logger.warn(`[stop] cleanup 释放失败:${(e as Error).message}`);
+		}
+	}
+	deps.slots.cleanups.length = 0;
 	deps.slots.loginBridge?.stop();
 	deps.slots.subLoader?.dispose();
 	deps.slots.push?.stop();
