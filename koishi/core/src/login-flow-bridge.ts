@@ -33,6 +33,10 @@ export interface LoginFlowBridgeOptions {
 export class LoginFlowBridge {
 	private readonly opts: LoginFlowBridgeOptions;
 	readonly flow: LoginFlow;
+	// In-flight guard:控制台连点扫码按钮会触发多次 beginLogin / resetCookieKey,
+	// 后者会并发申请 cookie key 导致 storage 短窗口里写两份。两个 flag 互不影响。
+	private startLoginInFlight = false;
+	private resetKeyInFlight = false;
 
 	constructor(opts: LoginFlowBridgeOptions) {
 		this.opts = opts;
@@ -51,17 +55,33 @@ export class LoginFlowBridge {
 
 		// Console events
 		ctx.console.addListener("bilibili-notify/start-login", async () => {
+			if (this.startLoginInFlight) {
+				this.opts.logger.debug("[login] 已有登录流程在进行,忽略重复触发");
+				return;
+			}
+			this.startLoginInFlight = true;
 			this.opts.logger.info("[login] 触发登录事件");
-			await this.flow.beginLogin((url) => this.renderQrDataUrl(url));
+			try {
+				await this.flow.beginLogin((url) => this.renderQrDataUrl(url));
+			} finally {
+				this.startLoginInFlight = false;
+			}
 		});
 
 		ctx.console.addListener("bilibili-notify/reset-key", async () => {
+			if (this.resetKeyInFlight) {
+				this.opts.logger.debug("[login] 已有密钥重置在进行,忽略重复触发");
+				return;
+			}
+			this.resetKeyInFlight = true;
 			this.opts.logger.info("[login] 触发重置密钥事件");
 			try {
 				await this.opts.resetCookieKey();
 				this.flow.reportLoggedOut("keyReset");
 			} catch (e) {
 				this.opts.logger.error(`[login] 重置密钥失败：${e}`);
+			} finally {
+				this.resetKeyInFlight = false;
 			}
 		});
 

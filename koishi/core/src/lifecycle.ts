@@ -282,11 +282,18 @@ export function buildInternals(args: {
 		!args.registry
 	)
 		return null;
+	// defaults 用 getter 而非快照:friendly plugin 把 internals stash 起来后,
+	// koishi reload → applyConfigToDefaults 改写模块级 koishiDefaults。如果这里
+	// 是 `defaults: koishiDefaults` 直接 capture,stash 的 internals 会一直拿到
+	// 旧 quietHours。consumer 写法不变(`internals.defaults.schedule.quietHours`),
+	// 但每次访问都 deref 到最新值。
 	return {
 		api: args.api,
 		push: args.push,
 		store: args.store,
 		registry: args.registry,
-		defaults: koishiDefaults,
+		get defaults(): GlobalDefaults {
+			return koishiDefaults;
+		},
 	};
 }
