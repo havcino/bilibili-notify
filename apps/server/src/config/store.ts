@@ -28,9 +28,13 @@ import type { ConfigSecrets, SecretStore } from "./secret-store.js";
  * affected scope. A per-scope FIFO queue serializes concurrent writes so two
  * PATCHes on the same scope can never interleave their read-modify-write pair.
  *
- * TODO (stage 2.3+): the secrets layer (cookie / WBI / AI apiKey AES-GCM under
- * `<dataDir>/secrets/*.enc`) is intentionally NOT implemented here. Cookie storage
- * for now stays inside `@bilibili-notify/storage` keyed off `bootstrap.cookieEncryptionKey`.
+ * Secrets layer: when a `SecretStore` is injected, the AI apiKey is lifted out
+ * of `globals.json` into `<dataDir>/secrets/config-secrets.enc` (AES-256-GCM via
+ * the shared `KeyProvider`) on first `load()`; the on-disk globals are scrubbed
+ * while `this.globals` keeps the real value so engines/routes see it unchanged.
+ * Cookie/WBI secrets stay inside `@bilibili-notify/storage`, sharing the same
+ * `KeyProvider` (one passphrase, one salt). With no `SecretStore` the legacy
+ * plaintext-in-globals path is preserved for tests/back-compat.
  */
 
 // ---------------------------------------------------------------------------
@@ -406,7 +410,9 @@ class NodeConfigStore implements ConfigStore {
 			case "targets":
 				return join(this.stateDir, "targets.json");
 			case "secrets":
-				// reserved; not implemented in stage 2.2
+				// Unreachable: secrets are owned by SecretStore (config-secrets.enc),
+				// never the plain JSON scope-write path. Branch kept for ConfigScope
+				// exhaustiveness only.
 				return join(this.stateDir, "secrets.json");
 		}
 	}
