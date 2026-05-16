@@ -162,9 +162,24 @@ export class BilibiliAPI {
 		});
 	}
 
-	/** Fire onAuthLost only when code === -101, with a 60s debounce to avoid burst calls. */
+	/**
+	 * Response-interceptor path: only `-101` (session invalid) from an arbitrary
+	 * endpoint counts as auth-lost. `-352` etc. seen here are transient
+	 * risk-control on data endpoints, NOT session death — must not widen this
+	 * gate or every throttled data call would spuriously log the user out.
+	 */
 	private maybeFireAuthLost(code: number): void {
 		if (code !== -101) return;
+		this.fireAuthLost();
+	}
+
+	/**
+	 * Debounced `onAuthLost` dispatch (60s). The caller has already decided the
+	 * state is terminal — either interceptor `-101`, or a failed cookie-refresh
+	 * chain (the authoritative session-liveness check; if it can't refresh, the
+	 * session is unrecoverable and the user must re-scan).
+	 */
+	private fireAuthLost(): void {
 		const now = Date.now();
 		if (now - this.authLostFiredAt < AUTH_LOST_DEBOUNCE_MS) return;
 		this.authLostFiredAt = now;
@@ -403,12 +418,25 @@ export class BilibiliAPI {
 			);
 			// session 失效 ⇒ 作废所有 in-flight refresh。
 			this.refreshGeneration++;
+			// B1:必须停掉刷新定时器(否则它每小时继续对空 jar 跑整条 RSA 链)
+			// 并清 loginInfoLoaded(否则 isLoginInfoLoaded() 仍误报已登录)。
+			this.refreshCookieTimer?.dispose();
+			this.refreshCookieTimer = undefined;
+			this.loginInfoLoaded = false;
 			this.maybeFireAuthLost(-101);
 			this.jar = new CookieJar();
 			await this.initClient();
 			return;
 		}
 		if (refreshData.code !== 0) {
+			// B2:刷新链是会话能否续命的权威检查。非 0(非 -101)码 —— 含 -352
+			// 等 —— 失败即不可恢复:cookie 终将过期、用户被动登出。此前仅
+			// throw→warn,用户毫不知情。显式 auth-lost(60s debounce)让用户
+			// 收到重扫提示。不放宽全局 interceptor 闸门(那处 -352 多为瞬时风控)。
+			this.logger.warn(
+				`[cookie] 刷新失败 code=${refreshData.code} msg=${refreshData.message}，触发 auth-lost`,
+			);
+			this.fireAuthLost();
 			throw new Error(`Cookie 刷新失败: code=${refreshData.code}, message=${refreshData.message}`);
 		}
 
@@ -422,6 +450,9 @@ export class BilibiliAPI {
 		);
 
 		if (acceptData.code !== 0) {
+			// B2:confirm 步失败 → 新旧 cookie 状态不可信,同属会话终态,走 auth-lost。
+			this.logger.warn(`[cookie] 刷新确认失败 code=${acceptData.code}，触发 auth-lost`);
+			this.fireAuthLost();
 			throw new Error(`Cookie 刷新确认失败: code=${acceptData.code}`);
 		}
 
@@ -481,6 +512,25 @@ export class BilibiliAPI {
 			await this.updateBiliTicket();
 		}
 		return encWbi(params, this.wbiKeys);
+	}
+
+	/**
+	 * WBI 签名 GET。B3:`getWbi` 仅在 imgKey 为空时才刷新 key,服务端轮换 WBI
+	 * 后既有 key 仍非空 → 所有签名请求一路 `-352` 直到午夜 ticket cron。这里在
+	 * 响应 `code === -352` 时清空 wbiKeys 强制重取 ticket,并重试一次。
+	 */
+	private async wbiGet(endpoint: string, params: Record<string, string | number | object>) {
+		const once = async () => {
+			const wbi = await this.getWbi(params);
+			return (await this.client.get(`${endpoint}?${wbi}`)).data;
+		};
+		const data = await once();
+		if (data && typeof data === "object" && data.code === -352) {
+			this.logger.warn("[wbi] 签名请求返回 -352（WBI key 疑似轮换），刷新 wbiKeys 后重试一次");
+			this.wbiKeys = { imgKey: "", subKey: "" }; // 强制下次 getWbi 重新拉 ticket
+			return await once();
+		}
+		return data;
 	}
 
 	// ---- Retry helper ----
@@ -558,8 +608,7 @@ export class BilibiliAPI {
 			}
 			const params: Record<string, string> = { mid };
 			if (griskId) params.grisk_id = griskId;
-			const wbi = await this.getWbi(params);
-			return (await this.client.get(`${EP.GET_USER_INFO}?${wbi}`)).data;
+			return this.wbiGet(EP.GET_USER_INFO, params);
 		}, "getUserInfo");
 	}
 
@@ -634,10 +683,10 @@ export class BilibiliAPI {
 	}
 
 	async getUserVideos(mid: string, ps = 5) {
-		return this.retry(async () => {
-			const wbi = await this.getWbi({ mid, order: "pubdate", ps });
-			return (await this.client.get(`${EP.GET_USER_VIDEOS}?${wbi}`)).data;
-		}, "getUserVideos");
+		return this.retry(
+			async () => this.wbiGet(EP.GET_USER_VIDEOS, { mid, order: "pubdate", ps }),
+			"getUserVideos",
+		);
 	}
 
 	async searchByType(
@@ -649,8 +698,7 @@ export class BilibiliAPI {
 			const params: Record<string, string> = { search_type: searchType, keyword };
 			if (opts?.page) params.page = String(opts.page);
 			if (opts?.pageSize) params.page_size = String(opts.pageSize);
-			const wbi = await this.getWbi(params);
-			return (await this.client.get(`${EP.SEARCH_BY_TYPE}?${wbi}`)).data;
+			return this.wbiGet(EP.SEARCH_BY_TYPE, params);
 		}, "searchByType");
 	}
 
