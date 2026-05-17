@@ -1,6 +1,26 @@
 import type { MessageBus, Subscription, SubscriptionOp } from "@bilibili-notify/internal";
 
 /**
+ * 稳定序列化(递归按 key 排序)。P2:diff()/upsert 此前用裸 `JSON.stringify`
+ * 比较,对 **key 插入序** 与 `undefined` 字段敏感 —— 语义相等的两份订阅(仅
+ * 字段顺序不同 / 一边 `notes:undefined` 一边缺该键)被判为变更,emit 伪 update
+ * op,engine 无谓 reconcile。排序 + 显式跳过 undefined 后比较即语义相等。
+ */
+function stableStringify(value: unknown): string {
+	if (value === null || typeof value !== "object") return JSON.stringify(value) ?? "null";
+	if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
+	const obj = value as Record<string, unknown>;
+	const keys = Object.keys(obj)
+		.filter((k) => obj[k] !== undefined)
+		.sort();
+	return `{${keys.map((k) => `${JSON.stringify(k)}:${stableStringify(obj[k])}`).join(",")}}`;
+}
+
+function sameSubscription(a: Subscription, b: Subscription): boolean {
+	return stableStringify(a) === stableStringify(b);
+}
+
+/**
  * In-memory subscription collection with diff + emit.
  * Persistence is the caller's concern: koishi/core seeds from koishi config,
  * standalone seeds from ConfigStore. Both call replaceAll() on load.
@@ -44,9 +64,9 @@ export function diff(prev: Subscription[], next: Subscription[]): SubscriptionOp
 		if (!prevMap.has(id)) {
 			ops.push({ type: "add", sub });
 		} else {
-			// Deep-compare: simple JSON check is sufficient for the schema types.
+			// 稳定比较:对 key 序 / undefined 不敏感,不再产伪 update op。
 			const prev = prevMap.get(id);
-			if (JSON.stringify(prev) !== JSON.stringify(sub)) {
+			if (prev && !sameSubscription(prev, sub)) {
 				ops.push({ type: "update", sub });
 			}
 		}
@@ -70,13 +90,15 @@ export function createSubscriptionStore(bus: MessageBus): SubscriptionStore {
 		},
 		upsert(sub) {
 			const idx = subs.findIndex((s) => s.id === sub.id);
-			const ops: SubscriptionOp[] = idx === -1 ? [{ type: "add", sub }] : [{ type: "update", sub }];
-			if (idx === -1) {
-				subs = [...subs, sub];
-			} else {
+			if (idx !== -1) {
+				// P2:内容未变则不发 update op(此前必发,engine 无谓 reconcile)。
+				if (sameSubscription(subs[idx] as Subscription, sub)) return;
 				subs = [...subs.slice(0, idx), sub, ...subs.slice(idx + 1)];
+				bus.emit("subscription-changed", [{ type: "update", sub }]);
+				return;
 			}
-			bus.emit("subscription-changed", ops);
+			subs = [...subs, sub];
+			bus.emit("subscription-changed", [{ type: "add", sub }]);
 		},
 		removeById(id) {
 			const idx = subs.findIndex((s) => s.id === id);

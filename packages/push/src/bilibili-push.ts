@@ -241,9 +241,16 @@ export class BilibiliPush {
 		ctx?: { uid: string; feature: FeatureKey | "private" },
 	): Promise<DeliveryResult[]> {
 		if (this.disposed) return [];
+		// ②7:per-batch generation 快照。此前 sendBatch 仅入口判 disposed,逐条
+		// 间无 generation 校验 —— stop()→start() 中途切换会让单次广播跨生命周期
+		// 拆发。本批属于发起时的那个 generation;lifecycle 翻转即放弃剩余目标,
+		// 且最后那条已 in-flight 的结果是生命周期 artifact,不 onSend / 不计入。
+		const myGen = this.generation;
 		const results: DeliveryResult[] = [];
 		for (const id of targetIds) {
+			if (this.disposed || this.generation !== myGen) break;
 			const result = await this.sendToTarget(id, payload);
+			if (this.disposed || this.generation !== myGen) break;
 			if (this.onSend && ctx) {
 				const target = this.sink.resolve(id);
 				if (target) {
@@ -300,7 +307,13 @@ export class BilibiliPush {
 				return { ok: false, latencyMs: Date.now() - t0, err };
 			}
 		}
-		return { ok: false, latencyMs: 0, err: "disposed" };
+		// ②7:while 退出有两因 —— disposed,或 generation 失配(stop→start)。
+		// 此前一律标 "disposed",generation 失配时误导诊断。区分之。
+		return {
+			ok: false,
+			latencyMs: 0,
+			err: this.disposed ? "disposed" : "superseded",
+		};
 	}
 
 	/**
@@ -344,6 +357,9 @@ export class BilibiliPush {
 				// 退化路径:裸 setTimeout + stop() 主动 wake。timer 自身会再走一遍 wake
 				// 但 sleepWakers.delete 是幂等的,resolve 也是。
 				const id = setTimeout(wake, ms);
+				// P2:退化裸 setTimeout 必须 unref —— 否则一个 in-flight 重试
+				// sleep 会顶住事件循环、阻塞进程优雅退出。
+				id.unref?.();
 				release = { dispose: () => clearTimeout(id) };
 			}
 		});

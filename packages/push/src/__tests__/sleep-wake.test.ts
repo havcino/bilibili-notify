@@ -151,6 +151,44 @@ describe("BilibiliPush.stop() — P1-B 短期-a sleepWakers 唤醒", () => {
 		expect(send).not.toHaveBeenCalled();
 	});
 
+	it("②7:sendBatch 跨 stop()→start() 不拆发剩余目标、不记录边界 artifact", async () => {
+		const sent: string[] = [];
+		let push!: BilibiliPush;
+		const send = vi.fn(async (id: string): Promise<DeliveryResult> => {
+			sent.push(id);
+			// 第一个目标投递期间发生 stop()→start()(generation 1→2)。
+			if (id === "a") {
+				push.stop();
+				push.start();
+			}
+			return { ok: true, latencyMs: 1 };
+		});
+		const sink: NotificationSink = {
+			isAvailable: () => true,
+			send: (id) => send(id),
+			sendPrivate: async (): Promise<DeliveryResult> => ({ ok: false, latencyMs: 0 }),
+			resolve: (id) => ({ id, name: id, platform: "test" }) as unknown as PushTarget,
+		};
+		const onSend = vi.fn();
+		push = new BilibiliPush({ sink, store: emptyStore, logger: silentLogger, onSend });
+		push.start(); // generation 1
+
+		const results = await push.sendBatch(
+			["a", "b"],
+			{ kind: "text", text: "x" },
+			{
+				uid: "u1",
+				feature: "live",
+			},
+		);
+
+		// 仅 "a" 触达 sink;generation 1→2 后 "b" 被放弃,不跨生命周期拆发。
+		expect(sent).toEqual(["a"]);
+		// 边界 artifact("a" 完成时 lifecycle 已翻)不 onSend / 不计入 results。
+		expect(onSend).not.toHaveBeenCalled();
+		expect(results).toEqual([]);
+	});
+
 	it("不传 serviceCtx(退化路径)也能被 stop() 唤醒", async () => {
 		const push = new BilibiliPush({
 			sink: makeUnreachableSink(),
