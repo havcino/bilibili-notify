@@ -16,15 +16,19 @@ apps/
 
 ## Quick start (dev)
 
+Toolchain is **vp (vite-plus)** — it wraps pnpm but never exposes a `pnpm`
+shim; always go through `vp` (`vpr` ≡ `vp run`, `vpx <bin>` ≡ local bin → else
+`vp dlx`).
+
 ```bash
 # from the repo root
-pnpm install                 # populates a single root node_modules
-pnpm typecheck               # tsc --noEmit across the whole workspace
-pnpm dev:apps                # tsx watch on apps/server + vite on apps/web in parallel
+vp install                   # populates a single root node_modules
+vp run typecheck             # tsc --noEmit across the whole workspace
+vp run dev:apps              # tsx watch on apps/server + vite on apps/web in parallel
 curl -s http://localhost:8787/api/health
 ```
 
-`pnpm build` produces `apps/server/lib/` + `apps/web/dist/` (and lib/ in every business-core package). `pnpm start:server` runs the built server. Press Ctrl+C for graceful shutdown.
+`vp run build` produces `apps/server/lib/` + `apps/web/dist/` (and lib/ in every business-core package). `vp run start:server` runs the built server. Press Ctrl+C for graceful shutdown.
 
 ## Configuration
 

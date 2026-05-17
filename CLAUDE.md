@@ -13,29 +13,41 @@ Both ends consume the same `@bilibili-notify/*` core packages.
 
 ## Commands
 
-```bash
-pnpm install
-pnpm build                          # pnpm -r run build (topo order) + koishi console UI
-pnpm --filter koishi-plugin-bilibili-notify run build   # build a single package
-pnpm typecheck                      # tsc --noEmit across the workspace
-pnpm test                           # vp test run (vite-plus → vitest under the hood), all packages
+Toolchain is **vp (vite-plus)** — unified Node + package manager + task runner.
+It wraps pnpm under the hood (reads `package.json#packageManager`) but never
+exposes a `pnpm` shim on PATH; always go through `vp`. Shorthands: `vpr <script>`
+≡ `vp run <script>`; `vpx <bin>` runs a binary — local `node_modules/.bin` first
+(like `vp exec`), else `vp dlx` (download); `pkg@version` / `-p` / shell-mode
+force dlx. Package-script bodies may still contain `pnpm -r ...` — `vp run`
+injects the embedded pnpm into the subprocess PATH so they keep working.
 
-# Dashboard (apps/) dev — pnpm scripts at the root
-pnpm dev:server     # tsx watch on apps/server
-pnpm dev:web        # vite dev server on apps/web
-pnpm dev:apps       # both, in parallel with stream-prefixed logs
+```bash
+vp install
+vp run build                          # pnpm -r run build (topo order) + koishi console UI
+vp run -F koishi-plugin-bilibili-notify build   # build one package — filter BEFORE the script name
+vp run typecheck                      # tsc --noEmit across the workspace
+vp test run                           # vite-plus → vitest, all packages
+
+# Dashboard (apps/) dev — root scripts
+vp run dev:server   # tsx watch on apps/server
+vp run dev:web      # vite dev server on apps/web
+vp run dev:apps     # both, in parallel with stream-prefixed logs
 
 # Lint / format (Biome)
-pnpm lint           # check only
-pnpm lint:fix       # auto-fix
-pnpm format         # auto-format
-pnpm check          # lint + format check
-pnpm check:fix      # lint + format auto-fix
+vp run lint           # check only
+vp run lint:fix       # auto-fix
+vp run format         # auto-format
+vp run check          # lint + format check
+vp run check:fix      # lint + format auto-fix
+vpx biome check .     # one-off ad-hoc Biome run (vpx → local bin, else dlx)
 
-# Git hooks (Lefthook) installed automatically on pnpm install (prepare hook).
+# Git hooks (Lefthook) installed automatically on `vp install` (prepare hook).
 # Pre-commit: biome check --staged --write on *.ts, *.js, *.mjs, *.json (lefthook.yml).
 # Commit-msg: commitlint --edit — conventional-commits enforced; non-compliant messages rejected.
 ```
+
+> `vp run -F <pkg> <script>` — the `-F` filter MUST precede the script name.
+> `vp run <script> -F <pkg>` forwards `-F` to the script (e.g. tsc) and breaks.
 
 ## Top-level layout
 
@@ -168,7 +180,7 @@ straight onto WS channels.
 - **tsdown** — builds each package to ESM (`.mjs`) + CJS (`.cjs`) with declaration files
 - **Biome** — linter + formatter (tab indent, 100-char line width). Vue files in lint scope.
 - **Lefthook** — pre-commit runs `biome check --staged --write` on staged ts/js/mjs/json files
-- **Vitest** — unit tests (`pnpm test`)
+- **Vitest** — unit tests (`vp test run`)
 - **Changesets** — release tooling. `updateInternalDependencies: "patch"` only **syncs version ranges in `package.json`** for downstream consumers; it does **not** automatically include publishable downstream packages in the release. When a change in package A affects the runtime behavior of publishable package B, B must be listed explicitly in the changeset frontmatter.
 
 ## Console UI (Koishi)
@@ -185,7 +197,7 @@ The standalone end uses a separate React + Vite dashboard under `apps/web/`; the
 Two sub-packages share the root pnpm workspace:
 
 - `apps/server` — Hono HTTP + WS gateway. Single tsdown bundle to `apps/server/lib/index.mjs`.
-- `apps/web` — Vite + React 18 + Tailwind 4 + tanstack-query + zustand + react-router-dom. Charts (StatsBar / Donut) are hand-drawn SVG, no chart library. Served as static assets by `apps/server` in prod; `pnpm dev:web` for the Vite dev server in dev.
+- `apps/web` — Vite + React 18 + Tailwind 4 + tanstack-query + zustand + react-router-dom. Charts (StatsBar / Donut) are hand-drawn SVG, no chart library. Served as static assets by `apps/server` in prod; `vp run dev:web` for the Vite dev server in dev.
 
 ### apps/server module map
 
