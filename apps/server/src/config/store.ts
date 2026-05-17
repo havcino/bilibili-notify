@@ -372,6 +372,8 @@ class NodeConfigStore implements ConfigStore {
 	private readonly stateDir: string;
 	private readonly secretStore?: SecretStore;
 	private secretBag: ConfigSecrets = {};
+	/** P2:明文 apiKey 告警只打一次(避免每次写盘刷屏)。 */
+	private plaintextApiKeyWarned = false;
 
 	private globals: GlobalConfig;
 	private subscriptions: Subscription[];
@@ -429,6 +431,15 @@ class NodeConfigStore implements ConfigStore {
 
 	/** Write globals.json. When a SecretStore owns the apiKey, the on-disk copy is stripped. */
 	private async persistGlobals(g: GlobalConfig): Promise<void> {
+		// P2:无 SecretStore 的 legacy 路径,apiKey 明文落 globals.json。这是
+		// 既有兼容回退(非缺陷),但此前无任何提示 —— 运维不知密钥在盘上明文。
+		// 首次遇到非空 apiKey 时高可见告警一次(建议配置 passphrase 启用加密)。
+		if (!this.secretStore && !this.plaintextApiKeyWarned && g.defaults?.ai?.apiKey) {
+			this.plaintextApiKeyWarned = true;
+			this.serviceCtx.logger.warn(
+				"[secret] AI apiKey 以明文写入 globals.json(未配置加密密钥)。建议设置 passphrase 启用 SecretStore 加密。",
+			);
+		}
 		await atomicWriteJson(this.path("globals"), this.secretStore ? stripApiKeyForDisk(g) : g);
 	}
 
@@ -717,14 +728,27 @@ class NodeConfigStore implements ConfigStore {
 	 */
 	private async writeGlobals(g: GlobalConfig): Promise<void> {
 		if (this.secretStore) {
+			// P2:此前 save 成功后 persistGlobals 抛错 → 密钥袋已存新 apiKey 但
+			// globals.json/in-memory 仍旧值 → 重启后两边分叉。失败即回滚密钥袋,
+			// 两端始终一致(全旧或全新);in-memory 仅在双写都成功后更新。
+			const prevBag = this.secretBag;
 			const apiKey = g.defaults.ai.apiKey;
-			this.secretBag = {
+			const nextBag = {
 				...this.secretBag,
 				aiApiKey: apiKey && apiKey.length > 0 ? apiKey : undefined,
 			};
-			await this.secretStore.save(this.secretBag);
+			await this.secretStore.save(nextBag);
+			try {
+				await this.persistGlobals(g);
+			} catch (e) {
+				this.secretBag = prevBag;
+				await this.secretStore.save(prevBag).catch(() => {});
+				throw e;
+			}
+			this.secretBag = nextBag;
+		} else {
+			await this.persistGlobals(g);
 		}
-		await this.persistGlobals(g);
 		this.globals = g;
 	}
 

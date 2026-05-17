@@ -204,10 +204,20 @@ export function createOnebotAdapter(opts: OnebotPlatformAdapterOptions): Platfor
 				const body: Record<string, unknown> = { message: segments };
 				if (isPrivate) {
 					if (!session.userId) return { ok: false, latencyMs: 0, err: "private: userId missing" };
-					body.user_id = Number(session.userId);
+					const uid = Number(session.userId);
+					// P2:非数字 userId → Number()=NaN → JSON 序列化成 user_id:null,
+					// OneBot 端静默错投/丢弃。提前拒,给可诊断错误。
+					if (!Number.isFinite(uid)) {
+						return { ok: false, latencyMs: 0, err: `private: userId 非数字 (${session.userId})` };
+					}
+					body.user_id = uid;
 				} else {
 					if (!session.groupId) return { ok: false, latencyMs: 0, err: "group: groupId missing" };
-					body.group_id = Number(session.groupId);
+					const gid = Number(session.groupId);
+					if (!Number.isFinite(gid)) {
+						return { ok: false, latencyMs: 0, err: `group: groupId 非数字 (${session.groupId})` };
+					}
+					body.group_id = gid;
 				}
 
 				const result = await postOnebot(cfg, endpoint, body);

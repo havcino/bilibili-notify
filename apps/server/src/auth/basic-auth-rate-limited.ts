@@ -1,5 +1,17 @@
 import { Buffer } from "node:buffer";
+import { createHash, timingSafeEqual } from "node:crypto";
 import { getConnInfo } from "@hono/node-server/conninfo";
+
+/**
+ * P2:凭证常量时间比较。`===` 短路比较泄漏前缀匹配长度(限流缓解但不消除)。
+ * 对两侧取 SHA-256(定长)再 timingSafeEqual,既常量时间又不泄漏长度。
+ */
+function safeEqual(a: string, b: string): boolean {
+	const ha = createHash("sha256").update(a).digest();
+	const hb = createHash("sha256").update(b).digest();
+	return timingSafeEqual(ha, hb);
+}
+
 import type { MiddlewareHandler } from "hono";
 
 /**
@@ -66,7 +78,7 @@ export function createRateLimitedBasicAuth(opts: RateLimitedBasicAuthOptions): M
 
 		const header = c.req.header("authorization");
 		const match = header && /^Basic\s+(.+)$/i.exec(header.trim());
-		if (match && match[1] === expected) {
+		if (match && match[1] !== undefined && safeEqual(match[1], expected)) {
 			if (entry) state.delete(ip);
 			opts.onEvent?.({ type: "success", ip });
 			return next();
