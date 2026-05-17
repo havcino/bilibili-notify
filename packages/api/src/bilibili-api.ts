@@ -45,6 +45,21 @@ const BANGUMI_TRIP_UID = "11783021";
 const BANGUMI_TRIP_ROOM_ID = 931774;
 const AUTH_LOST_DEBOUNCE_MS = 60_000;
 
+/**
+ * cookie 刷新失败码分类(②4 裁决:**判别式**)。
+ * - `"ok"`:code 0
+ * - `"risk-control"`:`-352` / `-403` —— 风控/限流,**非会话终态**。退避等下个
+ *   interval 自愈,绝不 auth-lost、绝不拆 refresh timer(误升级会把瞬时风控
+ *   变成被动登出 —— 这正是 ②4 对前修复方向的反向质疑)
+ * - `"terminal"`:`-101` 及其它非 0 码 —— 会话不可恢复,auth-lost + 清终态
+ */
+export type RefreshOutcome = "ok" | "risk-control" | "terminal";
+export function classifyRefreshCode(code: number): RefreshOutcome {
+	if (code === 0) return "ok";
+	if (code === -352 || code === -403) return "risk-control";
+	return "terminal";
+}
+
 export interface BilibiliAPIConfig {
 	userAgent?: string;
 }
@@ -79,6 +94,11 @@ export class BilibiliAPI {
 	private refreshGeneration = 0;
 	/** Single-in-flight guard so the hourly timer + loadCookies don't run the RSA dance concurrently. */
 	private refreshInFlight = false;
+	/**
+	 * BiliTicket 在途去重。并发签名(或 wbiGet -352 清空 wbiKeys 后多个并行
+	 * 重试)会各自触发一次 ticket POST 风暴;共享同一在途 Promise 收敛为一次。
+	 */
+	private biliTicketInFlight?: Promise<void>;
 
 	constructor(opts: BilibiliAPIOptions) {
 		this.serviceCtx = opts.serviceCtx;
@@ -138,6 +158,10 @@ export class BilibiliAPI {
 		this.client = wrapper(
 			axios.create({
 				jar: this.jar,
+				// 有限超时:无 timeout 时一个挂起连接(对端不回 / 半开 TCP)会让
+				// 该请求永不结束 —— 卡死整条刷新链 / API 调用且不进 retry。20s 覆盖
+				// 连接 + 响应,超时抛 ECONNABORTED 由 this.retry 正常退避重试。
+				timeout: 20_000,
 				headers: {
 					"Content-Type": "application/json",
 					"User-Agent":
@@ -190,6 +214,22 @@ export class BilibiliAPI {
 		}
 	}
 
+	/**
+	 * 会话终态清理 —— `-101`(B1)/ B2 终态码 / confirm 终态码 共用。②3:此前
+	 * 仅 B1 做了 timer dispose + loginInfoLoaded 清理,B2/confirm 只 emit 没清,
+	 * 死会话每小时继续 RSA 轮换、isLoginInfoLoaded 仍误报已登录。收敛到一处。
+	 */
+	private async terminateSession(logMsg: string): Promise<void> {
+		this.logger.warn(logMsg);
+		this.refreshGeneration++;
+		this.refreshCookieTimer?.dispose();
+		this.refreshCookieTimer = undefined;
+		this.loginInfoLoaded = false;
+		this.fireAuthLost();
+		this.jar = new CookieJar();
+		await this.initClient();
+	}
+
 	// ---- Cookie management ----
 
 	addCookie(cookieStr: string): void {
@@ -222,10 +262,27 @@ export class BilibiliAPI {
 
 	/** Load cookies from CookieData (decrypted by StorageManager) */
 	async loadCookies(data: CookieData): Promise<void> {
-		const cookies = JSON.parse(data.cookiesJson) as BACookie[];
+		let cookies: BACookie[];
+		try {
+			const parsed = JSON.parse(data.cookiesJson);
+			if (!Array.isArray(parsed)) throw new Error("cookiesJson 不是数组");
+			cookies = parsed as BACookie[];
+		} catch (e) {
+			// 损坏的 cookiesJson 不得让整条启动链 reject 裸 SyntaxError —— 记 error
+			// 后按「未登录」继续(等用户重新扫码),不 crash 进程。
+			this.logger.error(
+				`[cookie] cookiesJson 解析失败,本次不加载(需重新登录): ${(e as Error).message}`,
+			);
+			return;
+		}
 		this.logger.debug(
 			`[cookie] 正在写入 ${cookies.length} 条 Cookie，refreshToken=${data.refreshToken ? "存在" : "缺失"}`,
 		);
+
+		// 重载 / 换号:先重建 jar + 重绑 client,旧 SESSDATA/bili_jct 绝不残留
+		// 参与后续请求(否则换号后旧会话 cookie 仍被发出,与 clearCookies 同源)。
+		this.jar = new CookieJar();
+		await this.initClient();
 
 		const biliJctCookie = cookies.find((c) => c.key === "bili_jct");
 
@@ -350,6 +407,25 @@ export class BilibiliAPI {
 		try {
 			// 传真实 bili_jct(优先 live jar,回退调用方传入值),不是 refreshToken。
 			const info = await this.getCookieInfo(this.getCSRF() ?? csrf);
+			// 跨 await 后必须重校 gen(②修不全:此前缺这一处,旧 refreshToken
+			// 在重登/登出后仍用新 jar 继续刷新)。
+			if (gen !== this.refreshGeneration) {
+				this.logger.debug("[cookie] 刷新已被更新的 cookie 状态取代(getCookieInfo 后),跳过本轮");
+				return;
+			}
+			const probeCode = typeof info?.code === "number" ? info.code : 0;
+			if (probeCode === -101) {
+				// 探测即 -101:会话已死,直接终态,不再跑 RSA 链。
+				await this.terminateSession("[cookie] getCookieInfo 返回 -101(账号未登录),终止会话");
+				return;
+			}
+			if (classifyRefreshCode(probeCode) === "risk-control") {
+				// 风控/限流:非终态。跳过本轮,等下个 interval 自愈(可 bili cap)。
+				this.logger.warn(
+					`[cookie] getCookieInfo 风控/限流 code=${probeCode},跳过本轮(不触发 auth-lost,可 bili cap 后等下轮自愈)`,
+				);
+				return;
+			}
 			if (!info?.data?.refresh) return;
 		} catch (e) {
 			if (attempts > 1) {
@@ -392,7 +468,13 @@ export class BilibiliAPI {
 			`${EP.COOKIE_REFRESH_CORRESPOND_PATH}/${correspondPath}`,
 		);
 		const { document } = new JSDOM(html).window;
-		const refreshCsrf = document.getElementById("1-name")?.textContent ?? null;
+		const refreshCsrf = document.getElementById("1-name")?.textContent?.trim() || null;
+		if (!refreshCsrf) {
+			// correspond 页面没解析出 refresh_csrf(B 站返回异常 / 结构变更):
+			// 绝不 POST 一个 null refresh_csrf(必失败且语义不明)。抛可重试错,
+			// triggerRefreshCheck 记 warn,下个 interval 再探(gen/timer 不动)。
+			throw new Error("correspond 页面未解析到 refresh_csrf,跳过本轮刷新");
+		}
 
 		const { data: refreshData } = await this.client.post(
 			EP.COOKIE_REFRESH_URL,
@@ -412,31 +494,22 @@ export class BilibiliAPI {
 			return;
 		}
 
-		if (refreshData.code === -101) {
-			this.logger.warn(
-				"[cookie] 刷新接口返回 -101（账号未登录），已重置 HTTP 客户端，需重新扫码登录",
-			);
-			// session 失效 ⇒ 作废所有 in-flight refresh。
-			this.refreshGeneration++;
-			// B1:必须停掉刷新定时器(否则它每小时继续对空 jar 跑整条 RSA 链)
-			// 并清 loginInfoLoaded(否则 isLoginInfoLoaded() 仍误报已登录)。
-			this.refreshCookieTimer?.dispose();
-			this.refreshCookieTimer = undefined;
-			this.loginInfoLoaded = false;
-			this.maybeFireAuthLost(-101);
-			this.jar = new CookieJar();
-			await this.initClient();
-			return;
-		}
 		if (refreshData.code !== 0) {
-			// B2:刷新链是会话能否续命的权威检查。非 0(非 -101)码 —— 含 -352
-			// 等 —— 失败即不可恢复:cookie 终将过期、用户被动登出。此前仅
-			// throw→warn,用户毫不知情。显式 auth-lost(60s debounce)让用户
-			// 收到重扫提示。不放宽全局 interceptor 闸门(那处 -352 多为瞬时风控)。
-			this.logger.warn(
-				`[cookie] 刷新失败 code=${refreshData.code} msg=${refreshData.message}，触发 auth-lost`,
+			const outcome = classifyRefreshCode(refreshData.code);
+			if (outcome === "risk-control") {
+				// ②4 判别式:-352/-403 是风控/限流,**非会话终态**。不 auth-lost、
+				// 不拆 timer —— 抛可重试错(triggerRefreshCheck 记 warn),下个
+				// interval 自愈;误升级为终态登出正是 ②4 反质疑的过度修复。
+				this.logger.warn(
+					`[cookie] 刷新遇风控/限流 code=${refreshData.code} msg=${refreshData.message},跳过本轮(不触发 auth-lost,可 bili cap 后等下轮)`,
+				);
+				throw new Error(`Cookie 刷新被风控: code=${refreshData.code}`);
+			}
+			// 终态(-101 / 其它非0):②3 —— B2 此前只 emit 不清理,死会话每小时
+			// 继续 RSA 轮换、isLoginInfoLoaded 误报。统一走 terminateSession 清净。
+			await this.terminateSession(
+				`[cookie] 刷新失败(会话终态)code=${refreshData.code} msg=${refreshData.message},触发 auth-lost`,
 			);
-			this.fireAuthLost();
 			throw new Error(`Cookie 刷新失败: code=${refreshData.code}, message=${refreshData.message}`);
 		}
 
@@ -450,9 +523,17 @@ export class BilibiliAPI {
 		);
 
 		if (acceptData.code !== 0) {
-			// B2:confirm 步失败 → 新旧 cookie 状态不可信,同属会话终态,走 auth-lost。
-			this.logger.warn(`[cookie] 刷新确认失败 code=${acceptData.code}，触发 auth-lost`);
-			this.fireAuthLost();
+			if (classifyRefreshCode(acceptData.code) === "risk-control") {
+				// confirm 步遇风控:同 B2,非终态,退避等下轮(不 auth-lost/不拆 timer)。
+				this.logger.warn(
+					`[cookie] 刷新确认遇风控/限流 code=${acceptData.code},跳过本轮(可 bili cap 后等下轮)`,
+				);
+				throw new Error(`Cookie 刷新确认被风控: code=${acceptData.code}`);
+			}
+			// confirm 终态:新旧 cookie 状态不可信,清净 + auth-lost(②3 同款)。
+			await this.terminateSession(
+				`[cookie] 刷新确认失败(会话终态)code=${acceptData.code},触发 auth-lost`,
+			);
 			throw new Error(`Cookie 刷新确认失败: code=${acceptData.code}`);
 		}
 
@@ -479,7 +560,17 @@ export class BilibiliAPI {
 
 	// ---- WBI signature ----
 
-	private async updateBiliTicket(): Promise<void> {
+	private updateBiliTicket(): Promise<void> {
+		// 在途去重:并发调用共享同一 Promise,只打一次 ticket POST。
+		if (this.biliTicketInFlight) return this.biliTicketInFlight;
+		const p = this.doUpdateBiliTicket().finally(() => {
+			if (this.biliTicketInFlight === p) this.biliTicketInFlight = undefined;
+		});
+		this.biliTicketInFlight = p;
+		return p;
+	}
+
+	private async doUpdateBiliTicket(): Promise<void> {
 		const csrf = this.getCSRF();
 		const ticket = (await this.getBiliTicket(csrf)) as BiliTicket;
 		if (ticket.code !== 0) {
@@ -557,7 +648,12 @@ export class BilibiliAPI {
 
 	async getUserSpaceDynamic(mid: string) {
 		return this.retry(
-			async () => (await this.client.get(`${EP.GET_USER_SPACE_DYNAMIC_LIST}&host_mid=${mid}`)).data,
+			async () =>
+				(
+					await this.client.get(
+						`${EP.GET_USER_SPACE_DYNAMIC_LIST}&host_mid=${encodeURIComponent(mid)}`,
+					)
+				).data,
 			"getUserSpaceDynamic",
 		);
 	}
@@ -565,7 +661,11 @@ export class BilibiliAPI {
 	async hasNewDynamic(updateBaseline: string) {
 		return this.retry(
 			async () =>
-				(await this.client.get(`${EP.HAS_NEW_DYNAMIC}?update_baseline=${updateBaseline}`)).data,
+				(
+					await this.client.get(
+						`${EP.HAS_NEW_DYNAMIC}?update_baseline=${encodeURIComponent(updateBaseline)}`,
+					)
+				).data,
 			"hasNewDynamic",
 		);
 	}
@@ -579,7 +679,12 @@ export class BilibiliAPI {
 
 	async getLoginStatus(qrcodeKey: string) {
 		return this.retry(
-			async () => (await this.client.get(`${EP.GET_LOGIN_STATUS}?qrcode_key=${qrcodeKey}`)).data,
+			async () =>
+				(
+					await this.client.get(
+						`${EP.GET_LOGIN_STATUS}?qrcode_key=${encodeURIComponent(qrcodeKey)}`,
+					)
+				).data,
 			"getLoginStatus",
 		);
 	}
@@ -593,7 +698,7 @@ export class BilibiliAPI {
 
 	async getUserCardInfo(mid: string, withPhoto = false): Promise<UserCardInfoData> {
 		return this.retry(async () => {
-			const url = `${EP.GET_USER_CARD_INFO}?mid=${mid}${withPhoto ? "&photo=true" : ""}`;
+			const url = `${EP.GET_USER_CARD_INFO}?mid=${encodeURIComponent(mid)}${withPhoto ? "&photo=true" : ""}`;
 			return (await this.client.get(url)).data;
 		}, "getUserCardInfo");
 	}
@@ -614,21 +719,29 @@ export class BilibiliAPI {
 
 	async getLiveRoomInfo(roomId: string): Promise<LiveRoomInfo> {
 		return this.retry(
-			async () => (await this.client.get(`${EP.GET_LIVE_ROOM_INFO}?room_id=${roomId}`)).data,
+			async () =>
+				(await this.client.get(`${EP.GET_LIVE_ROOM_INFO}?room_id=${encodeURIComponent(roomId)}`))
+					.data,
 			"getLiveRoomInfo",
 		);
 	}
 
 	async getMasterInfo(uid: string): Promise<MasterInfoData> {
 		return this.retry(
-			async () => (await this.client.get(`${EP.GET_MASTER_INFO}?uid=${uid}`)).data,
+			async () =>
+				(await this.client.get(`${EP.GET_MASTER_INFO}?uid=${encodeURIComponent(uid)}`)).data,
 			"getMasterInfo",
 		);
 	}
 
 	async getLiveRoomInfoStreamKey(roomId: string) {
 		return this.retry(
-			async () => (await this.client.get(`${EP.GET_LIVE_ROOM_INFO_STREAM_KEY}?id=${roomId}`)).data,
+			async () =>
+				(
+					await this.client.get(
+						`${EP.GET_LIVE_ROOM_INFO_STREAM_KEY}?id=${encodeURIComponent(roomId)}`,
+					)
+				).data,
 			"getLiveRoomInfoStreamKey",
 		);
 	}
@@ -636,7 +749,7 @@ export class BilibiliAPI {
 	async getLiveRoomInfoByUids(uids: string[]) {
 		if (!uids.length) return { code: 0, data: {} };
 		return this.retry(async () => {
-			const params = uids.map((uid) => `uids[]=${uid}`).join("&");
+			const params = uids.map((uid) => `uids[]=${encodeURIComponent(uid)}`).join("&");
 			return (await this.client.get(`${EP.GET_LIVE_ROOMS_INFO}?${params}`)).data;
 		}, "getLiveRoomInfoByUids");
 	}
@@ -646,7 +759,7 @@ export class BilibiliAPI {
 			async () =>
 				(
 					await this.client.get(
-						`${EP.GET_ONLINE_GOLD_RANK}?room_id=${roomId}&ruid=${ruid}&page=${page}&page_size=${pageSize}`,
+						`${EP.GET_ONLINE_GOLD_RANK}?room_id=${encodeURIComponent(roomId)}&ruid=${encodeURIComponent(ruid)}&page=${page}&page_size=${pageSize}`,
 					)
 				).data,
 			"getOnlineGoldRank",
@@ -656,7 +769,11 @@ export class BilibiliAPI {
 	async getUserInfoInLive(uid: string, ruid: string) {
 		return this.retry(
 			async () =>
-				(await this.client.get(`${EP.GET_USER_INFO_IN_LIVE}?uid=${uid}&ruid=${ruid}`)).data,
+				(
+					await this.client.get(
+						`${EP.GET_USER_INFO_IN_LIVE}?uid=${encodeURIComponent(uid)}&ruid=${encodeURIComponent(ruid)}`,
+					)
+				).data,
 			"getUserInfoInLive",
 		);
 	}
@@ -670,14 +787,16 @@ export class BilibiliAPI {
 
 	async getUserUpstat(mid: string) {
 		return this.retry(
-			async () => (await this.client.get(`${EP.GET_USER_UPSTAT}?mid=${mid}`)).data,
+			async () =>
+				(await this.client.get(`${EP.GET_USER_UPSTAT}?mid=${encodeURIComponent(mid)}`)).data,
 			"getUserUpstat",
 		);
 	}
 
 	async getUserNavnum(mid: string) {
 		return this.retry(
-			async () => (await this.client.get(`${EP.GET_USER_NAVNUM}?mid=${mid}`)).data,
+			async () =>
+				(await this.client.get(`${EP.GET_USER_NAVNUM}?mid=${encodeURIComponent(mid)}`)).data,
 			"getUserNavnum",
 		);
 	}
@@ -710,7 +829,8 @@ export class BilibiliAPI {
 	 */
 	async getCookieInfo(csrf: string) {
 		return this.retry(
-			async () => (await this.client.get(`${EP.GET_COOKIES_INFO}?csrf=${csrf}`)).data,
+			async () =>
+				(await this.client.get(`${EP.GET_COOKIES_INFO}?csrf=${encodeURIComponent(csrf)}`)).data,
 			"getCookieInfo",
 		);
 	}
@@ -792,8 +912,13 @@ export class BilibiliAPI {
 			this.logger.warn(`[captcha] 验证失败: code=${result.code}`);
 			return null;
 		}
-		// Persist grisk_id as a cookie
-		this.addCookie(`x-bili-gaia-vtoken=${result.data?.grisk_id}`);
+		// code===0 但 data===null(B 站常见):此前仍 addCookie("...=undefined")
+		// 污染 jar。强校验 grisk_id 存在才写 cookie。
+		if (!result.data?.grisk_id) {
+			this.logger.warn("[captcha] code=0 但缺 grisk_id,不写 x-bili-gaia-vtoken cookie");
+			return null;
+		}
+		this.addCookie(`x-bili-gaia-vtoken=${result.data.grisk_id}`);
 		return result.data;
 	}
 }

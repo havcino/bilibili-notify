@@ -48,10 +48,16 @@ export interface BACookie {
 
 // ---- API Results ----
 
+/**
+ * B 站统一响应信封。**`data` 可为 null** —— 错误码(-101/-352/-403/-509…)常
+ * 返回 `data:null` 或缺 data;把它建模为必有会诱导调用方无保护解引用(本仓多处
+ * "data null" 类缺陷的共同根因)。注:各具体 *Data 接口仍各自把 data 建模为
+ * 必有,收敛它们属根因级重构(跨区爆破),本轮仅收信封层 + 逐点修可达解引用。
+ */
 export interface Result<T = unknown> {
 	code: number;
 	message: string;
-	data: T;
+	data: T | null;
 }
 
 export interface CreateGroup {
