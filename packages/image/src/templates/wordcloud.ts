@@ -3,6 +3,20 @@ import { resolve } from "node:path";
 import { renderCard } from "../render";
 import { WordCloudCard } from "./wordcloud-card";
 
+/**
+ * JSON 嵌入内联 `<script>` 的安全序列化。`JSON.stringify` **不**转义
+ * `</script>` / `<!--` / U+2028 / U+2029 —— 弹幕词(`words`,完全攻击者可控)
+ * 含 `</script>` 即脚本块 breakout,在 puppeteer 页内注入任意标签/脚本。
+ * 中和 `<` 及行分隔符后产物仍是合法 JSON / JS 表达式。
+ */
+export function safeJsonForScript(value: unknown): string {
+	// < → \\u003c 中和 </script> / <!-- / <script;U+2028/U+2029 按 codepoint
+	// 正则匹配(不在源码内嵌裸行分隔符)。产物仍是合法 JSON / JS 表达式。
+	return JSON.stringify(value)
+		.replace(/</g, "\\u003c")
+		.replace(/[\u2028\u2029]/g, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, "0")}`);
+}
+
 const WORD_COLORS = [
 	"#6c5ce7",
 	"#0984e3",
@@ -46,8 +60,8 @@ export async function buildWordCloudHtml(
 			canvas.height = cssHeight * ratio;
 			ctx.scale(ratio, ratio);
 
-			const words = ${JSON.stringify(words)};
-			const wordColors = ${JSON.stringify(WORD_COLORS)};
+			const words = ${safeJsonForScript(words)};
+			const wordColors = ${safeJsonForScript(WORD_COLORS)};
 
 			window.wordcloudDone = false;
 			canvas.addEventListener('wordcloudstop', () => {
