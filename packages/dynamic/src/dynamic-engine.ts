@@ -17,6 +17,13 @@ import type {
 import type { AllDynamicInfo, Dynamic, DynamicFilterConfig, DynamicTimelineManager } from "./types";
 
 const LOG_TAG = "bilibili-notify-dynamic";
+/**
+ * 风控/瞬时错误停 cron 后的退避重启间隔。原实现:任何非鉴权错误(-509 限流、
+ * 瞬时 -403、未知码)都永久 stop cron 且唯一重启路径 `auth-restored` 不会触发
+ * → 动态轮询永久静默直到重启进程。退避后自动重探,瞬时错误/`bili cap` 解风控
+ * 后即自愈,无需人工重启进程。
+ */
+const DETECTOR_RESTART_BACKOFF_MS = 5 * 60_000;
 
 /**
  * Runtime configuration for {@link DynamicEngine}. Mirrors the platform-neutral
@@ -106,13 +113,17 @@ function extractDynamicText(item: Dynamic): string {
 
 	// 转发内容
 	if (item.orig) {
-		const origMod = item.orig.modules.module_dynamic;
-		const origAuthor = item.orig.modules.module_author.name;
+		// 转发源可能是 tombstone(原动态被删/不可见):modules / module_author
+		// 整段缺失。此前裸取 .modules.module_author.name 抛 TypeError → 该 UID
+		// 锚永不前移,每轮重试永久卡死。全程可选链 + 兜底,与本函数其余处一致。
+		const origMod = item.orig.modules?.module_dynamic;
+		const origAuthor = item.orig.modules?.module_author?.name;
 		const origParts: string[] = [];
-		if (origMod.desc?.text) origParts.push(origMod.desc.text);
-		if (origMod.major?.opus?.summary?.text) origParts.push(origMod.major.opus.summary.text);
-		if (origMod.major?.archive?.title) origParts.push(`视频标题：${origMod.major.archive.title}`);
-		if (origParts.length > 0) parts.push(`（转发自 ${origAuthor}：${origParts.join(" ")}）`);
+		if (origMod?.desc?.text) origParts.push(origMod.desc.text);
+		if (origMod?.major?.opus?.summary?.text) origParts.push(origMod.major.opus.summary.text);
+		if (origMod?.major?.archive?.title) origParts.push(`视频标题：${origMod.major.archive.title}`);
+		if (origParts.length > 0)
+			parts.push(`（转发自 ${origAuthor ?? "未知"}：${origParts.join(" ")}）`);
 	}
 
 	return parts.join("\n").trim();
@@ -137,6 +148,8 @@ export class DynamicEngine {
 
 	private config: DynamicEngineConfig;
 	private dynamicJob?: CronJob;
+	/** 风控/瞬时错误后的一次性退避重启句柄;非 undefined 表示已排程,不叠加。 */
+	private detectorRestartTimer?: Disposable;
 	private dynamicSubManager: SubManagerView = new Map();
 	private dynamicTimelineManager: DynamicTimelineManager = new Map();
 	/** 连续图片渲染失败计数，达到阈值时仅通知一次但不停 cron */
@@ -187,6 +200,8 @@ export class DynamicEngine {
 
 	/** 停止钩子。停止 cron、释放事件订阅。 */
 	stop(): void {
+		this.detectorRestartTimer?.dispose();
+		this.detectorRestartTimer = undefined;
 		if (this.dynamicJob) {
 			this.dynamicJob.stop();
 			this.dynamicJob = undefined;
@@ -229,6 +244,9 @@ export class DynamicEngine {
 
 	/** 用最新订阅快照重启动态检测；保留已有 UID 的时间戳避免重推旧动态。 */
 	startDynamicDetector(subs: SubscriptionsView): void {
+		// 一次显式启动取代任何待执行的退避重启,避免双重启动。
+		this.detectorRestartTimer?.dispose();
+		this.detectorRestartTimer = undefined;
 		// Stop existing job first
 		if (this.dynamicJob) {
 			this.logger.debug("[detector] 停止旧的动态检测任务");
@@ -633,24 +651,52 @@ export class DynamicEngine {
 		this.dynamicJob = undefined;
 		switch (code) {
 			case -101: {
-				// auth-lost 由 api interceptor 触发的 onAuthLost 单点广播；
-				// 通知主人由 server-manager.handleAuthLost 60 秒节流统一发送。
-				// 这里只需停 cron 与上报 engine-error 供运维诊断。
-				this.logger.error("[api] 账号未登录，动态检测已停止");
+				// 真鉴权失效:停 cron,靠 auth-restored 重启(不退避盲重试 ——
+				// 对死会话每 5 分钟刷一次毫无意义且放大风控)。auth-lost 由 api
+				// interceptor 单点广播,主人通知由上层 60s 节流统一发送。
+				this.logger.error("[api] 账号未登录，动态检测已停止（待 auth-restored 重启）");
 				this.bus.emit("engine-error", LOG_TAG, "账号未登录");
 				break;
 			}
 			case -352: {
-				this.logger.error("[api] 账号被风控，动态检测已停止");
+				// 风控:**非永久**。`bili cap` 解除风控不会发任何事件,此前 cron
+				// 永久静默直到重启进程。退避后自动重探,解除即自愈。
+				this.logger.error("[api] 账号被风控，动态检测暂停，将退避后自动重试");
 				await this.push.sendPrivateMsg("账号被风控，请使用 `bili cap` 指令解除风控");
 				this.bus.emit("engine-error", LOG_TAG, "账号被风控");
+				this.scheduleDetectorRestart("风控");
 				break;
 			}
 			default: {
-				this.logger.error(`[api] 获取动态信息失败，错误码：${code}，${message}`);
+				// 瞬时错误(-509 限流 / 瞬时 -403 / 未知码):不可永久停 cron。
+				// 退避后自动重试,瞬时抖动自愈,无需人工重启进程。
+				this.logger.error(`[api] 获取动态信息失败，错误码：${code}，${message}，将退避后自动重试`);
 				await this.push.sendPrivateMsg(`获取动态信息失败，错误码：${code}`);
 				this.bus.emit("engine-error", LOG_TAG, `获取动态失败，错误码：${code}`);
+				this.scheduleDetectorRestart(`错误码 ${code}`);
 			}
 		}
+	}
+
+	/**
+	 * 风控/瞬时错误后排一次性退避重启。已有待执行的不叠加(`detectorRestartTimer`
+	 * 非空即跳过)。到点取最新订阅快照重启检测;`stop()` / 显式 `startDynamicDetector`
+	 * 会作废本计时(避免 dispose 后 / 重启后仍触发陈旧重启)。
+	 */
+	private scheduleDetectorRestart(reason: string): void {
+		if (this.detectorRestartTimer) return;
+		this.logger.info(
+			`[detector] ${reason},将在 ${DETECTOR_RESTART_BACKOFF_MS / 1000}s 后自动重试动态检测`,
+		);
+		this.detectorRestartTimer = this.serviceCtx.setTimeout(() => {
+			this.detectorRestartTimer = undefined;
+			const subs = this.getSubs();
+			if (!subs) {
+				this.logger.debug("[detector] 退避重启:订阅快照不可用,跳过本次(等下个触发)");
+				return;
+			}
+			this.logger.info("[detector] 退避计时到,重启动态检测");
+			this.startDynamicDetector(subs);
+		}, DETECTOR_RESTART_BACKOFF_MS);
 	}
 }
