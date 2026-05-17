@@ -77,20 +77,22 @@ function extractDynamicImages(item: Dynamic): string[] {
 	const mod = item.modules.module_dynamic;
 	const urls: string[] = [];
 	// 图文动态（draw，纯图片帖）
+	// P2:这些字段经 as-cast 绕过索引类型,运行时可能是对象。`typeof===string`
+	// 运行时守卫,杜绝对象被 push 进 string[] 后当图片 URL 喂多模态 AI。
 	if (mod.major?.draw?.items) {
-		for (const img of mod.major.draw.items as Array<{ src?: string }>) {
-			if (img.src) urls.push(img.src);
+		for (const img of mod.major.draw.items as Array<{ src?: unknown }>) {
+			if (typeof img.src === "string" && img.src) urls.push(img.src);
 		}
 	}
 	// 专栏/opus 图片列表
 	if (mod.major?.opus?.pics) {
 		for (const pic of mod.major.opus.pics) {
-			if (pic.url) urls.push(pic.url);
+			if (typeof pic.url === "string" && pic.url) urls.push(pic.url);
 		}
 	}
 	// 视频封面（archive 有 [key: string]: any）
-	const archiveCover = mod.major?.archive?.cover as string | undefined;
-	if (archiveCover) urls.push(archiveCover);
+	const archiveCover: unknown = mod.major?.archive?.cover;
+	if (typeof archiveCover === "string" && archiveCover) urls.push(archiveCover);
 	return urls.slice(0, 4);
 }
 
@@ -306,8 +308,12 @@ export class DynamicEngine {
 	 * 可在挂起期 stopDynamicForUid 删表。每个 dispatch / 时间线回写前用它重校,
 	 * 否则会给已退订 UID 推送、并把其时间线“复活”进而长期抑制再订阅后的动态。
 	 */
-	private stillSubscribed(uid: string): boolean {
-		return this.dynamicSubManager.has(uid);
+	private stillSubscribed(uid: string, expected?: SubItemView): boolean {
+		if (!this.dynamicSubManager.has(uid)) return false;
+		// P2:仅 has(uid) 无法分辨「同 uid 被 delete + re-add」—— 跨 await 期间
+		// applyOps 删旧 sub 再加一个新 SubItemView(新对象引用/新配置),会把本轮
+		// 早先捕获的陈旧 item 当作新订阅推出。给定 expected 时按对象身份比对。
+		return expected === undefined || this.dynamicSubManager.get(uid) === expected;
 	}
 
 	/** Incrementally apply subscription ops without restarting the cron job. */
@@ -433,6 +439,10 @@ export class DynamicEngine {
 
 			if (timeline >= postTime) continue; // already pushed
 
+			// P2:捕获本轮处理起点的 sub 对象引用,跨 await 后用它做身份校验,
+			// 区分「仍是同一订阅」与「同 uid 被 delete+re-add 成另一个」。
+			const subAtCapture = this.dynamicSubManager.get(uid);
+
 			// DY1:每条 qualifying item 必须恰好 markOk 或 markFail 一次。投递抛
 			// 错只标记本条 fail 并 continue,绝不让异常冒泡 abort 整轮(否则同轮
 			// 已成功发出的早项下轮重推)。
@@ -446,20 +456,29 @@ export class DynamicEngine {
 				const filterResult = filterDynamic(item, effFilter, this.logger);
 				if (filterResult.blocked) {
 					this.logger.debug(`[filter] 动态 ID=${item.id_str} 被过滤，原因：${filterResult.reason}`);
-					if (effFilter.notify && this.stillSubscribed(uid)) {
+					if (effFilter.notify && this.stillSubscribed(uid, subAtCapture)) {
 						const msgs: Record<DynamicFilterReason, string> = {
 							[DynamicFilterReason.BlacklistKeyword]: `${name}发布了一条含有屏蔽关键字的动态`,
 							[DynamicFilterReason.BlacklistForward]: `${name}转发了一条动态，已屏蔽`,
 							[DynamicFilterReason.BlacklistArticle]: `${name}投稿了一条专栏，已屏蔽`,
 							[DynamicFilterReason.WhitelistUnmatched]: `${name}发布了一条不在白名单范围内的动态，已屏蔽`,
 						};
-						await this.push.broadcastDynamic(
-							uid,
-							[{ type: "text", text: msgs[filterResult.reason as DynamicFilterReason] }],
-							"dynamic",
-						);
+						// P2:屏蔽提示是 best-effort。此前广播抛错冒泡到外层 catch→
+						// markFail,锚点不前移 → 下轮重判重发,"已屏蔽"提示重复轰炸。
+						// 自包 try/catch:发不出就算了,绝不因此重试。
+						try {
+							await this.push.broadcastDynamic(
+								uid,
+								[{ type: "text", text: msgs[filterResult.reason as DynamicFilterReason] }],
+								"dynamic",
+							);
+						} catch (e) {
+							this.logger.warn(
+								`[filter] 屏蔽提示发送失败(忽略,不重试以免重复轰炸): ${(e as Error).message}`,
+							);
+						}
 					}
-					// 被过滤(含 notify 已发)= 已处理,推进锚点避免下轮重判。
+					// 被过滤(含 notify 已发/已忽略)= 已处理,推进锚点避免下轮重判。
 					markOk(uid, postTime);
 					continue;
 				}
@@ -564,8 +583,8 @@ export class DynamicEngine {
 
 				// 跨 image/AI 多个 await 后重校:期间 applyOps 可能已退订该 UID。
 				// 仍 dispatch 会给已退订用户推送,且下方时间线回写会“复活”其时间线。
-				if (!this.stillSubscribed(uid)) {
-					this.logger.debug(`[detector] UID=${uid} 在本轮处理中已退订，跳过推送`);
+				if (!this.stillSubscribed(uid, subAtCapture)) {
+					this.logger.debug(`[detector] UID=${uid} 在本轮处理中已退订/被替换，跳过推送`);
 					continue;
 				}
 
