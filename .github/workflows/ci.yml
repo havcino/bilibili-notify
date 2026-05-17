@@ -13,23 +13,28 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Enable Corepack
-        run: corepack enable
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      # Installs Vite+ (vp) globally, the repo-pinned Node from .node-version
+      # (24.15.0), and runs `vp install`. On GitHub Actions CI=true → the
+      # underlying pnpm install is frozen-lockfile automatically (= old
+      # `pnpm install --frozen-lockfile`). `cache: true` keys off pnpm-lock.yaml.
+      - name: Setup Vite+ (vp) + Node + deps
+        uses: voidzero-dev/setup-vp@v1
         with:
-          node-version: 24
-          cache: pnpm
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+          node-version-file: .node-version
+          cache: true
 
       - name: Lint (Biome)
-        run: pnpm exec biome ci .
+        run: vp exec biome ci .
 
-      - name: Build
-        run: pnpm build
+      # `vp run build` runs the root build script (pnpm -r run build + koishi
+      # console client); vp injects the embedded pnpm into the subprocess PATH
+      # so the legacy script body keeps working. This is the double-end build
+      # (packages + koishi shells + apps/server tsdown + apps/web Vite).
+      - name: Build (double-end)
+        run: vp run build
 
       - name: Typecheck
-        run: pnpm typecheck
+        run: vp run typecheck
+
+      - name: Test
+        run: vp test run

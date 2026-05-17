@@ -17,30 +17,34 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Enable Corepack
-        run: corepack enable
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      # Installs vp + repo-pinned Node (.node-version) + runs `vp install`
+      # (frozen on CI). `registry-url` makes setup-vp write ~/.npmrc with
+      # `//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}` so
+      # `changeset publish` (scripts/publish.mjs) authenticates via the
+      # NODE_AUTH_TOKEN exported on the changesets step below.
+      - name: Setup Vite+ (vp) + Node + deps
+        uses: voidzero-dev/setup-vp@v1
         with:
-          node-version: 24
-          cache: pnpm
-          # setup-node writes an ~/.npmrc with `//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}`,
-          # which `pnpm publish` then picks up. NODE_AUTH_TOKEN must be exported on the
-          # publish step (see env: below).
+          node-version-file: .node-version
+          cache: true
           registry-url: "https://registry.npmjs.org"
 
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+      # changesets/action@v1 shells out to the package manager (pnpm) for its
+      # version/publish lifecycle, and vp deliberately does NOT expose a `pnpm`
+      # shim on PATH. Enable corepack so that action can provision the pinned
+      # pnpm from package.json#packageManager. Scoped to the release pipeline
+      # only — ci.yml stays pure vp.
+      - name: Enable Corepack (for changesets/action only)
+        run: corepack enable
 
       - name: Lint (Biome)
-        run: pnpm exec biome ci .
+        run: vp exec biome ci .
 
       - name: Build
-        run: pnpm build
+        run: vp run build
 
       - name: Typecheck
-        run: pnpm typecheck
+        run: vp run typecheck
 
       - name: Create Version PR or Publish
         uses: changesets/action@v1
