@@ -566,17 +566,26 @@ export class DynamicEngine {
 						];
 				await this.push.broadcastDynamic(uid, segments, "dynamic");
 
-				// Push extra images from draw dynamics
+				// Push extra images from draw dynamics. DYNAMIC_TYPE_DRAW 的原图在
+				// major.draw.items[].src;部分 opus 包裹的图文帖图在 major.opus.pics[].url。
+				// 此前只读 opus.pics → 纯 DRAW 帖(图在 draw.items)图组被静默丢弃。
 				if (this.config.pushImgsInDynamic && item.type === "DYNAMIC_TYPE_DRAW") {
-					const pics = item.modules?.module_dynamic?.major?.opus?.pics;
-					if (pics?.length) {
+					const major = item.modules?.module_dynamic?.major;
+					const urls: string[] = [];
+					for (const it of (major?.draw?.items ?? []) as Array<{ src?: string }>) {
+						if (it.src) urls.push(it.src);
+					}
+					for (const pic of major?.opus?.pics ?? []) {
+						if (pic.url) urls.push(pic.url);
+					}
+					if (urls.length) {
 						await this.push.broadcastDynamic(
 							uid,
 							[
 								{
 									type: "image-group",
 									forward: true,
-									urls: pics.map((p) => p.url),
+									urls,
 								},
 							],
 							"dynamic-images",

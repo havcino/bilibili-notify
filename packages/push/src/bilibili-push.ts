@@ -103,6 +103,13 @@ export class BilibiliPush {
 	private readonly serviceCtx?: ServiceContext;
 	private disposed = false;
 	/**
+	 * Per-lifecycle generation token。每次 `start()` 自增;in-flight retry 循环
+	 * 进入时快照本代号,循环条件附加 `generation === myGen`。这样 stop()→start()
+	 * 快速重启时,上一生命周期遗留的 in-flight 重试循环(可能正卡在 sleep)被
+	 * 唤醒后会因代号不符立即退出,不会"复活"到新生命周期上重发([both]/Codex-P1)。
+	 */
+	private generation = 0;
+	/**
 	 * 正在 sleep 等重试的 wake 函数集合 — `stop()` 时全部触发立即返回,避免裸 setTimeout
 	 * 路径下 retry 循环卡到 32s 才退出。
 	 */
@@ -132,6 +139,7 @@ export class BilibiliPush {
 	}
 
 	start(): void {
+		this.generation += 1;
 		this.disposed = false;
 		if (this.master && !this.sink.isAvailable(this.master.id)) {
 			this.logger.warn("[push] master 目标当前不可达，运行状态通知将无法发送");
@@ -265,8 +273,9 @@ export class BilibiliPush {
 	): Promise<DeliveryResult> {
 		if (this.disposed) return { ok: false, latencyMs: 0, err: "disposed" };
 
+		const myGen = this.generation;
 		let delay = INITIAL_RETRY_DELAY_MS;
-		while (!this.disposed) {
+		while (!this.disposed && this.generation === myGen) {
 			if (!this.sink.isAvailable(targetId)) {
 				if (delay > MAX_RETRY_DELAY_MS) {
 					const msg = `target=${targetId} 持续不可达，放弃推送`;

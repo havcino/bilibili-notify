@@ -50,8 +50,23 @@ export function createHistoryRoute(deps: RouteDeps): Hono {
 
 	app.get("/", async (c) => {
 		const limitRaw = c.req.query("limit");
-		const limit = limitRaw ? Math.max(1, Math.min(500, Number(limitRaw))) : 100;
+		let limit = 100;
+		if (limitRaw !== undefined) {
+			const n = Number(limitRaw);
+			if (!Number.isFinite(n)) {
+				// 此前 Number("abc")=NaN 经 Math.min/max 透传成 limit=NaN 静默喂给
+				// query() → 行为未定义。显式 400 而非静默 no-op。
+				return c.json({ error: "invalid_query", message: `invalid limit: ${limitRaw}` }, 400);
+			}
+			limit = Math.max(1, Math.min(500, Math.trunc(n)));
+		}
 		const since = c.req.query("since");
+		if (since !== undefined && Number.isNaN(Date.parse(since))) {
+			return c.json(
+				{ error: "invalid_query", message: `invalid since (expect ISO timestamp): ${since}` },
+				400,
+			);
+		}
 		const sourceParam = c.req.query("source") as HistorySource | undefined;
 		const source = sourceParam && VALID_SOURCES.has(sourceParam) ? sourceParam : undefined;
 		const uid = c.req.query("uid");

@@ -241,9 +241,10 @@ export class RoomContextBase {
 
 	clearListeners(): void {
 		this.logSideEffectState("listeners:before-clear");
+		// Object.keys() 已是快照,迭代期间 closeListener 删除 record 不影响本循环;
+		// closeListener 内部自身已 delete,此处无需再 delete 一次(原冗余双删)。
 		for (const key of Object.keys(this.listenerRecord)) {
 			this.closeListener(key);
-			delete this.listenerRecord[key];
 		}
 		this.logSideEffectState("listeners:after-clear");
 	}

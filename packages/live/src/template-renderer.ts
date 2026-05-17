@@ -194,20 +194,24 @@ export class LiveTemplateRenderer {
 		topSenders: Array<[string, number]>;
 	}): string {
 		const top = params.topSenders;
+		// 公共导出:topSenders 可能 <5(直播弹幕发送者不足 5 人)。此前无条件
+		// 索引 top[0..4] 在 <5 时直接 `undefined[0]` 抛 TypeError;缺位安全降级
+		// 为空名 / 0 条。
+		const at = (i: number): [string, number] => top[i] ?? ["", 0];
 		return applyTemplate(params.template, {
 			"-dmc": `${params.senderCount}`,
 			"-mdn": params.master?.medalName ?? "",
 			"-dca": `${params.danmakuCount}`,
-			"-un1": top[0][0],
-			"-dc1": `${top[0][1]}`,
-			"-un2": top[1][0],
-			"-dc2": `${top[1][1]}`,
-			"-un3": top[2][0],
-			"-dc3": `${top[2][1]}`,
-			"-un4": top[3][0],
-			"-dc4": `${top[3][1]}`,
-			"-un5": top[4][0],
-			"-dc5": `${top[4][1]}`,
+			"-un1": at(0)[0],
+			"-dc1": `${at(0)[1]}`,
+			"-un2": at(1)[0],
+			"-dc2": `${at(1)[1]}`,
+			"-un3": at(2)[0],
+			"-dc3": `${at(2)[1]}`,
+			"-un4": at(3)[0],
+			"-dc4": `${at(3)[1]}`,
+			"-un5": at(4)[0],
+			"-dc5": `${at(4)[1]}`,
 		});
 	}
 }

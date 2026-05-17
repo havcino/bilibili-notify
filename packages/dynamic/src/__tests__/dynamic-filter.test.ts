@@ -128,3 +128,49 @@ describe("filterDynamic — 纯函数过滤", () => {
 		expect(result.reason).toBe(DynamicFilterReason.BlacklistKeyword);
 	});
 });
+
+describe("P2-B safeRegexTest — ReDoS 加固", () => {
+	it("嵌套量词灾难性正则被拒(当无效正则处理,不阻断、瞬时返回)", () => {
+		const evil = `${"a".repeat(40)}X`;
+		const t0 = Date.now();
+		const result = filterDynamic(makeDynamic({ text: evil }), {
+			enable: true,
+			regex: "(a+)+$",
+		});
+		expect(result.blocked).toBe(false);
+		expect(Date.now() - t0).toBeLessThan(1000);
+	});
+
+	it("白名单侧灾难性正则被拒 → 该规则视为无匹配(WhitelistUnmatched)", () => {
+		const evil = `${"a".repeat(40)}X`;
+		const result = filterDynamic(makeDynamic({ text: evil }), {
+			whitelistEnable: true,
+			whitelistRegex: "(a+)+$",
+		});
+		expect(result.blocked).toBe(true);
+		expect(result.reason).toBe(DynamicFilterReason.WhitelistUnmatched);
+	});
+
+	it("超长正则(>200)被拒", () => {
+		const result = filterDynamic(makeDynamic({ text: "x" }), {
+			enable: true,
+			regex: "a".repeat(201),
+		});
+		expect(result.blocked).toBe(false);
+	});
+
+	it("正常正则仍照常工作(回归)", () => {
+		const hit = filterDynamic(makeDynamic({ text: "看我的 https://b23.tv/abc 链接" }), {
+			enable: true,
+			regex: "https?://\\S+",
+		});
+		expect(hit.blocked).toBe(true);
+		expect(hit.reason).toBe(DynamicFilterReason.BlacklistKeyword);
+
+		const miss = filterDynamic(makeDynamic({ text: "纯文字无链接" }), {
+			enable: true,
+			regex: "https?://\\S+",
+		});
+		expect(miss.blocked).toBe(false);
+	});
+});

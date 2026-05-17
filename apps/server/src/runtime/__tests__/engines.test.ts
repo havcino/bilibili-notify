@@ -383,4 +383,18 @@ describe("createEngines — dispose", () => {
 		c.bus.emit("config-changed", "globals");
 		expect(dyn.updateConfig).not.toHaveBeenCalled();
 	});
+
+	it("P2-I:dispose 幂等 — 二次调用(index.ts 显式 + onDispose 双路径)不重复 stop", () => {
+		const c = setup();
+		active = c;
+		const dyn = H.dynamic[0];
+		const live = H.live[0];
+		const push = H.push[0];
+		c.runtime.dispose();
+		c.runtime.dispose(); // 双调
+		active = null;
+		expect(dyn.stop).toHaveBeenCalledTimes(1);
+		expect(live.stop).toHaveBeenCalledTimes(1);
+		expect(push.stop).toHaveBeenCalledTimes(1);
+	});
 });

@@ -305,6 +305,9 @@ export async function executeTool(
 				api.getUserNavnum(args.uid),
 			]);
 			if (upstat.code !== 0) return `获取数据失败: ${upstat.message}`;
+			// 此前不校验 navnum.code:接口错误时 navnum.data 为空 → 视频/动态数
+			// 静默落 "?",把接口错误伪装成"数据空"误导 LLM。显式失败。
+			if (navnum.code !== 0) return `获取数据失败: ${navnum.message}`;
 			const view = upstat.data?.archive?.view ?? 0;
 			const likes = upstat.data?.likes ?? 0;
 			const videos = navnum.data?.video ?? "?";

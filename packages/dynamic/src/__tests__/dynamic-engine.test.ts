@@ -123,6 +123,8 @@ function makeItem(opts: {
 	/** 同时写进 desc.text(AI 提取读这个)与 desc.rich_text_nodes(过滤匹配读这个)。 */
 	text?: string;
 	drawPics?: string[];
+	/** 真 DYNAMIC_TYPE_DRAW 形态:图在 major.draw.items[].src(非 opus.pics)。 */
+	drawItems?: string[];
 }): Dynamic {
 	const text = opts.text ?? "";
 	return {
@@ -147,9 +149,15 @@ function makeItem(opts: {
 					text,
 					rich_text_nodes: text ? [{ text, type: "RICH_TEXT_NODE_TYPE_TEXT" }] : [],
 				},
-				major: opts.drawPics
-					? { opus: { pics: opts.drawPics.map((url) => ({ url })) } }
-					: undefined,
+				major:
+					opts.drawPics || opts.drawItems
+						? {
+								...(opts.drawPics ? { opus: { pics: opts.drawPics.map((url) => ({ url })) } } : {}),
+								...(opts.drawItems
+									? { draw: { items: opts.drawItems.map((src) => ({ src })) } }
+									: {}),
+							}
+						: undefined,
 			},
 		},
 	} as unknown as Dynamic;
@@ -434,6 +442,29 @@ describe("DynamicEngine.detectDynamics — 推送形态", () => {
 		await detect(b.engine);
 		expect(b.push.broadcastDynamic).toHaveBeenCalledTimes(2);
 		expect(b.push.broadcastDynamic.mock.calls[1]?.[2]).toBe("dynamic-images");
+	});
+
+	it("P2-A:DRAW 图在 major.draw.items[].src → 不再静默丢图组(此前只读 opus.pics)", async () => {
+		const b = makeEngine({ config: { pushImgsInDynamic: true } });
+		b.getAllDynamic.mockResolvedValue(
+			resp([
+				makeItem({
+					uid: 1,
+					pubTs: 1000,
+					type: "DYNAMIC_TYPE_DRAW",
+					drawItems: ["http://a/x1.jpg", "http://a/x2.jpg"],
+				}),
+			]),
+		);
+		seed(b.engine, "1", 0);
+		await detect(b.engine);
+		expect(b.push.broadcastDynamic).toHaveBeenCalledTimes(2);
+		const call = b.push.broadcastDynamic.mock.calls[1];
+		expect(call?.[2]).toBe("dynamic-images");
+		expect(call?.[1]?.[0]).toMatchObject({
+			type: "image-group",
+			urls: ["http://a/x1.jpg", "http://a/x2.jpg"],
+		});
 	});
 });
 

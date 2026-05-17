@@ -555,7 +555,13 @@ export function createEngines(opts: CreateEnginesOptions): EnginesRuntime {
 	);
 
 	// ---------- Disposal ----------
+	// index.ts shutdown 既显式调 engines.dispose(),又经 runtime.dispose() 跑
+	// serviceCtx.onDispose 钩子(下方 onDispose(dispose))→ 双调。幂等守卫,
+	// 避免对各 engine .stop()/.dispose() 二次调用与重复 warn 噪音。
+	let disposed = false;
 	const dispose = (): void => {
+		if (disposed) return;
+		disposed = true;
 		clearInterval(probeTimer);
 		for (const h of handles.splice(0)) {
 			try {

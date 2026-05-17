@@ -378,3 +378,60 @@ describe("CommentaryGenerator — session 生命周期", () => {
 		expect(ok2).toHaveBeenCalled();
 	});
 });
+
+// ---------------------------------------------------------------------------
+// P2-F: 过期 session 周期清扫(无界增长根因 — 过期项此前从不 delete)
+// ---------------------------------------------------------------------------
+
+describe("CommentaryGenerator — 过期 session 清扫 (P2-F)", () => {
+	afterEach(() => {
+		vi.useRealTimers();
+	});
+
+	it("start() arm 周期 sweep;过期且不再访问的 session 被真正 delete(非仅跳过计数)", async () => {
+		vi.useFakeTimers();
+		vi.setSystemTime(new Date("2026-01-01T00:00:00Z"));
+
+		let sweepFn: (() => void) | undefined;
+		let sweepMs = 0;
+		let intervalDisposed = false;
+		const ctx: ServiceContext = {
+			logger: { info() {}, warn() {}, error() {}, debug() {} },
+			setInterval: (fn, ms) => {
+				sweepFn = fn;
+				sweepMs = ms;
+				return {
+					dispose() {
+						intervalDisposed = true;
+					},
+				};
+			},
+			setTimeout: () => ({ dispose() {} }),
+			onDispose: () => {},
+		};
+		const gen = new CommentaryGenerator({
+			serviceCtx: ctx,
+			api: {} as BilibiliAPI,
+			config: makeConfig(),
+		});
+		gen.start();
+		expect(typeof sweepFn).toBe("function");
+		expect(sweepMs).toBe(10 * 60 * 1000);
+
+		oai.create.mockResolvedValue(msgResp("答"));
+		await gen.chat("问", "s-leak");
+		expect((gen as unknown as { sessions: Map<string, unknown> }).sessions.size).toBe(1);
+
+		// 越过 TTL(2h)且永不再访问 → sessionCount 已不计,但 Map 仍持有(泄漏点)
+		vi.setSystemTime(new Date("2026-01-01T02:00:01Z"));
+		expect(gen.sessionCount).toBe(0);
+		expect((gen as unknown as { sessions: Map<string, unknown> }).sessions.size).toBe(1);
+
+		// 周期 sweep 触发 → 真正从 Map 删除
+		sweepFn?.();
+		expect((gen as unknown as { sessions: Map<string, unknown> }).sessions.size).toBe(0);
+
+		gen.stop();
+		expect(intervalDisposed).toBe(true);
+	});
+});

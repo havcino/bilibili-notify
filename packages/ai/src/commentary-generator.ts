@@ -12,6 +12,7 @@ import {
 } from "./tools";
 
 const SESSION_TTL_MS = 2 * 60 * 60 * 1000; // 2 hours
+const SESSION_SWEEP_INTERVAL_MS = 10 * 60 * 1000; // 10 min — 清扫过期且不再被访问的 session
 
 type ConversationRole = "user" | "assistant";
 interface ConversationMessage {
@@ -114,9 +115,12 @@ export interface CommentaryGeneratorOptions {
  */
 export class CommentaryGenerator {
 	private readonly logger: Logger;
+	private readonly serviceCtx: ServiceContext;
 	private readonly api: BilibiliAPI;
 	private config: CommentaryGeneratorConfig;
 	private readonly sessions = new Map<string, SessionEntry>();
+	/** 周期清扫 handle;`start()` arm、`stop()` dispose。 */
+	private sweepHandle?: { dispose(): void };
 
 	private subsAccessor: (() => Subscriptions | null) | null = null;
 	private subMgmt: SubManagement | null = null;
@@ -124,6 +128,7 @@ export class CommentaryGenerator {
 	constructor(opts: CommentaryGeneratorOptions) {
 		this.api = opts.api;
 		this.config = opts.config;
+		this.serviceCtx = opts.serviceCtx;
 		this.logger = opts.serviceCtx.logger;
 	}
 
@@ -146,8 +151,25 @@ export class CommentaryGenerator {
 		this.logger.debug(`[update] 新系统提示词（无场景）：\n${this.getSystemPrompt()}`);
 	}
 
-	/** 启动钩子（保留扩展点，目前仅打印一条日志）。 */
+	/** 删除所有已过 TTL 的 session(无界增长根因:过期项此前从不 delete)。 */
+	private pruneExpiredSessions(now: number): void {
+		let pruned = 0;
+		for (const [id, e] of this.sessions) {
+			if (now - e.lastActiveAt >= SESSION_TTL_MS) {
+				this.sessions.delete(id);
+				pruned++;
+			}
+		}
+		if (pruned > 0) this.logger.debug(`[session] 清扫过期会话 ${pruned} 个`);
+	}
+
+	/** 启动钩子:打印人格信息 + arm 过期会话周期清扫。 */
 	start(): void {
+		this.sweepHandle?.dispose();
+		this.sweepHandle = this.serviceCtx.setInterval(
+			() => this.pruneExpiredSessions(Date.now()),
+			SESSION_SWEEP_INTERVAL_MS,
+		);
 		const { preset } = this.config.persona;
 		this.logger.info(
 			`[start] 人格预设：${preset}，模型：${this.config.model}，多轮对话：${this.config.enableConversation ? "开启" : "关闭"}`,
@@ -155,8 +177,10 @@ export class CommentaryGenerator {
 		this.logger.debug(`[start] 系统提示词（无场景）：\n${this.getSystemPrompt()}`);
 	}
 
-	/** 停止钩子，清空会话历史。 */
+	/** 停止钩子，停清扫定时器并清空会话历史。 */
 	stop(): void {
+		this.sweepHandle?.dispose();
+		this.sweepHandle = undefined;
 		this.sessions.clear();
 		this.logger.info("[stop] 会话历史已清除");
 	}
@@ -221,6 +245,9 @@ export class CommentaryGenerator {
 		const now = Date.now();
 		const entry = this.sessions.get(sessionId);
 		const isExpired = !entry || now - entry.lastActiveAt >= SESSION_TTL_MS;
+		// 机会式清理:过期项被重新访问时立即移除(不再等下一轮 sweep);真正的
+		// 无界增长由 start() 的周期 sweep 兜底(过期且永不再访问的 session)。
+		if (entry && isExpired) this.sessions.delete(sessionId);
 		const history: ConversationMessage[] = isExpired ? [] : [...entry.messages];
 		const prevSummary = isExpired ? undefined : entry.summary;
 
