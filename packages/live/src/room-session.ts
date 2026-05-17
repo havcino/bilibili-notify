@@ -52,6 +52,9 @@ export class RoomSession extends RoomSessionBase {
 	/** 外层主动停止 listener 时调用,阻止 onError 触发重连。 */
 	cancel(): void {
 		this.cancelled = true;
+		// P2:即时复位,不再单靠 reconnectLoop 的 finally 时序。onError 顶部
+		// cancelled 守卫已足以挡新重连,这里只是让 reconnecting 状态立即自洽。
+		this.reconnecting = false;
 		this.clearReconnectSleep();
 	}
 

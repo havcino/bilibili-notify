@@ -24,16 +24,26 @@ export const DEFAULT_LIVE_TEMPLATES = {
 	liveSummaryFallback: "弹幕总结",
 } as const;
 
+function escapeRegExp(s: string): string {
+	return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 /**
- * Replace every variable token in one pass, then expand `\\n` escape into a
- * real newline (kept identical to live-service's `applyTemplate`).
+ * 单遍替换所有变量 token,再把 `\n` 转义展开为真换行。
+ *
+ * P2:此前 `for…replaceAll` 顺序替换有两个缺陷 ——
+ *  1. **token 注入**:用户可控值(uname / 弹幕内容)含 `-link`/`-time` 时
+ *     会被后续轮次再次替换;
+ *  2. **前缀吞噬**:`-follower` 先于 `-follower_change` 替换,把后者的
+ *     `-follower` 段吃掉只剩 `_change`。
+ * 改为基于原始模板的**单遍正则**:token 按长度降序进 alternation(最长优先
+ * 匹配),每个 token 恰好替换一次且替换值不再被回扫 → 杜绝注入与吞噬。
  */
-function applyTemplate(template: string, vars: Record<string, string>): string {
-	let result = template;
-	for (const [key, value] of Object.entries(vars)) {
-		result = result.replaceAll(key, value);
-	}
-	return result.replaceAll("\\n", "\n");
+export function applyTemplate(template: string, vars: Record<string, string>): string {
+	const keys = Object.keys(vars).sort((a, b) => b.length - a.length);
+	if (keys.length === 0) return template.replaceAll("\\n", "\n");
+	const re = new RegExp(keys.map(escapeRegExp).join("|"), "g");
+	return template.replace(re, (m) => vars[m] ?? m).replaceAll("\\n", "\n");
 }
 
 /**

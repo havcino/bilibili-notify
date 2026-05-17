@@ -80,7 +80,9 @@ function makeCtx(opts: CtxOpts): {
 		}),
 		isDisposed: () => false,
 		danmakuCollector: {
-			snapshot: () => ({ sortedWords: [], senderRecord: new Map() }),
+			// P2(dim7):真实 snapshot().senderRecord 是 Record<string,number>,
+			// 此前 fixture 用 new Map() 与契约不符,掩盖消费方按对象遍历的潜在 bug。
+			snapshot: () => ({ sortedWords: [], senderRecord: {} }),
 		},
 		wordcloudGenerator: { generate: vi.fn(async () => opts.wcImage) },
 		liveSummaryRequester: { generate: vi.fn(async () => opts.summaryText) },

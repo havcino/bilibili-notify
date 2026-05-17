@@ -151,8 +151,10 @@ export abstract class RoomSessionBase {
 					notifyMsg: liveMsg,
 				});
 			}
-			this.armPeriodicTimer();
+			// P2:与 onLiveStart 同序(先 setLiveStatus 再 arm)。此前 bootstrap
+			// 反着写,当前无害但语义不一致 —— 统一为「先翻状态再 arm 周期复推」。
 			this.setLiveStatus(true);
+			this.armPeriodicTimer();
 		}
 	}
 

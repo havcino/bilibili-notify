@@ -7,7 +7,35 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { LiveTemplateRenderer } from "../template-renderer";
+import { applyTemplate, LiveTemplateRenderer } from "../template-renderer";
+
+/**
+ * 回归守护 — P2:applyTemplate 单遍替换。
+ * 不变量:① 用户可控值含 token(`-link` 等)不被二次替换(token 注入);
+ * ② 前缀 token(`-follower`)不吞噬更长 token(`-follower_change`);
+ * ③ `\n` 仍展开为真换行。复发点:改回顺序 for…replaceAll。
+ */
+describe("applyTemplate — 单遍替换 (P2)", () => {
+	it("用户值含 token 不被二次替换(token 注入防护)", () => {
+		const out = applyTemplate("-name 开播 -link", {
+			"-name": "黑客-link注入",
+			"-link": "https://live/1",
+		});
+		expect(out).toBe("黑客-link注入 开播 https://live/1");
+	});
+
+	it("前缀 token 不吞噬更长 token", () => {
+		const out = applyTemplate("粉丝-follower 变化-follower_change", {
+			"-follower": "100",
+			"-follower_change": "+5",
+		});
+		expect(out).toBe("粉丝100 变化+5");
+	});
+
+	it("\\n 展开为真换行;未知 token 原样保留", () => {
+		expect(applyTemplate("-name\\n-x", { "-name": "A" })).toBe("A\n-x");
+	});
+});
 
 const TPL = "发言-dmc人 弹幕-dca条 | 1:-un1=-dc1 2:-un2=-dc2 3:-un3=-dc3 4:-un4=-dc4 5:-un5=-dc5";
 
