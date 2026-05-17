@@ -395,7 +395,6 @@ export class BilibiliAPI {
 	async checkIfTokenNeedRefresh(
 		refreshToken: string,
 		csrf: string,
-		attempts = 3,
 		gen = this.refreshGeneration,
 	): Promise<void> {
 		// 入口 + 每次跨 await 后比对 gen:loadCookies/clearCookies/-101 任一发生
@@ -428,19 +427,12 @@ export class BilibiliAPI {
 			}
 			if (!info?.data?.refresh) return;
 		} catch (e) {
-			if (attempts > 1) {
-				// serviceCtx.setTimeout 让 plugin/runtime dispose 能立即 clear,
-				// 否则裸 setTimeout 让 3s 重试链在 stop() 后还会触发一次 fetch。
-				await new Promise<void>((resolveSleep) => {
-					this.serviceCtx.setTimeout(resolveSleep, 3000);
-				});
-				return this.checkIfTokenNeedRefresh(refreshToken, csrf, attempts - 1, gen);
-			}
-			// 重试耗尽:**不能** fall through 去强制 refresh —— 我们此刻并不知道
-			// cookie 是否真需要刷新,一次瞬时网络抖动就触发整条 RSA/correspond/
-			// refresh/confirm 轮换(每小时一次不必要的 cookie 旋转,放大风控)。
-			// 放弃本轮,等下个 interval 再探测。
-			this.logger.warn(`[cookie] 刷新探测连续失败,跳过本轮(不强制刷新): ${(e as Error).message}`);
+			// P2:此前这里还有一层 3 次 ×3s 递归重试,而内层 getCookieInfo 已被
+			// this.retry(4 次指数退避)包住 → 双层乘积最坏 ~16 次 HTTP,且整段
+			// 占住 refreshInFlight 阻塞 hourly timer 数分钟。内层 retry 已足够吸收
+			// 瞬时抖动;失败即放弃本轮,等下个 interval 再探(绝不 fall through
+			// 强制刷新 —— 一次抖动触发整条 RSA 轮换会放大风控)。
+			this.logger.warn(`[cookie] 刷新探测失败,跳过本轮(不强制刷新): ${(e as Error).message}`);
 			return;
 		}
 
@@ -619,7 +611,14 @@ export class BilibiliAPI {
 		if (data && typeof data === "object" && data.code === -352) {
 			this.logger.warn("[wbi] 签名请求返回 -352（WBI key 疑似轮换），刷新 wbiKeys 后重试一次");
 			this.wbiKeys = { imgKey: "", subKey: "" }; // 强制下次 getWbi 重新拉 ticket
-			return await once();
+			const retried = await once();
+			// P2:二次仍 -352 时此前**静默返回 -352 body**,外层 this.retry 只认
+			// 抛错、感知不到业务码 → 调用方拿到一个看似成功的 -352 响应。抛错让
+			// 外层 retry 重走(含重取 ticket),最终把持续风控如实暴露给调用方。
+			if (retried && typeof retried === "object" && retried.code === -352) {
+				throw new Error("[wbi] 刷新 wbiKeys 后仍 -352(WBI 签名持续被拒/风控)");
+			}
+			return retried;
 		}
 		return data;
 	}
@@ -885,10 +884,18 @@ export class BilibiliAPI {
 
 	async v_voucherCaptcha(v_voucher: string): Promise<V_VoucherCaptchaData["data"]> {
 		const csrf = this.getCSRF();
-		const { data } = await this.client.post(
-			EP.V_VOUCHER_CAPTCHA_URL,
-			{ csrf, v_voucher },
-			{ headers: { "Content-Type": "application/x-www-form-urlencoded" } },
+		// P2:与其余接口一致走 this.retry。**仅网络 POST 进 retry**,code≠0 是
+		// 逻辑失败(非瞬时)放在 retry 外判,避免对逻辑错误盲重试 4 次。
+		const data = await this.retry(
+			async () =>
+				(
+					await this.client.post(
+						EP.V_VOUCHER_CAPTCHA_URL,
+						{ csrf, v_voucher },
+						{ headers: { "Content-Type": "application/x-www-form-urlencoded" } },
+					)
+				).data,
+			"v_voucherCaptcha",
 		);
 		const result = data as V_VoucherCaptchaData;
 		if (result.code !== 0) throw new Error(`获取验证码失败: ${result.message}`);
@@ -902,10 +909,17 @@ export class BilibiliAPI {
 		seccode: string,
 	): Promise<ValidateCaptchaData["data"] | null> {
 		const csrf = this.getCSRF();
-		const { data } = await this.client.post(
-			EP.VALIDATE_CAPTCHA_URL,
-			{ csrf, challenge, token, validate, seccode },
-			{ headers: { "Content-Type": "application/x-www-form-urlencoded" } },
+		// P2:与其余接口一致走 this.retry(仅网络 POST 进 retry;code≠0 在外判)。
+		const data = await this.retry(
+			async () =>
+				(
+					await this.client.post(
+						EP.VALIDATE_CAPTCHA_URL,
+						{ csrf, challenge, token, validate, seccode },
+						{ headers: { "Content-Type": "application/x-www-form-urlencoded" } },
+					)
+				).data,
+			"validateCaptcha",
 		);
 		const result = data as ValidateCaptchaData;
 		if (result.code !== 0) {

@@ -29,7 +29,13 @@ export function encWbi(params: Record<string, string | number | object>, keys: W
 	const query = Object.keys(allParams)
 		.sort()
 		.map((key) => {
-			const value = String(allParams[key]).replace(chrFilter, "");
+			const raw = allParams[key];
+			// P2:对象/数组值此前 String()→"[object Object]" 静默进签名,签名必错
+			// 却无任何线索。显式抛错把误用暴露在调用点(query 参数只应是标量)。
+			if (raw !== null && typeof raw === "object") {
+				throw new Error(`encWbi: 参数 "${key}" 为对象/数组,query 参数只接受标量`);
+			}
+			const value = String(raw).replace(chrFilter, "");
 			return `${encodeURIComponent(key)}=${encodeURIComponent(value)}`;
 		})
 		.join("&");
