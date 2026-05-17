@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
-import { Btn } from "../components/atoms";
+import { Avatar, Btn, Pill } from "../components/atoms";
 import {
 	Field,
 	LogLevelPicker,
@@ -32,40 +32,36 @@ const STATUS_LABELS: Record<BiliLoginStatusValue, string> = {
 	[BiliLoginStatus.LOGIN_FAILED]: "登录失败",
 };
 
-const STATUS_TONE: Record<BiliLoginStatusValue, string> = {
-	[BiliLoginStatus.NOT_LOGIN]: "bg-gray-100 text-gray-700",
-	[BiliLoginStatus.LOADING_LOGIN_INFO]: "bg-blue-50 text-blue-700",
-	[BiliLoginStatus.LOGIN_QR]: "bg-amber-50 text-amber-700",
-	[BiliLoginStatus.LOGGING_QR]: "bg-amber-50 text-amber-700",
-	[BiliLoginStatus.LOGGED_IN]: "bg-emerald-50 text-emerald-700",
-	[BiliLoginStatus.LOGIN_FAILED]: "bg-red-50 text-red-700",
+/**
+ * 单一状态表达:状态由 GlassBox 的 `accent`(随态变色)+ `badge`
+ * (STATUS_LABELS 文案,GlassBox 原生渲染成 Pill)承载。删掉了原先独立的
+ * 右上角 StatusPill —— 它会把 STATUS_LABELS[LOGGED_IN]「已登录」与后端
+ * snapshot.msg(LoginFlow 对 LOGGED_IN 设的也是「已登录」)拼成「已登录 ·
+ * 已登录」。`msg` 现在仅在与状态文案不同时(失败原因 / fetchAccountFailed)
+ * 才作小字注脚。
+ */
+const STATUS_ACCENT: Record<BiliLoginStatusValue, string> = {
+	[BiliLoginStatus.NOT_LOGIN]: "#94a3b8",
+	[BiliLoginStatus.LOADING_LOGIN_INFO]: "#3b82f6",
+	[BiliLoginStatus.LOGIN_QR]: "#f59e0b",
+	[BiliLoginStatus.LOGGING_QR]: "#f59e0b",
+	[BiliLoginStatus.LOGGED_IN]: "#22c55e",
+	[BiliLoginStatus.LOGIN_FAILED]: "#ef4444",
 };
-
-function StatusPill({ status, msg }: { status: BiliLoginStatusValue; msg: string }) {
-	return (
-		<span
-			className={`inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-medium ${STATUS_TONE[status]}`}
-		>
-			<span className="h-1.5 w-1.5 rounded-full bg-current" />
-			{STATUS_LABELS[status]}
-			{msg ? <span className="text-current/70">· {msg}</span> : null}
-		</span>
-	);
-}
 
 function QrCard({ data, msg }: { data: unknown; msg: string }) {
 	const src = typeof data === "string" && data.length > 0 ? data : null;
 	return (
-		<div className="flex flex-col items-center gap-3 rounded-lg border border-amber-200 bg-amber-50 p-6">
+		<div className="flex flex-col items-center gap-3 rounded-lg border border-black/6 bg-white/55 p-6">
 			{src ? (
-				<img alt="登录二维码" className="h-56 w-56 rounded bg-white p-2 shadow-sm" src={src} />
+				<img alt="登录二维码" className="h-56 w-56 rounded bg-white p-2 shadow-bn-card" src={src} />
 			) : (
-				<div className="flex h-56 w-56 items-center justify-center rounded bg-white text-sm text-gray-400">
+				<div className="flex h-56 w-56 items-center justify-center rounded bg-white text-sm text-bn-text-tertiary">
 					二维码加载中…
 				</div>
 			)}
-			<div className="text-sm text-amber-800">使用 Bilibili 手机客户端扫码登录</div>
-			{msg ? <div className="text-xs text-amber-700">{msg}</div> : null}
+			<div className="text-[12.5px] text-bn-text-secondary">使用 Bilibili 手机客户端扫码登录</div>
+			{msg ? <div className="text-[11px] text-bn-text-tertiary">{msg}</div> : null}
 		</div>
 	);
 }
@@ -267,6 +263,17 @@ export default function System() {
 	const status: BiliLoginStatusValue = snapshot?.status ?? BiliLoginStatus.LOADING_LOGIN_INFO;
 	const msg = snapshot?.msg ?? "";
 	const isQrPhase = status === BiliLoginStatus.LOGIN_QR || status === BiliLoginStatus.LOGGING_QR;
+	const loggedIn = status === BiliLoginStatus.LOGGED_IN;
+	// 与 header AccountChip 同一数据源:snapshot.data.card = { mid, name, face }。
+	const card = loggedIn
+		? (snapshot?.data as { card?: { mid?: string; name?: string; face?: string } } | undefined)
+				?.card
+		: undefined;
+	const accountName = card?.name;
+	const accountFace = card?.face;
+	// msg 仅在与状态文案不同、且非登录失败(失败原因已在红框里)时,作小字注脚。
+	const extraMsg =
+		msg && msg !== STATUS_LABELS[status] && status !== BiliLoginStatus.LOGIN_FAILED ? msg : "";
 
 	const globalsQuery = useQuery({
 		queryKey: ["globals"],
@@ -366,69 +373,90 @@ export default function System() {
 
 	return (
 		<div className="bn-anim-fade-in space-y-5">
-			<div className="flex items-center justify-between">
-				<div className="space-y-1">
-					<h2 className="text-base font-medium">系统</h2>
-					<p className="text-xs text-gray-500">
-						账号登录 + 后端运行参数。Cookie 与日志等级均在保存后实时生效。
-					</p>
-				</div>
-				<StatusPill status={status} msg={msg} />
-			</div>
-
-			{actionError ? (
-				<div className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">
-					操作失败：{actionError}
-				</div>
-			) : null}
-
-			{isQrPhase ? <QrCard data={snapshot?.data} msg={msg} /> : null}
-
-			{status === BiliLoginStatus.LOGGED_IN ? (
-				<div className="space-y-3 rounded-lg border border-emerald-200 bg-emerald-50 p-5">
-					<div className="text-sm text-emerald-900">
-						账号已登录，业务核心可正常拉取动态 / 直播 / WBI 签名。
-					</div>
-					{cookiesRefreshedAt ? (
-						<div className="text-xs text-emerald-800">
-							最近一次 Cookie 刷新：{new Date(cookiesRefreshedAt).toLocaleString()}
+			<GlassBox
+				title="账号 · auth"
+				subtitle="B 站账号登录 + Cookie / 会话 · 扫码后实时生效"
+				accent={STATUS_ACCENT[status]}
+				icon={<Icon.user size={14} />}
+				badge={STATUS_LABELS[status]}
+			>
+				{loggedIn ? (
+					<div className="flex items-center gap-3.5">
+						<Avatar
+							name={accountName ?? "B"}
+							color={STATUS_ACCENT[BiliLoginStatus.LOGGED_IN]}
+							size={48}
+							url={accountFace}
+						/>
+						<div className="min-w-0 flex-1">
+							<div className="flex items-center gap-2">
+								<span className="truncate text-[14px] font-bold text-bn-text-primary">
+									{accountName ?? "已登录账号"}
+								</span>
+								<Pill color={STATUS_ACCENT[BiliLoginStatus.LOGGED_IN]} subtle size="sm">
+									已登录
+								</Pill>
+							</div>
+							<div className="mt-0.5 text-[11.5px] text-bn-text-secondary">
+								业务核心可正常拉取动态 / 直播 / WBI 签名
+							</div>
+							{cookiesRefreshedAt ? (
+								<div className="mt-0.5 text-[10.5px] text-bn-text-tertiary">
+									最近 Cookie 刷新：{new Date(cookiesRefreshedAt).toLocaleString()}
+								</div>
+							) : null}
 						</div>
-					) : null}
-				</div>
-			) : null}
+					</div>
+				) : isQrPhase ? (
+					<QrCard data={snapshot?.data} msg={msg} />
+				) : (
+					<div className="text-[12px] text-bn-text-secondary">
+						{status === BiliLoginStatus.NOT_LOGIN
+							? "尚未登录 B 站账号,点下方「发起扫码登录」开始。"
+							: STATUS_LABELS[status]}
+					</div>
+				)}
 
-			{status === BiliLoginStatus.LOGIN_FAILED ? (
-				<div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
-					{msg || "登录失败，可重试。"}
-				</div>
-			) : null}
+				{extraMsg ? <div className="mt-2 text-[11px] text-amber-600">{extraMsg}</div> : null}
 
-			<div className="flex flex-wrap gap-2">
-				<Btn
-					variant="primary"
-					disabled={startQr.isPending || isQrPhase || status === BiliLoginStatus.LOGGED_IN}
-					onClick={() => startQr.mutate()}
-				>
-					{startQr.isPending ? "处理中…" : "发起扫码登录"}
-				</Btn>
-				<Btn
-					variant="outline"
-					disabled={refresh.isPending || status !== BiliLoginStatus.LOGGED_IN}
-					onClick={() => refresh.mutate()}
-				>
-					{refresh.isPending ? "处理中…" : "刷新 Cookie"}
-				</Btn>
-				<Btn
-					variant="danger"
-					disabled={logout.isPending || status !== BiliLoginStatus.LOGGED_IN}
-					onClick={() => logout.mutate()}
-				>
-					{logout.isPending ? "处理中…" : "退出登录"}
-				</Btn>
-				<Btn variant="danger" disabled={reset.isPending} onClick={() => reset.mutate()}>
-					{reset.isPending ? "处理中…" : "重置密钥与 Cookie"}
-				</Btn>
-			</div>
+				{status === BiliLoginStatus.LOGIN_FAILED ? (
+					<div className="mt-2.5 rounded border border-red-200 bg-red-50 p-2.5 text-xs text-red-700">
+						{msg || "登录失败，可重试。"}
+					</div>
+				) : null}
+				{actionError ? (
+					<div className="mt-2.5 rounded border border-red-200 bg-red-50 p-2.5 text-xs text-red-700">
+						操作失败：{actionError}
+					</div>
+				) : null}
+
+				<div className="mt-3.5 flex flex-wrap gap-2 border-t border-black/5 pt-3">
+					<Btn
+						variant="primary"
+						disabled={startQr.isPending || isQrPhase || loggedIn}
+						onClick={() => startQr.mutate()}
+					>
+						{startQr.isPending ? "处理中…" : "发起扫码登录"}
+					</Btn>
+					<Btn
+						variant="outline"
+						disabled={refresh.isPending || !loggedIn}
+						onClick={() => refresh.mutate()}
+					>
+						{refresh.isPending ? "处理中…" : "刷新 Cookie"}
+					</Btn>
+					<Btn
+						variant="danger"
+						disabled={logout.isPending || !loggedIn}
+						onClick={() => logout.mutate()}
+					>
+						{logout.isPending ? "处理中…" : "退出登录"}
+					</Btn>
+					<Btn variant="danger" disabled={reset.isPending} onClick={() => reset.mutate()}>
+						{reset.isPending ? "处理中…" : "重置密钥与 Cookie"}
+					</Btn>
+				</div>
+			</GlassBox>
 
 			{draft ? (
 				<>
