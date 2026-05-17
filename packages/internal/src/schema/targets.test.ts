@@ -161,8 +161,9 @@ describe("PushTargetSchema (discriminated by platform)", () => {
 		expect(r.success).toBe(false);
 	});
 
-	it("ignores extraneous session keys (zod is non-strict by default; only structural required keys matter)", () => {
-		// Onebot session has only optional groupId/userId; extra keys are tolerated.
+	it("rejects extraneous onebot session keys (P2: .strict() 让配置拼写错保存期暴露)", () => {
+		// session.strict() 后,`gruopId` 之类拼写错(多余键)即报错,
+		// 不再静默吞掉导致 target 无可投递地址却校验通过。
 		const r = PushTargetSchema.safeParse({
 			id: UUID_B,
 			name: "ok",
@@ -172,6 +173,6 @@ describe("PushTargetSchema (discriminated by platform)", () => {
 			enabled: true,
 			session: { groupId: "1", extraneous: "ignored" },
 		});
-		expect(r.success).toBe(true);
+		expect(r.success).toBe(false);
 	});
 });

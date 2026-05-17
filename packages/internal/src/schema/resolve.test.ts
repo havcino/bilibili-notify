@@ -147,4 +147,24 @@ describe("resolve()", () => {
 		// 未被 override 覆盖的 dynamicPrompt 仍取 preset —— 既有语义不回归。
 		expect(eff.ai.dynamicPrompt).toBe("P 模板");
 	});
+
+	// 回归守护 — P2:resolve() 必须深隔离,消费方就地改不得污染 defaults / sub。
+	describe("深隔离 (P2)", () => {
+		it("改 EffectiveSubscription 的嵌套数组/对象不污染 globals.defaults", () => {
+			const globals = makeDefaultGlobalConfig();
+			const eff = resolve(SUB_BASE, globals.defaults);
+			eff.filters.blockKeywords.push("x");
+			eff.features.live = !eff.features.live;
+			eff.ai.persona.name = "MUT";
+			expect(globals.defaults.filters.blockKeywords).not.toContain("x");
+			expect(globals.defaults.ai.persona.name).not.toBe("MUT");
+		});
+
+		it("改 EffectiveSubscription.routing 不污染原始 sub", () => {
+			const globals = makeDefaultGlobalConfig();
+			const eff = resolve(SUB_BASE, globals.defaults);
+			eff.routing.dynamic.push("550e8400-e29b-41d4-a716-446655440000");
+			expect(SUB_BASE.routing.dynamic).toHaveLength(0);
+		});
+	});
 });

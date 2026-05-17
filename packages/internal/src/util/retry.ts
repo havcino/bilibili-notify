@@ -37,10 +37,12 @@ export async function retry<T>(
 	fn: (attempt: number) => Promise<T>,
 	opts: RetryOptions = {},
 ): Promise<T> {
-	const attempts = opts.attempts ?? 3;
-	const baseDelay = opts.baseDelayMs ?? 200;
-	const factor = opts.factor ?? 2;
-	const maxDelay = opts.maxDelayMs ?? 30_000;
+	// P2:范围归一。此前 attempts<=0 → for 循环一次不跑 → throw lastErr(此时
+	// 为 undefined),调用方收到 `throw undefined` 极难定位。其余项防呆同理。
+	const attempts = Math.max(1, Math.floor(opts.attempts ?? 3));
+	const baseDelay = Math.max(0, opts.baseDelayMs ?? 200);
+	const factor = Math.max(1, opts.factor ?? 2);
+	const maxDelay = Math.max(0, opts.maxDelayMs ?? 30_000);
 
 	let lastErr: unknown;
 	for (let i = 1; i <= attempts; i++) {
@@ -56,5 +58,8 @@ export async function retry<T>(
 			await sleep(delay, opts.signal);
 		}
 	}
+	// P2:末次尝试失败后,若期间已 abort,应抛 abort 原因而非 fn 错误 ——
+	// 调用方据 abort 分辨"被取消"vs"真失败"。此前直接 throw lastErr 丢了语义。
+	opts.signal?.throwIfAborted?.();
 	throw lastErr;
 }

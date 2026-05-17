@@ -48,7 +48,9 @@ export type CachedProfile = z.infer<typeof CachedProfileSchema>;
  * 特别关注用户：进房 / 弹幕 触发自定义模板推送。
  */
 export const SpecialUserSchema = z.object({
-	uid: z.string(),
+	// P2:与 Subscription.uid 同约束 —— 此前裸 z.string() 放任非数字脏值,
+	// 进入 includes(uid.toString()) 比对永不命中,特别关注静默失效无报错。
+	uid: z.string().regex(/^\d+$/, "uid must be a numeric Bilibili UID string"),
 	kinds: z.array(z.enum(["enter", "danmaku"])).min(1),
 	template: z.string().optional(),
 });

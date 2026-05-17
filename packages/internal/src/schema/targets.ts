@@ -115,10 +115,15 @@ export type PushAdapter = z.infer<typeof PushAdapterSchema>;
 /* Target (session-level) — references an adapter                             */
 /* -------------------------------------------------------------------------- */
 
-export const OnebotSessionSchema = z.object({
-	groupId: z.string().optional(),
-	userId: z.string().optional(),
-});
+// P2:.strict() —— 对齐已 strict 的 webhook / web-dashboard session。此前
+// non-strict 放任 `gruopId` 之类拼写错被静默忽略,target 无可投递地址却校验
+// 通过、推送悄悄丢。多收一个未知键即报错,让配置拼写错在保存期就暴露。
+export const OnebotSessionSchema = z
+	.object({
+		groupId: z.string().optional(),
+		userId: z.string().optional(),
+	})
+	.strict();
 export type OnebotSession = z.infer<typeof OnebotSessionSchema>;
 
 export const WebhookSessionSchema = z.object({}).strict();
@@ -129,11 +134,13 @@ export type WebhookSession = z.infer<typeof WebhookSessionSchema>;
 export const WebDashboardSessionSchema = z.object({}).strict();
 export type WebDashboardSession = z.infer<typeof WebDashboardSessionSchema>;
 
-export const KoishiBotSessionSchema = z.object({
-	channelId: z.string().optional(),
-	guildId: z.string().optional(),
-	userId: z.string().optional(),
-});
+export const KoishiBotSessionSchema = z
+	.object({
+		channelId: z.string().optional(),
+		guildId: z.string().optional(),
+		userId: z.string().optional(),
+	})
+	.strict();
 export type KoishiBotSession = z.infer<typeof KoishiBotSessionSchema>;
 
 const PushTargetCommonShape = {

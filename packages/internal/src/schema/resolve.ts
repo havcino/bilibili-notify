@@ -98,7 +98,11 @@ function resolveAI(globals: AISettings, override: AIOverride | undefined): Resol
 /** 把 (Subscription, GlobalDefaults) 折叠为业务可直接消费的 EffectiveSubscription。 */
 export function resolve(sub: Subscription, defaults: GlobalDefaults): EffectiveSubscription {
 	const ov = sub.overrides;
-	return {
+	// P2:merge() 在 override 缺失时直接返回 base 引用,且 {...base} 仅浅拷贝 ——
+	// routing/atAll/specialUsers/state 又是 sub 的直接引用,filters.blockKeywords
+	// 等嵌套数组与 defaults 共享。任一消费方就地改 EffectiveSubscription 即污染
+	// 全局默认 / 原始 sub。structuredClone 整体深隔离(schema 全为纯数据,无函数)。
+	return structuredClone<EffectiveSubscription>({
 		id: sub.id,
 		uid: sub.uid,
 		enabled: sub.enabled,
@@ -117,7 +121,7 @@ export function resolve(sub: Subscription, defaults: GlobalDefaults): EffectiveS
 		templates: merge(defaults.templates, ov.templates),
 		ai: resolveAI(defaults.ai, ov.ai),
 		cardStyle: merge(defaults.cardStyle, ov.cardStyle),
-	};
+	});
 }
 
 /** 批量折叠。 */

@@ -112,9 +112,32 @@ describe("retry — AbortSignal", () => {
 			ctrl.abort(reason);
 			throw new Error("transient");
 		});
-		await expect(
-			retry(fn, { attempts: 3, baseDelayMs: 1000, signal: ctrl.signal }),
-		).rejects.toBe(reason);
+		await expect(retry(fn, { attempts: 3, baseDelayMs: 1000, signal: ctrl.signal })).rejects.toBe(
+			reason,
+		);
 		expect(fn).toHaveBeenCalledTimes(1);
+	});
+
+	// 回归守护 — P2:选项范围归一 + 末次失败后 abort 优先。
+	describe("选项防呆 / 末次 abort (P2)", () => {
+		it("attempts<=0 归一为 1:跑一次,失败抛真实错误(不再 throw undefined)", async () => {
+			const err = new Error("boom");
+			const fn = vi.fn(async () => {
+				throw err;
+			});
+			await expect(retry(fn, { attempts: 0 })).rejects.toBe(err);
+			expect(fn).toHaveBeenCalledTimes(1);
+		});
+
+		it("末次尝试失败但其间已 abort → 抛 abort 原因而非 fn 错误", async () => {
+			const ctrl = new AbortController();
+			const reason = new Error("aborted-last");
+			const fn = vi.fn(async () => {
+				ctrl.abort(reason);
+				throw new Error("transient-last");
+			});
+			await expect(retry(fn, { attempts: 1, signal: ctrl.signal })).rejects.toBe(reason);
+			expect(fn).toHaveBeenCalledTimes(1);
+		});
 	});
 });
