@@ -144,6 +144,167 @@ describe("buildAdvancedSubAndTargets()", () => {
 	});
 });
 
+describe("customFilters / customSchedule enable 门(分组收口 + 继承修正)", () => {
+	function withGroups(extra: {
+		customFilters?: Record<string, unknown>;
+		customSchedule?: Record<string, unknown>;
+	}): AdvancedSubRawConfigShape {
+		return {
+			subs: { "UP-1": { ...makeRaw("11", "111111"), ...extra } },
+		} as unknown as AdvancedSubRawConfigShape;
+	}
+
+	it("两组缺省 → 不写 overrides.filters / schedule(纯继承全局,修掉旧版无条件过度覆盖)", () => {
+		const { subs } = buildAdvancedSubAndTargets(withGroups({}));
+		expect(subs[0].overrides.filters).toBeUndefined();
+		expect(subs[0].overrides.schedule).toBeUndefined();
+	});
+
+	it("customFilters.enable=false → 即便带字段也整组跳过", () => {
+		const { subs } = buildAdvancedSubAndTargets(
+			withGroups({ customFilters: { enable: false, blockForward: true, minScPrice: 50 } }),
+		);
+		expect(subs[0].overrides.filters).toBeUndefined();
+	});
+
+	it("customFilters.enable=true → 数组空继承、标量显式;部分字段 partial 写入", () => {
+		const { subs } = buildAdvancedSubAndTargets(
+			withGroups({
+				customFilters: {
+					enable: true,
+					blockForward: true,
+					blockArticle: false,
+					blockKeywords: ["spam"],
+					blockRegex: [],
+					whitelistKeywords: [],
+					whitelistRegex: [],
+					minScPrice: 30,
+					minGuardLevel: 2,
+				},
+			}),
+		);
+		expect(subs[0].overrides.filters).toEqual({
+			blockForward: true,
+			blockArticle: false,
+			blockKeywords: ["spam"],
+			minScPrice: 30,
+			minGuardLevel: 2,
+		});
+		// 空数组项不写 → 继承全局
+		expect(subs[0].overrides.filters?.blockRegex).toBeUndefined();
+		expect(subs[0].overrides.filters?.whitelistKeywords).toBeUndefined();
+	});
+
+	it("customSchedule.enable=false → 不写 overrides.schedule", () => {
+		const { subs } = buildAdvancedSubAndTargets(
+			withGroups({ customSchedule: { enable: false, pushTime: 6, restartPush: true } }),
+		);
+		expect(subs[0].overrides.schedule).toBeUndefined();
+	});
+
+	it("customSchedule.enable=true → quietHours/pushTime/restartPush 进 overrides.schedule", () => {
+		const { subs } = buildAdvancedSubAndTargets(
+			withGroups({
+				customSchedule: {
+					enable: true,
+					quietHours: [{ start: 1, end: 7 }],
+					pushTime: 6,
+					restartPush: true,
+				},
+			}),
+		);
+		expect(subs[0].overrides.schedule).toEqual({
+			quietHours: [{ start: 1, end: 7 }],
+			pushTime: 6,
+			restartPush: true,
+		});
+	});
+
+	it("customSchedule.enable=true 但 quietHours 空 → 仅写 pushTime/restartPush", () => {
+		const { subs } = buildAdvancedSubAndTargets(
+			withGroups({
+				customSchedule: { enable: true, quietHours: [], pushTime: 0, restartPush: false },
+			}),
+		);
+		expect(subs[0].overrides.schedule).toEqual({ pushTime: 0, restartPush: false });
+	});
+
+	it("customFilters.enable=true 但所有字段缺省 → overrides.filters 仍 undefined(无空对象写入)", () => {
+		// 任务点:enable 开但没填任何字段时,filterOverrides 为空对象,
+		// Object.keys().length === 0 守卫必须让 overrides.filters 保持 undefined,
+		// 否则 resolve 时会写一个空 override(虽 merge 行为等价,但 store 幂等
+		// stableStringify 会因多一个 {} 字段产生噪声 diff)。
+		const { subs } = buildAdvancedSubAndTargets(withGroups({ customFilters: { enable: true } }));
+		expect(subs[0].overrides.filters).toBeUndefined();
+	});
+
+	it("customSchedule.enable=true 但三字段全缺省 → overrides.schedule 仍 undefined", () => {
+		const { subs } = buildAdvancedSubAndTargets(withGroups({ customSchedule: { enable: true } }));
+		expect(subs[0].overrides.schedule).toBeUndefined();
+	});
+
+	it("混合:customFilters 开 + customSchedule 关 → 只写 filters,schedule 纯继承", () => {
+		const { subs } = buildAdvancedSubAndTargets(
+			withGroups({
+				customFilters: { enable: true, blockForward: true },
+				customSchedule: { enable: false, pushTime: 9, restartPush: true },
+			}),
+		);
+		expect(subs[0].overrides.filters).toEqual({ blockForward: true });
+		expect(subs[0].overrides.schedule).toBeUndefined();
+	});
+
+	it("混合:customFilters 关 + customSchedule 开 → 只写 schedule,filters 纯继承", () => {
+		const { subs } = buildAdvancedSubAndTargets(
+			withGroups({
+				customFilters: { enable: false, blockKeywords: ["x"], minScPrice: 99 },
+				customSchedule: { enable: true, pushTime: 4 },
+			}),
+		);
+		expect(subs[0].overrides.filters).toBeUndefined();
+		expect(subs[0].overrides.schedule).toEqual({ pushTime: 4 });
+	});
+
+	it("customSchedule.enable=true:仅 quietHours(无 pushTime/restartPush)→ 序列化 spread 不丢字段", () => {
+		// 守卫三段独立 if-spread(quietHours→pushTime→restartPush)的合并次序:
+		// 只有 quietHours 命中时,后两段 !== undefined 守卫跳过,overrides.schedule
+		// 必须恰为 { quietHours },不能因为缺省被空对象覆盖或丢键。
+		const { subs } = buildAdvancedSubAndTargets(
+			withGroups({ customSchedule: { enable: true, quietHours: [{ start: 22, end: 6 }] } }),
+		);
+		expect(subs[0].overrides.schedule).toEqual({ quietHours: [{ start: 22, end: 6 }] });
+	});
+
+	it("customSchedule.enable=true:quietHours + restartPush 但无 pushTime → 两字段都保留", () => {
+		// 中间段(pushTime)被跳过时,第三段(restartPush)仍要 spread 住第一段
+		// 写入的 quietHours,验证 `...(sub.overrides.schedule ?? {})` 链式不丢前序键。
+		const { subs } = buildAdvancedSubAndTargets(
+			withGroups({
+				customSchedule: { enable: true, quietHours: [{ start: 1, end: 5 }], restartPush: true },
+			}),
+		);
+		expect(subs[0].overrides.schedule).toEqual({
+			quietHours: [{ start: 1, end: 5 }],
+			restartPush: true,
+		});
+	});
+
+	it("customFilters.enable=true:标量 false/0 仍显式写(区别于继承)", () => {
+		// blockForward:false / minScPrice:0 是用户「明确要关/不设门槛」的语义,
+		// 必须显式进 overrides(!== undefined 守卫),不能被当成「缺省=继承」。
+		const { subs } = buildAdvancedSubAndTargets(
+			withGroups({
+				customFilters: { enable: true, blockForward: false, minScPrice: 0, minGuardLevel: 1 },
+			}),
+		);
+		expect(subs[0].overrides.filters).toEqual({
+			blockForward: false,
+			minScPrice: 0,
+			minGuardLevel: 1,
+		});
+	});
+});
+
 // shim to keep the test typing-light without importing the schemastery type
 type AdvancedSubRawShim = {
 	subs: Record<string, ReturnType<typeof makeRaw>>;

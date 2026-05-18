@@ -49,20 +49,26 @@ export type SubItemRawConfig = MasterFlagMap & {
 	roomId: string;
 	dynamicAtAll?: boolean;
 	liveAtAll?: boolean;
-	/** per-UP 免打扰时段;覆盖全局 quietHours。留空/undefined = 继承全局。 */
-	quietHours?: Array<{ start: number; end: number }>;
-	// ---- per-UP filters/schedule overrides ----
-	blockForward?: boolean;
-	blockArticle?: boolean;
-	blockKeywords?: string[];
-	blockRegex?: string[];
-	whitelistKeywords?: string[];
-	whitelistRegex?: string[];
-	minScPrice?: number;
-	minGuardLevel?: 1 | 2 | 3;
-	pushTime?: number;
-	restartPush?: boolean;
 	target: TargetConfig[];
+	/** per-UP 内容过滤(覆盖 globals.defaults.filters)。enable=false → 整组不生效,纯继承全局。 */
+	customFilters?: {
+		enable: boolean;
+		blockForward?: boolean;
+		blockArticle?: boolean;
+		blockKeywords?: string[];
+		blockRegex?: string[];
+		whitelistKeywords?: string[];
+		whitelistRegex?: string[];
+		minScPrice?: number;
+		minGuardLevel?: 1 | 2 | 3;
+	};
+	/** per-UP 调度(覆盖 globals.defaults.schedule)。enable=false → 整组不生效,纯继承全局。 */
+	customSchedule?: {
+		enable: boolean;
+		quietHours?: Array<{ start: number; end: number }>;
+		pushTime?: number;
+		restartPush?: boolean;
+	};
 	customLiveSummary: { enable: boolean; liveSummary?: string[] };
 	customLiveMsg: {
 		enable: boolean;
@@ -218,58 +224,64 @@ export function rawConfigToSubscription(_name: string, raw: SubItemRawConfig): C
 		sub.overrides.features = featureOverrides;
 	}
 
-	// UP 级 quietHours → sub.overrides.schedule.quietHours。
-	// 用户在 advanced-subscription 配 per-UP quietHours 即可覆盖全局;留空 / undefined
-	// 则不写 override → resolve 时 fallback 到 globals.schedule.quietHours(koishi config
-	// 顶层 quietHours)。
-	if (raw.quietHours && raw.quietHours.length > 0) {
-		sub.overrides.schedule = {
-			...(sub.overrides.schedule ?? {}),
-			quietHours: raw.quietHours,
-		};
+	// ---- per-UP filters override(收口在 customFilters.enable 门后) ----
+	// enable=false → 整组跳过不写 → resolve 时纯继承 globals.defaults.filters。
+	// 这修掉旧版 blockForward 等 .default(false) 致 `!== undefined` 恒真、每个 UP
+	// 无条件写满 overrides.filters 的潜伏过度覆盖。enable=true 时沿用既有 per-field
+	// 策略:数组类 length>0 才写(空 = 该项继承全局);boolean/number 显式写。
+	const cf = raw.customFilters;
+	if (cf?.enable) {
+		const filterOverrides: Partial<{
+			blockForward: boolean;
+			blockArticle: boolean;
+			blockKeywords: string[];
+			blockRegex: string[];
+			whitelistKeywords: string[];
+			whitelistRegex: string[];
+			minScPrice: number;
+			minGuardLevel: 1 | 2 | 3;
+		}> = {};
+		if (cf.blockForward !== undefined) filterOverrides.blockForward = cf.blockForward;
+		if (cf.blockArticle !== undefined) filterOverrides.blockArticle = cf.blockArticle;
+		if (cf.blockKeywords && cf.blockKeywords.length > 0)
+			filterOverrides.blockKeywords = cf.blockKeywords;
+		if (cf.blockRegex && cf.blockRegex.length > 0) filterOverrides.blockRegex = cf.blockRegex;
+		if (cf.whitelistKeywords && cf.whitelistKeywords.length > 0)
+			filterOverrides.whitelistKeywords = cf.whitelistKeywords;
+		if (cf.whitelistRegex && cf.whitelistRegex.length > 0)
+			filterOverrides.whitelistRegex = cf.whitelistRegex;
+		if (cf.minScPrice !== undefined) filterOverrides.minScPrice = cf.minScPrice;
+		if (cf.minGuardLevel !== undefined) filterOverrides.minGuardLevel = cf.minGuardLevel;
+		if (Object.keys(filterOverrides).length > 0) {
+			sub.overrides.filters = filterOverrides;
+		}
 	}
 
-	// ---- per-UP filters override ----
-	// 策略:数组类(blockKeywords/...)length>0 才写(空 = 继承全局);
-	// boolean / number 类总是写(显式值 — 包括 false / 0 都是有意义的选择)。
-	// 用 partial 模式,只写真正出现在 raw 上的字段(undefined 跳过,不污染未配置项)。
-	const filterOverrides: Partial<{
-		blockForward: boolean;
-		blockArticle: boolean;
-		blockKeywords: string[];
-		blockRegex: string[];
-		whitelistKeywords: string[];
-		whitelistRegex: string[];
-		minScPrice: number;
-		minGuardLevel: 1 | 2 | 3;
-	}> = {};
-	if (raw.blockForward !== undefined) filterOverrides.blockForward = raw.blockForward;
-	if (raw.blockArticle !== undefined) filterOverrides.blockArticle = raw.blockArticle;
-	if (raw.blockKeywords && raw.blockKeywords.length > 0)
-		filterOverrides.blockKeywords = raw.blockKeywords;
-	if (raw.blockRegex && raw.blockRegex.length > 0) filterOverrides.blockRegex = raw.blockRegex;
-	if (raw.whitelistKeywords && raw.whitelistKeywords.length > 0)
-		filterOverrides.whitelistKeywords = raw.whitelistKeywords;
-	if (raw.whitelistRegex && raw.whitelistRegex.length > 0)
-		filterOverrides.whitelistRegex = raw.whitelistRegex;
-	if (raw.minScPrice !== undefined) filterOverrides.minScPrice = raw.minScPrice;
-	if (raw.minGuardLevel !== undefined) filterOverrides.minGuardLevel = raw.minGuardLevel;
-	if (Object.keys(filterOverrides).length > 0) {
-		sub.overrides.filters = filterOverrides;
-	}
-
-	// ---- per-UP schedule override (pushTime / restartPush) ----
-	if (raw.pushTime !== undefined) {
-		sub.overrides.schedule = {
-			...(sub.overrides.schedule ?? {}),
-			pushTime: raw.pushTime,
-		};
-	}
-	if (raw.restartPush !== undefined) {
-		sub.overrides.schedule = {
-			...(sub.overrides.schedule ?? {}),
-			restartPush: raw.restartPush,
-		};
+	// ---- per-UP schedule override(quietHours / pushTime / restartPush,
+	// 收口在 customSchedule.enable 门后) ----
+	// enable=false → 不写 overrides.schedule → resolve 时纯继承 globals.defaults
+	// .schedule(含全局 quietHours)。enable=true 时:quietHours length>0 才写;
+	// pushTime / restartPush 走 koishi schema default,显式写。
+	const cs = raw.customSchedule;
+	if (cs?.enable) {
+		if (cs.quietHours && cs.quietHours.length > 0) {
+			sub.overrides.schedule = {
+				...(sub.overrides.schedule ?? {}),
+				quietHours: cs.quietHours,
+			};
+		}
+		if (cs.pushTime !== undefined) {
+			sub.overrides.schedule = {
+				...(sub.overrides.schedule ?? {}),
+				pushTime: cs.pushTime,
+			};
+		}
+		if (cs.restartPush !== undefined) {
+			sub.overrides.schedule = {
+				...(sub.overrides.schedule ?? {}),
+				restartPush: cs.restartPush,
+			};
+		}
 	}
 
 	// UP 级 @全体 默认。Schema 给了 default(false / true),所以 raw.X 不会是 undefined,
