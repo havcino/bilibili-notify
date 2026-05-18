@@ -226,6 +226,9 @@ describe("createEngines — boot wiring", () => {
 		expect(H.image).toHaveLength(0);
 		// 启动期把 userAgent 推到 BilibiliAPI 一次。
 		expect(c.api.setUserAgent).toHaveBeenCalledTimes(1);
+		// boot 时 base logger 立即对齐 globals.app.logLevel(不等首次 dashboard 保存)。
+		expect(c.serviceCtx.setLevel).toHaveBeenCalledTimes(1);
+		expect(c.serviceCtx.setLevel).toHaveBeenCalledWith("info");
 	});
 
 	it("apiKey+baseUrl 齐备:启动即构造 CommentaryGenerator 并 start", () => {
@@ -255,7 +258,8 @@ describe("createEngines — config-changed globals 热重载", () => {
 
 		expect(H.dynamic[0].updateConfig).toHaveBeenCalledTimes(1);
 		expect(H.live[0].updateConfig).toHaveBeenCalledTimes(1);
-		expect(c.serviceCtx.setLevel).toHaveBeenCalledTimes(1);
+		// boot 1 次 + globals 1 次 = 2。
+		expect(c.serviceCtx.setLevel).toHaveBeenCalledTimes(2);
 		// boot 1 次 + globals 1 次 = 2。
 		expect(c.api.setUserAgent).toHaveBeenCalledTimes(2);
 		expect(c.loginFlow.setHealthCheckMs).toHaveBeenCalledWith(45 * 60_000);

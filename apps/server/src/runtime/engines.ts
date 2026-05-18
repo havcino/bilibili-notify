@@ -147,6 +147,15 @@ export function createEngines(opts: CreateEnginesOptions): EnginesRuntime {
 	const imageCtx = opts.serviceCtx.forSubsystem("image", resolveLevel(initialGlobals, "image"));
 	const globals = (): GlobalConfig => opts.configStore.getGlobals();
 
+	// Base logger boot reconcile. bootstrap.logLevel (BN_LOG_LEVEL / --log-level
+	// / bn.config logLevel) only governs the pre-engines early window (config
+	// load + bootstrap, before globals.json is applied). From engines-up onward
+	// globals.app.logLevel is the single authority — apply it once here so the
+	// base logger matches the subsystem ctxs above and does NOT wait for the
+	// first config-changed (dashboard save). Mirrors the change-path apply in
+	// the config-changed handler below.
+	opts.serviceCtx.setLevel(initialGlobals.app.logLevel);
+
 	// 启动期把 app.userAgent 推到 BilibiliAPI(auth/index.ts 构造时未填,这里补)。
 	// config-changed 路径下方也会再次调用,变更立即生效。
 	opts.api.setUserAgent(globals().app.userAgent);

@@ -87,7 +87,7 @@ docker run -d \
 | `BN_DATA_DIR` | `/data` | runtime state — declared as a volume |
 | `BN_CHROME_PATH` | `/usr/bin/chromium` | apt-installed chromium for puppeteer-core preview |
 | `BN_WEB_DIST` | `/app/web-dist` | built dashboard served by Hono at `/` |
-| `BN_LOG_LEVEL` | (unset → `info`) | `fatal` \| `error` \| `warn` \| `info` \| `debug` \| `trace` \| `silent` |
+| `BN_LOG_LEVEL` | (unset → `info`) | `fatal` \| `error` \| `warn` \| `info` \| `debug` \| `trace` \| `silent`. Governs only the early-boot / infra window (config load + bootstrap, before `globals.json` is applied) — from engines-up onward the steady-state authority is the dashboard's `globals.app.logLevel` (`error` \| `info` \| `debug`), which overrides this. Use it for boot/infra troubleshooting or when `globals.json` is unreadable. |
 | `BN_DASHBOARD_USER` / `BN_DASHBOARD_PASS` | (unset → no auth, warn) | basic-auth for `/api/*` |
 | `BN_COOKIE_KEY` | (unset → auto-generated under `/data/secrets`) | bilibili cookie encryption key |
 | `BN_CONFIG` | (unset) | absolute or cwd-relative path to the bootstrap yaml/json |
