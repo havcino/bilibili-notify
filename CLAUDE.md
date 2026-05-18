@@ -197,7 +197,7 @@ The standalone end uses a separate React + Vite dashboard under `apps/web/`; the
 Two sub-packages share the root pnpm workspace:
 
 - `apps/server` — Hono HTTP + WS gateway. Single tsdown bundle to `apps/server/lib/index.mjs`.
-- `apps/web` — Vite + React 18 + Tailwind 4 + tanstack-query + zustand + react-router-dom. Charts (StatsBar / Donut) are hand-drawn SVG, no chart library. Served as static assets by `apps/server` in prod; `vp run dev:web` for the Vite dev server in dev.
+- `apps/web` — Vite + React 19 + Tailwind 4 + tanstack-query + zustand + react-router-dom. Charts (StatsBar / Donut) are hand-drawn SVG, no chart library. Served as static assets by `apps/server` in prod; `vp run dev:web` for the Vite dev server in dev.
 
 ### apps/server module map
 
