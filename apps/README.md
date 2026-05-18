@@ -6,7 +6,7 @@ Hono HTTP server + React dashboard. The Koishi sub-plugins under `koishi/` remai
 
 ```
 apps/
-  server/                    # Hono + Node 20 backend (@bilibili-notify/server)
+  server/                    # Hono + Node 24 backend (@bilibili-notify/server)
   web/                       # React + Vite dashboard (@bilibili-notify/web)
   Dockerfile                 # multi-stage; build context = repo root
   docker-compose.example.yaml

@@ -279,7 +279,7 @@ Earlier plan iterations described splitting `koishi/` and `standalone/` into sep
 
 ### Docker image (standalone)
 
-`apps/Dockerfile` (multi-stage: builder runs `pnpm install` + `pnpm -r run build` over the whole monorepo → runtime is `node:20-bookworm-slim` + chromium + tini, carrying only built artifacts + prod deps).
+`apps/Dockerfile` (multi-stage: builder runs `pnpm install` + `pnpm -r run build` over the whole monorepo → runtime is `node:24-bookworm-slim` + chromium + tini, carrying only built artifacts + prod deps). The builder deliberately uses **corepack-provisioned pnpm, not vp** — an intentional, documented exception to the repo's vp-everywhere toolchain, mirroring the `publish.yml` corepack carve-out (corepack ships free in the node base image; vp has no Docker bootstrap action like setup-vp; both resolve the same pinned pnpm so artifacts are byte-identical). Don't "fix" it to vp without re-evaluating the bootstrap cost.
 
 **Build context MUST be the repo root, not `apps/`** — apps/server depends on `packages/*` via the pnpm `workspace:*` protocol, so `apps/` alone can't resolve them. Manual build from the repo root:
 

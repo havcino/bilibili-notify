@@ -13,18 +13,27 @@
 # or via compose (apps/docker-compose.example.yaml).
 #
 # Plan deviates from the original "distroless runtime" idea — puppeteer-core
-# requires a Chromium binary, which distroless does not ship. node:20-bookworm-slim
+# requires a Chromium binary, which distroless does not ship. node:24-bookworm-slim
 # + apt chromium is the smallest realistic base.
 
-ARG NODE_VERSION=20
+ARG NODE_VERSION=24
 
 # ---- builder ----------------------------------------------------------------
 
 FROM node:${NODE_VERSION}-bookworm-slim AS builder
 
 # git for any package that fetches via git-https; python3/make/g++ for native
-# deps that fall back to building from source. corepack provisions pnpm 10
-# from the `packageManager` field in the root package.json.
+# deps that fall back to building from source.
+#
+# Toolchain note — the repo standardises on vp (vite-plus); CI bootstraps it
+# via voidzero-dev/setup-vp. This Docker builder is a DELIBERATE, documented
+# exception: it uses corepack-provisioned pnpm (from package.json#packageManager,
+# currently pnpm@11.0.9), NOT vp. Why: corepack ships free in the node base
+# image (zero extra layer, offline), vp has no Docker-side bootstrap action
+# like setup-vp, and corepack vs vp resolve the SAME pinned pnpm so build
+# artifacts are byte-identical. Mirrors the corepack carve-out in
+# .github/workflows/publish.yml. Do NOT "fix" this to vp without first
+# re-evaluating the bootstrap cost.
 RUN apt-get update && apt-get install -y --no-install-recommends \
         git python3 make g++ ca-certificates \
     && rm -rf /var/lib/apt/lists/* \
