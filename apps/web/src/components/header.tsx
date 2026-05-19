@@ -93,7 +93,7 @@ export function GlassHeader() {
 					</div>
 					<div className="min-w-0">
 						<div className="text-[17px] font-bold tracking-tight text-bn-text-primary">
-							女仆值班室 · Bilibili Notify综合管理中心
+							Bilibili Notify · 女仆值班室
 						</div>
 						<div className="mt-0.5 truncate text-[11.5px] text-bn-text-secondary">
 							<AccountChip />
