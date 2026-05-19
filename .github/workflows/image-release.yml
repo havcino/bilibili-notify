@@ -87,10 +87,19 @@ jobs:
       # (proves BN_WEB_DIST static-serving + SPA fallback survived packaging,
       # not just that the layers built). Any failure exits non-zero → the push
       # step below is skipped, so a broken image never reaches GHCR.
+      #
+      # BN_ALLOW_NO_AUTH=1 is REQUIRED: the image binds BN_HOST=0.0.0.0
+      # (non-loopback) and the smoke configures no dashboard credentials, so
+      # the bare-auth policy (auth/bare-auth-policy.ts) would process.exit(1)
+      # before serving anything. This escape hatch is exactly its intended use
+      # — a CI boot that knowingly runs without auth. Do NOT instead set
+      # BN_HOST=127.0.0.1: an in-container loopback bind is unreachable through
+      # docker's `-p` port mapping, which would break the smoke a different way.
       - name: Smoke test (blocks push on failure)
         run: |
           set -euo pipefail
-          docker run -d --name bn-smoke -p 8787:8787 -e BN_DATA_DIR=/tmp/bn bilibili-notify:smoke
+          docker run -d --name bn-smoke -p 8787:8787 \
+            -e BN_DATA_DIR=/tmp/bn -e BN_ALLOW_NO_AUTH=1 bilibili-notify:smoke
           ok=
           for _ in $(seq 1 30); do
             if curl -fsS http://localhost:8787/api/health 2>/dev/null | jq -e '.status=="ok"' >/dev/null 2>&1; then
