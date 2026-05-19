@@ -1,112 +1,81 @@
 # Bilibili-Notify Dashboard
 
-Hono HTTP server + React dashboard. The Koishi sub-plugins under `koishi/` remain the historical shipping form; this directory is the primary product form going forward (per `/Users/akokko/.claude/plans/hashed-jingling-moth.md`).
+Hono HTTP 服务端 + React 控制台。`koishi/` 下的 Koishi 子插件是历史 / 现行发布形态;本目录是后续主推的产品形态。
 
-## Layout
+## 目录结构
 
 ```
 apps/
-  server/                    # Hono + Node 24 backend (@bilibili-notify/server)
-  web/                       # React + Vite dashboard (@bilibili-notify/web)
-  Dockerfile                 # multi-stage; build context = repo root
+  server/                    # Hono + Node 24 后端(@bilibili-notify/server)
+  web/                       # React + Vite 控制台(@bilibili-notify/web)
+  Dockerfile                 # 多阶段;构建上下文 = 仓库根
   docker-compose.example.yaml
 ```
 
-`apps/server` and `apps/web` are members of the **root** pnpm workspace at `../`, alongside `packages/*` and `koishi/*`. Business cores reach the server via the pnpm `workspace:*` protocol, so editing `packages/internal/src` shows up immediately after rebuild.
+`apps/server` 与 `apps/web` 是 `../` 处**根** pnpm workspace 的成员,与 `packages/*`、`koishi/*` 并列。业务核心通过 pnpm `workspace:*` 协议被服务端消费,所以改动 `packages/internal/src` 后重新构建即刻生效。
 
-## Quick start (dev)
+## 快速开始(开发)
 
-Toolchain is **vp (vite-plus)** — it wraps pnpm but never exposes a `pnpm`
-shim; always go through `vp` (`vpr` ≡ `vp run`, `vpx <bin>` ≡ local bin → else
-`vp dlx`).
+工具链是 **vp (vite-plus)** —— 它包裹 pnpm 但**从不暴露 `pnpm` shim**,一律走 `vp`(`vpr` ≡ `vp run`,`vpx <bin>` ≡ 本地 bin → 否则 `vp dlx`)。
 
 ```bash
-# from the repo root
-vp install                   # populates a single root node_modules
-vp run typecheck             # tsc --noEmit across the whole workspace
-vp run dev:apps              # tsx watch on apps/server + vite on apps/web in parallel
+# 在仓库根执行
+vp install                   # 生成单一根 node_modules
+vp run typecheck             # 全 workspace tsc --noEmit
+vp run dev:apps              # 并行:apps/server tsx watch + apps/web vite
 curl -s http://localhost:8787/api/health
 ```
 
-`vp run build` produces `apps/server/lib/` + `apps/web/dist/` (and lib/ in every business-core package). `vp run start:server` runs the built server. Press Ctrl+C for graceful shutdown.
+`vp run build` 产出 `apps/server/lib/` + `apps/web/dist/`(以及每个业务核心包的 lib/)。`vp run start:server` 跑构建产物。Ctrl+C 优雅退出。
 
-## Configuration
+## 配置
 
-Bootstrap config order (per plan §4.2):
+bootstrap 配置加载顺序:
 
-1. CLI args
-2. ENV (`BN_*`)
-3. `./bn.config.{yaml,json}` next to cwd (or `BN_CONFIG=path/to/file`)
-4. Defaults
+1. CLI 参数
+2. 环境变量(`BN_*`)
+3. cwd 旁的 `./bn.config.{yaml,json}`(或 `BN_CONFIG=path/to/file`)
+4. 默认值
 
-Required keys: `server.{host,port}`, `dataDir`. See `server/src/config/schema.ts` for the full Zod schema. Track changes against `server/bn.config.example.yaml`; copy to `bn.config.yaml` (gitignored) and edit for your machine.
+必填项:`server.{host,port}`、`dataDir`。完整 Zod schema 见 `server/src/config/schema.ts`。改动请对照 `server/bn.config.example.yaml`;复制成 `bn.config.yaml`(已 gitignore)按本机情况修改。
 
-### At-rest secret encryption (`cookieEncryptionKey` / `BN_COOKIE_KEY`)
+### 静态加密(`cookieEncryptionKey` / `BN_COOKIE_KEY`)
 
-The bilibili login cookie and the AI apiKey live under `<dataDir>/secrets/` encrypted with **AES-256-GCM**. The key comes from `cookieEncryptionKey` (env fallback `BN_COOKIE_KEY`):
+B 站登录 cookie 与 AI apiKey 存放在 `<dataDir>/secrets/` 下,用 **AES-256-GCM** 加密。密钥来自 `cookieEncryptionKey`(环境变量回退 `BN_COOKIE_KEY`):
 
-- **Set it** (recommended for any real deployment): key is scrypt-derived from your passphrase and **never written to disk** → genuine at-rest protection. Generate once and keep it (env / secrets manager / compose):
+- **设置它**(任何真实部署都建议):密钥由你的 passphrase 经 scrypt 派生,**绝不落盘** → 真正的静态保护。生成一次后妥善保存(环境变量 / secrets manager / compose):
 
   ```bash
   openssl rand -base64 32
   ```
 
-- **Unset**: server still starts (zero-config dev / first `docker run`) but falls back to a random key file co-located with the ciphertext — obfuscation, not real protection. A prominent warning logs at boot; set `BN_COOKIE_KEY` to upgrade.
+- **不设置**:服务端仍能启动(零配置开发 / 首次 `docker run`),但回退到与密文同目录的随机密钥文件 —— 仅混淆,非真正保护。启动时打显著告警;设置 `BN_COOKIE_KEY` 即升级。
 
-> Upgrade note: pre-GCM cookies cannot be decrypted (no migration) — re-scan the QR once. A previously plaintext AI apiKey in `globals.json` is auto-migrated into the encrypted secrets file on first boot.
+> 升级提示:GCM 之前的旧 cookie 无法解密(无迁移)—— 重新扫码一次即可。`globals.json` 里曾以明文存在的 AI apiKey 会在首次启动时自动迁入加密 secrets 文件。
 
-## Security
+## 安全
 
-The dashboard credential (`BN_DASHBOARD_USER` / `BN_DASHBOARD_PASS`, or
-`auth.basicAuth` in the yaml) is the **single key** to everything the dashboard
-can do: the bilibili account session, the QR-login flow, and every push
-target's secrets (OneBot accessToken, webhook URLs). Treat it accordingly.
+dashboard 凭证(`BN_DASHBOARD_USER` / `BN_DASHBOARD_PASS`,或 yaml 里的 `auth.basicAuth`)是 dashboard 一切能力的**唯一钥匙**:B 站账号会话、扫码登录流程、以及每个推送目标的密钥(OneBot accessToken、webhook URL)。请慎重对待。
 
-- **Use a strong, unique password.** The server enforces only *non-empty*
-  (`username`/`password` ≥ 1 char) — there is no complexity/length policy. A
-  weak password is brute-forceable: the built-in limiter blocks an IP after 5
-  failed logins for 60 s, then stays sticky at ~1 attempt/min, but that is
-  still thousands of guesses/day. Generate one and store it in your secrets
-  manager: `openssl rand -base64 24`.
+- **用强随机、唯一的密码。** 服务端只校验*非空*(`username`/`password` ≥ 1 字符),没有复杂度 / 长度策略。弱密码可被暴力破解:内置限流在某 IP 连续 5 次登录失败后封锁 60 s,之后粘性维持约 1 次/分钟,但这仍是每天数千次猜测。生成一个并存进 secrets manager:`openssl rand -base64 24`。
 
-- **Behind a reverse proxy, enforce auth at the proxy too.** The per-IP login
-  rate-limiter keys on the *directly-connected* peer. `X-Forwarded-For` is
-  deliberately **not** trusted (forgeable). So behind a proxy every client
-  shares one bucket: an attacker who fails login 5× **locks the dashboard
-  login for everyone** until a successful login (or the 60 s window) clears it.
-  The built-in limiter is a coarse last resort, not a substitute for
-  proxy-level auth / IP allow-listing / mTLS on a public deployment.
+- **在反向代理后,也要在代理层做鉴权。** 每 IP 登录限流以*直连对端*为 key。`X-Forwarded-For` 被刻意**不信任**(可伪造)。所以反代后所有客户端共用一个桶:攻击者失败登录 5 次就能**把所有人的 dashboard 登录锁死**,直到一次成功登录(或 60 s 窗口)解除。内置限流是粗粒度的最后一道,不能替代公网部署上的代理层鉴权 / IP 白名单 / mTLS。
 
-- **Set `auth.allowedOrigins` for any non-localhost deployment.** It gates the
-  WebSocket upgrade *and* (defence-in-depth on top of the SameSite=Strict
-  session cookie) the unguarded `POST /api/session/{login,logout}` routes
-  against cross-site abuse such as forced-logout CSRF. List the dashboard's
-  own origin (the SPA is served same-origin), e.g.
-  `["https://bn.example.com"]`. Note: once configured, non-browser automation
-  against those endpoints (no/foreign `Origin`) is rejected — by design (the
-  dashboard is the only supported client when auth is enabled).
+- **任何非 localhost 部署都设 `auth.allowedOrigins`。** 它既门禁 WebSocket upgrade,*又*(在 SameSite=Strict 会话 cookie 之上的纵深防御)保护不设防的 `POST /api/session/{login,logout}` 路由,挡跨站滥用(如强制登出 CSRF)。填 dashboard 自己的 origin(SPA 同源提供),如 `["https://bn.example.com"]`。注意:配置后,对这些端点的非浏览器自动化(无 / 异源 `Origin`)会被拒绝 —— 这是设计如此(认证开启时 dashboard 是唯一受支持的客户端)。
 
-- **Sessions are stateless — there is no server-side revocation.** Logout
-  clears the cookie in *that* browser only; a copied cookie value stays valid
-  until it expires (sliding, ≤ 7 days idle). The escape hatch is **rotating
-  the dashboard password**: the signing key is bound to a credential
-  fingerprint, so changing `BN_DASHBOARD_PASS` instantly invalidates *every*
-  previously issued cookie ("logout everywhere"). Rotate it if you suspect a
-  cookie leaked.
+- **会话是无状态的 —— 没有服务端吊销。** 登出只清除*该*浏览器里的 cookie;被复制出去的 cookie 值在过期前仍有效(滑动,空闲 ≤ 7 天)。逃生口是**轮换 dashboard 密码**:签名密钥绑定了凭证指纹,改 `BN_DASHBOARD_PASS` 会立刻让*所有*已签发 cookie 失效(“全端登出”)。怀疑 cookie 泄漏就轮换它。
 
-- **Loopback bare mode.** With no credential configured the server refuses to
-  start on a non-loopback bind unless `BN_ALLOW_NO_AUTH=1` — keep it that way
-  unless another layer (proxy auth / private network) is doing the gating.
+- **Loopback 裸跑模式。** 未配置凭证时,服务端在非 loopback 绑定上会拒绝启动,除非 `BN_ALLOW_NO_AUTH=1` —— 除非另一层(代理鉴权 / 私有网络)在做门禁,否则保持现状。
 
-## Docker deployment
+## Docker 部署
 
-The image bundles the built React dashboard at `/app/web-dist`; the Hono server serves it for any non-`/api/*` path, so a single container is enough — no nginx needed.
+镜像把构建好的 React 控制台打包在 `/app/web-dist`;Hono 服务端对任何非 `/api/*` 路径直接服务它,所以单容器即可 —— 不需要 nginx。
 
 ```bash
-# From the repo root (build context must be the parent of apps/):
+# 在仓库根执行(构建上下文必须是 apps/ 的父目录):
 docker build -f apps/Dockerfile -t bilibili-notify:dev .
 
-# Or pull the prebuilt image (CI publishes from refactor + main):
+# 或拉取预构建镜像(CI 从 refactor + main 发布):
 docker pull ghcr.io/<owner>/bilibili-notify:latest
 
 docker run -d \
@@ -119,49 +88,49 @@ docker run -d \
   bilibili-notify:dev
 ```
 
-`docker-compose.example.yaml` ships a copy-paste starter, including a commented NapCat sidecar block for OneBot v11 → QQ delivery on the same docker network.
+`docker-compose.example.yaml` 提供可直接复制的起步模板,含一段注释掉的 NapCat 边车,用于同一 docker 网络下 OneBot v11 → QQ 投递。
 
-### Image-baked defaults (override via env or yaml)
+### 镜像内置默认值(可用环境变量或 yaml 覆盖)
 
-| Env var | Default in image | Purpose |
+| 环境变量 | 镜像内默认 | 用途 |
 |---|---|---|
-| `BN_HOST` | `0.0.0.0` | bind address |
-| `BN_PORT` | `8787` | http port |
-| `BN_DATA_DIR` | `/data` | runtime state — declared as a volume |
-| `BN_CHROME_PATH` | `/usr/bin/chromium` | apt-installed chromium for puppeteer-core preview |
-| `BN_WEB_DIST` | `/app/web-dist` | built dashboard served by Hono at `/` |
-| `BN_LOG_LEVEL` | (unset → `info`) | `fatal` \| `error` \| `warn` \| `info` \| `debug` \| `trace` \| `silent`. Governs only the early-boot / infra window (config load + bootstrap, before `globals.json` is applied) — from engines-up onward the steady-state authority is the dashboard's `globals.app.logLevel` (`error` \| `info` \| `debug`), which overrides this. Use it for boot/infra troubleshooting or when `globals.json` is unreadable. |
-| `BN_DASHBOARD_USER` / `BN_DASHBOARD_PASS` | (unset → no auth, warn) | dashboard login credentials — signed httpOnly cookie session gating `/api/*` (see [Security](#security)) |
-| `BN_COOKIE_KEY` | (unset → auto-generated under `/data/secrets`) | bilibili cookie encryption key |
-| `BN_CONFIG` | (unset) | absolute or cwd-relative path to the bootstrap yaml/json |
+| `BN_HOST` | `0.0.0.0` | 绑定地址 |
+| `BN_PORT` | `8787` | http 端口 |
+| `BN_DATA_DIR` | `/data` | 运行时状态 —— 已声明为 volume |
+| `BN_CHROME_PATH` | `/usr/bin/chromium` | apt 装的 chromium,供 puppeteer-core 预览 |
+| `BN_WEB_DIST` | `/app/web-dist` | Hono 在 `/` 服务的构建好的控制台 |
+| `BN_LOG_LEVEL` | (未设 → `info`) | `fatal` \| `error` \| `warn` \| `info` \| `debug` \| `trace` \| `silent`。仅管早期启动 / 基础设施窗口(配置加载 + bootstrap,在 `globals.json` 应用之前)—— 引擎起来之后稳态权威是 dashboard 的 `globals.app.logLevel`(`error` \| `info` \| `debug`),会覆盖它。用于启动 / 基础设施排障,或 `globals.json` 读不出来时。 |
+| `BN_DASHBOARD_USER` / `BN_DASHBOARD_PASS` | (未设 → 无认证,告警) | dashboard 登录凭证 —— 签名 httpOnly cookie 会话门禁 `/api/*`(见 [安全](#安全)) |
+| `BN_COOKIE_KEY` | (未设 → 在 `/data/secrets` 下自动生成) | B 站 cookie 加密密钥 |
+| `BN_CONFIG` | (未设) | bootstrap yaml/json 的绝对或相对 cwd 路径 |
 
-### Volume layout
+### Volume 布局
 
 ```
 /data
 ├── secrets/
-│   └── master.key                # auto-generated AES key (per-deployment)
+│   └── master.key                # 自动生成的 AES 密钥(每部署独立)
 ├── state/
-│   ├── globals.json              # GlobalConfig — written by the dashboard
+│   ├── globals.json              # GlobalConfig —— 由 dashboard 写
 │   ├── subscriptions.json        # Subscription[]
 │   └── targets.json              # PushTarget[]
 └── history/
-    ├── 2026-05-09.jsonl          # daily push log
-    └── img/                      # attached card pngs
+    ├── 2026-05-09.jsonl          # 按日推送日志
+    └── img/                      # 附带的卡片 png
 ```
 
-The image declares `/data` as a Docker volume — bind-mount it to a host directory you back up, otherwise state evaporates with the container.
+镜像把 `/data` 声明为 Docker volume —— 务必 bind-mount 到一个你会备份的宿主目录,否则状态随容器一起蒸发。
 
-### Wiring OneBot (NapCat)
+### 接入 OneBot(NapCat)
 
-1. Bring up the napcat sidecar (uncomment the block in `docker-compose.example.yaml`) and configure your QQ account through its WebUI on `http://<host>:6099`.
-2. In the bilibili-notify dashboard, open **推送目标** → **新建** → platform `onebot`, baseUrl `http://napcat:3000` (intra-docker hostname), set `accessToken` if you set one in NapCat, and pick `scope=group` + the target group id.
-3. Hit **测试** to verify the OneBot endpoint replies, then save. The new target is now selectable on per-UP routing.
+1. 起 napcat 边车(取消 `docker-compose.example.yaml` 里那段注释),在它的 WebUI `http://<host>:6099` 配置你的 QQ 账号。
+2. 在 bilibili-notify 控制台打开**推送目标** → **新建** → platform `onebot`,baseUrl `http://napcat:3000`(docker 内主机名),若 NapCat 设了 accessToken 则填上,选 `scope=group` + 目标群号。
+3. 点**测试**确认 OneBot 端点有响应,再保存。新目标即可在 per-UP 路由里选用。
 
-## Where the Koishi end lives
+## Koishi 端在哪
 
-`../koishi/core` (and the 5 sub-plugin packages alongside). Same business cores power both ends.
+`../koishi/core`(及并列的 5 个子插件包)。两端由同一套业务核心驱动。
 
-## Plan reference
+## 分支与发布
 
-`/Users/akokko/.claude/plans/hashed-jingling-moth.md`. Stages 0–4 land on the `refactor` branch; npm releases come from `main`.
+`packages/` `koishi/` `apps/` 三类改动都落在 `refactor` 主干;Koishi 端 npm 发版来自 `main`,独立端走 GHCR 镜像(不发 npm)。详见仓库根 `README.md`。
