@@ -148,7 +148,7 @@ function SystemSettingsSection({
 			title="Core · 应用"
 			subtitle="后端运行参数 + Master 主人账号 · globals.app / globals.master"
 			accent="#FB7299"
-			icon={<Icon.sparkle size={14} />}
+			icon={<Icon.sliders size={14} />}
 			badge="app + master"
 		>
 			<Field

@@ -240,7 +240,7 @@ export default function Ai() {
 					title="模型连接"
 					subtitle="OpenAI 兼容 API · ai.{baseUrl,apiKey,model}"
 					accent="#6c5ce7"
-					icon="API"
+					icon={<Icon.link size={14} />}
 					badge="connection"
 				>
 					<Field label="API Key" code="ai.apiKey" required>

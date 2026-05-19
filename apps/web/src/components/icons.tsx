@@ -146,6 +146,16 @@ export const Icon = {
 			<path d="M14 10a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1" />
 		</>,
 	),
+	sliders: stroke(
+		<>
+			<line x1="4" y1="6" x2="20" y2="6" />
+			<line x1="4" y1="12" x2="20" y2="12" />
+			<line x1="4" y1="18" x2="20" y2="18" />
+			<circle cx="9" cy="6" r="2" />
+			<circle cx="15" cy="12" r="2" />
+			<circle cx="9" cy="18" r="2" />
+		</>,
+	),
 } as const;
 
 export type IconName = keyof typeof Icon;
