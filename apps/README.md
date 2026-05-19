@@ -55,6 +55,49 @@ The bilibili login cookie and the AI apiKey live under `<dataDir>/secrets/` encr
 
 > Upgrade note: pre-GCM cookies cannot be decrypted (no migration) — re-scan the QR once. A previously plaintext AI apiKey in `globals.json` is auto-migrated into the encrypted secrets file on first boot.
 
+## Security
+
+The dashboard credential (`BN_DASHBOARD_USER` / `BN_DASHBOARD_PASS`, or
+`auth.basicAuth` in the yaml) is the **single key** to everything the dashboard
+can do: the bilibili account session, the QR-login flow, and every push
+target's secrets (OneBot accessToken, webhook URLs). Treat it accordingly.
+
+- **Use a strong, unique password.** The server enforces only *non-empty*
+  (`username`/`password` ≥ 1 char) — there is no complexity/length policy. A
+  weak password is brute-forceable: the built-in limiter blocks an IP after 5
+  failed logins for 60 s, then stays sticky at ~1 attempt/min, but that is
+  still thousands of guesses/day. Generate one and store it in your secrets
+  manager: `openssl rand -base64 24`.
+
+- **Behind a reverse proxy, enforce auth at the proxy too.** The per-IP login
+  rate-limiter keys on the *directly-connected* peer. `X-Forwarded-For` is
+  deliberately **not** trusted (forgeable). So behind a proxy every client
+  shares one bucket: an attacker who fails login 5× **locks the dashboard
+  login for everyone** until a successful login (or the 60 s window) clears it.
+  The built-in limiter is a coarse last resort, not a substitute for
+  proxy-level auth / IP allow-listing / mTLS on a public deployment.
+
+- **Set `auth.allowedOrigins` for any non-localhost deployment.** It gates the
+  WebSocket upgrade *and* (defence-in-depth on top of the SameSite=Strict
+  session cookie) the unguarded `POST /api/session/{login,logout}` routes
+  against cross-site abuse such as forced-logout CSRF. List the dashboard's
+  own origin (the SPA is served same-origin), e.g.
+  `["https://bn.example.com"]`. Note: once configured, non-browser automation
+  against those endpoints (no/foreign `Origin`) is rejected — by design (the
+  dashboard is the only supported client when auth is enabled).
+
+- **Sessions are stateless — there is no server-side revocation.** Logout
+  clears the cookie in *that* browser only; a copied cookie value stays valid
+  until it expires (sliding, ≤ 7 days idle). The escape hatch is **rotating
+  the dashboard password**: the signing key is bound to a credential
+  fingerprint, so changing `BN_DASHBOARD_PASS` instantly invalidates *every*
+  previously issued cookie ("logout everywhere"). Rotate it if you suspect a
+  cookie leaked.
+
+- **Loopback bare mode.** With no credential configured the server refuses to
+  start on a non-loopback bind unless `BN_ALLOW_NO_AUTH=1` — keep it that way
+  unless another layer (proxy auth / private network) is doing the gating.
+
 ## Docker deployment
 
 The image bundles the built React dashboard at `/app/web-dist`; the Hono server serves it for any non-`/api/*` path, so a single container is enough — no nginx needed.
@@ -88,7 +131,7 @@ docker run -d \
 | `BN_CHROME_PATH` | `/usr/bin/chromium` | apt-installed chromium for puppeteer-core preview |
 | `BN_WEB_DIST` | `/app/web-dist` | built dashboard served by Hono at `/` |
 | `BN_LOG_LEVEL` | (unset → `info`) | `fatal` \| `error` \| `warn` \| `info` \| `debug` \| `trace` \| `silent`. Governs only the early-boot / infra window (config load + bootstrap, before `globals.json` is applied) — from engines-up onward the steady-state authority is the dashboard's `globals.app.logLevel` (`error` \| `info` \| `debug`), which overrides this. Use it for boot/infra troubleshooting or when `globals.json` is unreadable. |
-| `BN_DASHBOARD_USER` / `BN_DASHBOARD_PASS` | (unset → no auth, warn) | basic-auth for `/api/*` |
+| `BN_DASHBOARD_USER` / `BN_DASHBOARD_PASS` | (unset → no auth, warn) | dashboard login credentials — signed httpOnly cookie session gating `/api/*` (see [Security](#security)) |
 | `BN_COOKIE_KEY` | (unset → auto-generated under `/data/secrets`) | bilibili cookie encryption key |
 | `BN_CONFIG` | (unset) | absolute or cwd-relative path to the bootstrap yaml/json |
 

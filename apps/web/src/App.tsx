@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { Route, Routes } from "react-router-dom";
+import { AuthGate } from "./components/AuthGate";
 import { AlertShell } from "./components/alert-shell";
 import { FloatingAiBar } from "./components/floating-ai-bar";
 import { GlassHeader } from "./components/header";
@@ -28,6 +29,20 @@ interface HealthSnapshot {
 }
 
 export default function App() {
+	return (
+		<AuthGate>
+			<AuthedApp />
+		</AuthGate>
+	);
+}
+
+/**
+ * The authenticated dashboard. Rendered by `<AuthGate>` only once the session
+ * is established (or auth is disabled). Keeping the channel hooks here — rather
+ * than at the App root — is what gates WS: a cold, unauthenticated load never
+ * mounts this subtree, so the WS singleton is never created before login.
+ */
+function AuthedApp() {
 	useAuthHydrate();
 	useAuthChannel();
 	useStateChannel();

@@ -2,6 +2,7 @@ import type { Server as HttpServer, IncomingMessage } from "node:http";
 import type { Duplex } from "node:stream";
 import type { Disposable, MessageBus } from "@bilibili-notify/internal";
 import { type RawData, WebSocket, WebSocketServer } from "ws";
+import { isOriginAllowed, normalizeAllowedOrigins } from "../auth/origin.js";
 import type { WsTicketStore } from "../auth/ws-ticket.js";
 import type { ConfigStore } from "../config/store.js";
 import type { NodeServiceContext } from "../runtime/service-context.js";
@@ -34,13 +35,15 @@ export interface CreateWsServerOptions {
 	/** Optional pre-built log channel. We create one if not provided. */
 	logChannel?: LogChannel;
 	/**
-	 * Optional dashboard credentials. When set the WS upgrade handshake requires
-	 * either `Authorization: Basic <b64(user:pass)>` OR a `?token=<b64(user:pass)>`
-	 * query string fallback (browser WebSocket can't set custom headers).
-	 * When unset, no auth check is performed (matches the HTTP layer's behaviour
-	 * + bootstrap-layer warn log).
+	 * Whether dashboard auth is enabled. When true the WS upgrade handshake
+	 * requires a valid one-shot `?ticket=` (issued by the cookie-authed
+	 * `POST /api/auth/ws-ticket`). Cookie-only model (Q4/Q7d): the legacy
+	 * `Authorization: Basic` and `?token=<b64(user:pass)>` upgrade paths were
+	 * removed — no Basic anywhere, raw credentials never appear in a URL.
+	 * When false, no auth check is performed (matches the HTTP layer + the
+	 * bootstrap-layer warn log).
 	 */
-	basicAuthCredentials?: { username: string; password: string };
+	authRequired?: boolean;
 	/**
 	 * WS upgrade ticket store。前端 WebSocket 不能附带 Authorization 头,改用
 	 * `?ticket=<xxx>` 完成 upgrade。`POST /api/auth/ws-ticket` 签发的 ticket
@@ -104,19 +107,16 @@ export function createWsServer(opts: CreateWsServerOptions): WsServer {
 	};
 
 	// ---------------- HTTP upgrade ---------------------------------------------
-	const allowedOrigins = (opts.allowedOrigins ?? []).filter((o) => o.length > 0);
-	const originGateEnabled = allowedOrigins.length > 0;
-	const creds = opts.basicAuthCredentials;
-	// Pre-compute the expected base64(user:pass) once.
-	const expectedToken = creds
-		? Buffer.from(`${creds.username}:${creds.password}`, "utf8").toString("base64")
-		: null;
+	// Shared with the session-route Origin gate (auth/origin.ts) — one source
+	// of truth so HTTP and WS agree on what "allowed origin" means.
+	const allowedOrigins = normalizeAllowedOrigins(opts.allowedOrigins);
+	const authRequired = opts.authRequired ?? false;
 
 	const rejectUnauthorized = (socket: Duplex): void => {
 		try {
 			socket.write(
 				"HTTP/1.1 401 Unauthorized\r\n" +
-					'WWW-Authenticate: Basic realm="bilibili-notify"\r\n' +
+					// No WWW-Authenticate: cookie-only model, no Basic challenge.
 					"Connection: close\r\n" +
 					"Content-Length: 0\r\n" +
 					"\r\n",
@@ -132,35 +132,25 @@ export function createWsServer(opts: CreateWsServerOptions): WsServer {
 	};
 
 	const checkAuth = (req: IncomingMessage): boolean => {
-		if (!expectedToken) return true;
-		// 1) Authorization: Basic <b64>(curl / 服务端到服务端常用)。
-		const header = req.headers.authorization;
-		if (header && typeof header === "string") {
-			const m = /^Basic\s+(.+)$/i.exec(header.trim());
-			if (m && m[1] === expectedToken) return true;
-		}
+		if (!authRequired) return true;
+		// Cookie-only (Q7d): the sole accepted upgrade credential is a one-shot
+		// `?ticket=` issued by the cookie-authed `POST /api/auth/ws-ticket`,
+		// consumed (and invalidated) here. The browser can't set custom headers
+		// on `new WebSocket()`, and raw credentials must never land in a URL
+		// (reverse-proxy access logs) — so the Basic header and `?token=` paths
+		// were deliberately removed.
 		const url = req.url ?? "";
 		const q = url.indexOf("?");
 		if (q >= 0) {
 			const params = new URLSearchParams(url.slice(q + 1));
-			// 2) `?ticket=<xxx>` — 浏览器走这条:`POST /api/auth/ws-ticket` 签发一次性 ticket,
-			//    消费后立刻失效。不会让真实凭证落进反代访问日志。
 			const ticket = params.get("ticket");
 			if (ticket && opts.wsTicketStore?.consume(ticket)) return true;
-			// 3) `?token=<b64>` — 历史 fallback,把真实 basic-auth 凭证拼进 URL。**会被反代
-			//    日志记下**,不推荐;仅保留给已部署的旧 curl 脚本。前端不应再使用这条。
-			const token = params.get("token");
-			if (token && token === expectedToken) return true;
 		}
 		return false;
 	};
 
-	const checkOrigin = (req: IncomingMessage): boolean => {
-		if (!originGateEnabled) return true;
-		const origin = req.headers.origin;
-		if (!origin || typeof origin !== "string") return false;
-		return allowedOrigins.includes(origin);
-	};
+	const checkOrigin = (req: IncomingMessage): boolean =>
+		isOriginAllowed(req.headers.origin, allowedOrigins);
 
 	const onUpgrade = (req: IncomingMessage, socket: Duplex, head: Buffer): void => {
 		// We only handle our own path; anything else is rejected so that other

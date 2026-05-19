@@ -15,6 +15,19 @@ export class ApiError extends Error {
 	}
 }
 
+/**
+ * Global 401 hook. `<AuthGate>` registers a handler that flips the dashboard
+ * session to unauthed (→ login dialog). Kept as a registration callback so
+ * this thin wrapper stays free of store/React knowledge. Session endpoints
+ * (`/api/session/*`) are excluded — a login 401 means "wrong password",
+ * handled by the dialog itself, not a session-expiry signal.
+ */
+type UnauthorizedHandler = () => void;
+let onUnauthorized: UnauthorizedHandler | null = null;
+export function setUnauthorizedHandler(fn: UnauthorizedHandler | null): void {
+	onUnauthorized = fn;
+}
+
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
 	const res = await fetch(path, {
 		method,
@@ -27,6 +40,9 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
 		payload = await res.json().catch(() => undefined);
 	}
 	if (!res.ok) {
+		if (res.status === 401 && !path.startsWith("/api/session")) {
+			onUnauthorized?.();
+		}
 		const msg =
 			typeof payload === "object" && payload && "message" in payload
 				? String((payload as { message: unknown }).message)

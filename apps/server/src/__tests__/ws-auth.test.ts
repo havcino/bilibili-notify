@@ -6,9 +6,9 @@ import { join } from "node:path";
 import type { MessageBus } from "@bilibili-notify/internal";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { WebSocket } from "ws";
+import { createWsTicketStore } from "../auth/ws-ticket.js";
 import type { BootstrapConfig } from "../config/schema.js";
 import { type ConfigStore, createConfigStore } from "../config/store.js";
-import { createWsTicketStore } from "../auth/ws-ticket.js";
 import { createNodeMessageBus } from "../runtime/message-bus.js";
 import { createNodeServiceContext, type NodeServiceContext } from "../runtime/service-context.js";
 import { createWsServer, type WsServer } from "../ws/server.js";
@@ -135,7 +135,11 @@ function collectFrames(ws: WebSocket): {
 }
 
 // ---------------------------------------------------------------------------
-// Suite — Fix 4b: WS upgrade auth + Origin gate
+// Suite — WS upgrade gate (cookie-only model, Q4/Q7d)
+//
+// The only accepted upgrade credential is a one-shot `?ticket=` issued by the
+// cookie-authed `POST /api/auth/ws-ticket`. The legacy `Authorization: Basic`
+// and `?token=<b64>` paths were removed — these tests lock that.
 // ---------------------------------------------------------------------------
 
 describe("WS upgrade gate", () => {
@@ -165,7 +169,7 @@ describe("WS upgrade gate", () => {
 		await rm(dataDir, { recursive: true, force: true });
 	});
 
-	it("basic-auth configured: upgrade without Authorization is rejected (401)", async () => {
+	it("auth required: upgrade without a ticket is rejected (401)", async () => {
 		wsServer = createWsServer({
 			httpServer,
 			bus,
@@ -173,7 +177,7 @@ describe("WS upgrade gate", () => {
 			serviceCtx,
 			heartbeatIntervalMs: 0,
 			heartbeatTimeoutMs: 0,
-			basicAuthCredentials: { username: "admin", password: "s3cret" },
+			authRequired: true,
 		});
 
 		const result = await tryConnect(`ws://127.0.0.1:${port}/ws`);
@@ -181,7 +185,7 @@ describe("WS upgrade gate", () => {
 		expect(result.statusCode).toBe(401);
 	});
 
-	it("basic-auth configured: upgrade with valid Authorization header succeeds", async () => {
+	it("auth required: Authorization: Basic is NO LONGER accepted (regression, Q7d)", async () => {
 		wsServer = createWsServer({
 			httpServer,
 			bus,
@@ -189,17 +193,17 @@ describe("WS upgrade gate", () => {
 			serviceCtx,
 			heartbeatIntervalMs: 0,
 			heartbeatTimeoutMs: 0,
-			basicAuthCredentials: { username: "admin", password: "s3cret" },
+			authRequired: true,
 		});
 
 		const result = await tryConnect(`ws://127.0.0.1:${port}/ws`, {
 			Authorization: `Basic ${basicToken("admin", "s3cret")}`,
 		});
-		expect(result.outcome).toBe("open");
-		result.ws?.close();
+		expect(result.outcome).toBe("rejected");
+		expect(result.statusCode).toBe(401);
 	});
 
-	it("basic-auth configured: upgrade with ?token= query-string fallback succeeds", async () => {
+	it("auth required: ?token=<b64> is NO LONGER accepted (regression, Q7d)", async () => {
 		wsServer = createWsServer({
 			httpServer,
 			bus,
@@ -207,29 +211,11 @@ describe("WS upgrade gate", () => {
 			serviceCtx,
 			heartbeatIntervalMs: 0,
 			heartbeatTimeoutMs: 0,
-			basicAuthCredentials: { username: "admin", password: "s3cret" },
+			authRequired: true,
 		});
 
 		const tok = encodeURIComponent(basicToken("admin", "s3cret"));
 		const result = await tryConnect(`ws://127.0.0.1:${port}/ws?token=${tok}`);
-		expect(result.outcome).toBe("open");
-		result.ws?.close();
-	});
-
-	it("basic-auth configured: upgrade with wrong password is rejected (401)", async () => {
-		wsServer = createWsServer({
-			httpServer,
-			bus,
-			store,
-			serviceCtx,
-			heartbeatIntervalMs: 0,
-			heartbeatTimeoutMs: 0,
-			basicAuthCredentials: { username: "admin", password: "s3cret" },
-		});
-
-		const result = await tryConnect(`ws://127.0.0.1:${port}/ws`, {
-			Authorization: `Basic ${basicToken("admin", "nope")}`,
-		});
 		expect(result.outcome).toBe("rejected");
 		expect(result.statusCode).toBe(401);
 	});
@@ -250,6 +236,43 @@ describe("WS upgrade gate", () => {
 		});
 		expect(result.outcome).toBe("rejected");
 		// No status — server destroys the socket directly.
+	});
+
+	it("origin gate: upgrade with NO Origin header is destroyed when the gate is enabled (shared-helper equivalence)", async () => {
+		// Regression for the ws/server.ts refactor onto auth/origin.ts: the old
+		// inline impl rejected a missing/non-string Origin (`if(!o) return false`)
+		// once the gate was enabled. `node`'s `ws` client sends no Origin header
+		// by default, so this exercises exactly that path through the shared
+		// `isOriginAllowed` helper — must still be a hard reject.
+		wsServer = createWsServer({
+			httpServer,
+			bus,
+			store,
+			serviceCtx,
+			heartbeatIntervalMs: 0,
+			heartbeatTimeoutMs: 0,
+			allowedOrigins: ["https://dashboard.example.com"],
+		});
+
+		const result = await tryConnect(`ws://127.0.0.1:${port}/ws`);
+		expect(result.outcome).toBe("rejected");
+	});
+
+	it("origin gate disabled (no allowedOrigins): upgrade with NO Origin header succeeds (legacy parity)", async () => {
+		// The other half of the equivalence: gate off → missing Origin is fine
+		// (old impl returned true before even looking at the header).
+		wsServer = createWsServer({
+			httpServer,
+			bus,
+			store,
+			serviceCtx,
+			heartbeatIntervalMs: 0,
+			heartbeatTimeoutMs: 0,
+		});
+
+		const result = await tryConnect(`ws://127.0.0.1:${port}/ws`);
+		expect(result.outcome).toBe("open");
+		result.ws?.close();
 	});
 
 	it("origin gate: upgrade from whitelisted origin succeeds", async () => {
@@ -273,7 +296,7 @@ describe("WS upgrade gate", () => {
 	// P0-4: ?ticket=<one-shot> 是浏览器 WS 上行的唯一鉴权方式(不让真实凭证落
 	// 反代日志)。下面两个 case 锁住 ticket 路径接进 checkAuth + 一次性消费语义。
 
-	it("basic-auth + valid one-shot ticket: upgrade succeeds, ticket then unusable", async () => {
+	it("auth required + valid one-shot ticket: upgrade succeeds, ticket then unusable", async () => {
 		const wsTicketStore = createWsTicketStore({ ttlMs: 30_000 });
 		wsServer = createWsServer({
 			httpServer,
@@ -282,7 +305,7 @@ describe("WS upgrade gate", () => {
 			serviceCtx,
 			heartbeatIntervalMs: 0,
 			heartbeatTimeoutMs: 0,
-			basicAuthCredentials: { username: "admin", password: "s3cret" },
+			authRequired: true,
 			wsTicketStore,
 		});
 
@@ -303,7 +326,7 @@ describe("WS upgrade gate", () => {
 		wsTicketStore.dispose();
 	});
 
-	it("basic-auth + unknown ticket: rejected (401)", async () => {
+	it("auth required + unknown ticket: rejected (401)", async () => {
 		const wsTicketStore = createWsTicketStore({ ttlMs: 30_000 });
 		wsServer = createWsServer({
 			httpServer,
@@ -312,7 +335,7 @@ describe("WS upgrade gate", () => {
 			serviceCtx,
 			heartbeatIntervalMs: 0,
 			heartbeatTimeoutMs: 0,
-			basicAuthCredentials: { username: "admin", password: "s3cret" },
+			authRequired: true,
 			wsTicketStore,
 		});
 

@@ -1,8 +1,11 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useRef, useState } from "react";
 import { NavLink } from "react-router-dom";
 import { useBackendReachable } from "../hooks/useBackendReachable";
 import { api } from "../services/api";
+import { submitLogout } from "../services/session";
 import { useAuthStore } from "../store/auth";
+import { useSessionStore } from "../store/session";
 import { BiliLoginStatus } from "../types/auth";
 import type { PushTarget, Subscription } from "../types/domain";
 import { Btn } from "./atoms";
@@ -58,6 +61,65 @@ function AccountChip() {
 			女仆为您打理一切～(*´∀`)~♡{" "}
 			<span className="text-bn-text-secondary">{snapshot?.msg ?? "登录态加载中"}</span>
 		</span>
+	);
+}
+
+/**
+ * Dashboard logout (Q6). Icon-only, rightmost in the header cluster, rendered
+ * only when auth is configured AND the session is authed. Lightweight 2-step
+ * inline confirm (click → "确认登出?" ~3s → second click executes) — guards a
+ * fat-finger from dropping unsaved edits, no modal infra.
+ */
+function LogoutButton() {
+	const qc = useQueryClient();
+	const authRequired = useSessionStore((s) => s.authRequired);
+	const authed = useSessionStore((s) => s.authed);
+	const markLoggedOut = useSessionStore((s) => s.markLoggedOut);
+	const [confirming, setConfirming] = useState(false);
+	const [busy, setBusy] = useState(false);
+	const revertTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+	useEffect(() => {
+		return () => {
+			if (revertTimer.current) clearTimeout(revertTimer.current);
+		};
+	}, []);
+
+	if (!authRequired || !authed) return null;
+
+	function armOrConfirm(): void {
+		if (busy) return;
+		if (!confirming) {
+			setConfirming(true);
+			if (revertTimer.current) clearTimeout(revertTimer.current);
+			revertTimer.current = setTimeout(() => setConfirming(false), 3000);
+			return;
+		}
+		if (revertTimer.current) clearTimeout(revertTimer.current);
+		setBusy(true);
+		void submitLogout().finally(() => {
+			// authed=false → AuthGate effect tears the WS down + shows the
+			// (cold) login card; drop cached server data so a re-login starts
+			// from a clean slate.
+			markLoggedOut();
+			qc.clear();
+		});
+	}
+
+	return (
+		<>
+			<span className="mx-1 h-5 w-px bg-black/10" aria-hidden="true" />
+			<Btn
+				variant="outline"
+				size="sm"
+				icon={<Icon.logout size={14} />}
+				onClick={armOrConfirm}
+				disabled={busy}
+				title="登出 Dashboard"
+			>
+				{confirming ? "确认登出?" : ""}
+			</Btn>
+		</>
 	);
 }
 
@@ -120,6 +182,7 @@ export function GlassHeader() {
 							添加 UP 主
 						</Btn>
 					</NavLink>
+					<LogoutButton />
 				</div>
 			</div>
 			<nav className="flex gap-0 px-5 pt-3">

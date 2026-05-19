@@ -3,8 +3,10 @@ import { join as joinPath } from "node:path";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
-import { createRateLimitedBasicAuth } from "./auth/basic-auth-rate-limited.js";
+import { createDashboardAuth } from "./auth/dashboard-auth.js";
 import type { AuthSystem } from "./auth/index.js";
+import { createIpRateLimiter } from "./auth/ip-rate-limit.js";
+import type { SessionCodec } from "./auth/session.js";
 import type { WsTicketStore } from "./auth/ws-ticket.js";
 import { createAdaptersRoute } from "./routes/adapters.js";
 import { createAuthRoute } from "./routes/auth.js";
@@ -16,6 +18,7 @@ import { createHistoryRoute } from "./routes/history.js";
 import { createLiveRoute } from "./routes/live.js";
 import { createLogsRoute } from "./routes/logs.js";
 import { createPushRoute } from "./routes/push.js";
+import { createSessionRoute } from "./routes/session.js";
 import { createSubsRoute } from "./routes/subs.js";
 import { createTargetsRoute } from "./routes/targets.js";
 import type { RouteDeps } from "./routes/types.js";
@@ -31,13 +34,22 @@ export interface CreateAppOptions {
 	/** Optional auth subsystem; when present /api/auth/* is mounted. */
 	authSystem?: AuthSystem;
 	/**
-	 * Optional HTTP basic-auth credentials for the dashboard. When provided, every
-	 * request under `/api/*` (including `/api/health`) requires the matching
-	 * Authorization header. When omitted, the dashboard is exposed without auth
-	 * and the bootstrap layer logs a warning so the operator notices. Mirrors
-	 * plan §4.2 Fix 4a.
+	 * Configured dashboard credentials. When provided, every request under
+	 * `/api/*` (including `/api/health`, excluding `/api/session/*`) requires a
+	 * valid `bn_session` cookie; the SPA obtains one via `POST
+	 * /api/session/login`. When omitted, the dashboard is exposed without auth
+	 * and the bootstrap layer logs a warning so the operator notices.
+	 *
+	 * Cookie-only (Q4): `Authorization: Basic` is NOT accepted — external API
+	 * automation is explicitly unsupported when auth is enabled.
 	 */
 	basicAuthCredentials?: BasicAuthCredentials;
+	/**
+	 * Session codec used to sign/verify the `bn_session` cookie. Must be
+	 * provided exactly when `basicAuthCredentials` is — `index.ts` builds it
+	 * from the runtime key provider (HKDF) + the same credentials.
+	 */
+	sessionCodec?: SessionCodec;
 	/**
 	 * Optional puppeteer-core adapter for /api/cards/preview. When null (no
 	 * BN_CHROME_PATH configured) the cards route still mounts but reports 503
@@ -58,6 +70,13 @@ export interface CreateAppOptions {
 	 * Pass null when basicAuthCredentials is omitted (no ticket needed).
 	 */
 	wsTicketStore?: WsTicketStore | null;
+	/**
+	 * Origin allow-list (same `auth.allowedOrigins` the WS upgrade gate uses).
+	 * When non-empty, the unguarded `POST /api/session/{login,logout}` routes
+	 * additionally require a whitelisted `Origin` (defence-in-depth vs.
+	 * cross-site abuse). Empty/unset → no Origin enforcement.
+	 */
+	allowedOrigins?: readonly string[];
 }
 
 /**
@@ -103,27 +122,43 @@ export function createApp(runtime: AppRuntime, options: CreateAppOptions = {}): 
 		return c.json({ error: "not_found" }, 404);
 	});
 
-	// Basic-auth gate + 速率限制。挂在路由表之前覆盖整个 /api/*。
-	// 失败 5 次 → 该 IP block 60s。当 credentials 不配置时整段跳过,bootstrap
-	// 层已经做过 fail-closed / loopback 检查。
-	if (options.basicAuthCredentials) {
-		const { username, password } = options.basicAuthCredentials;
-		app.use(
-			"/api/*",
-			createRateLimitedBasicAuth({
-				username,
-				password,
-				onEvent: (event) => {
-					if (event.type === "blocked") {
-						runtime.serviceCtx.logger.warn(
-							`basic-auth ip=${event.ip} blocked retryAfterMs=${event.retryAfterMs}`,
-						);
-					} else if (event.type === "failure" && event.failures >= 3) {
-						runtime.serviceCtx.logger.warn(`basic-auth ip=${event.ip} failures=${event.failures}`);
-					}
-				},
-			}),
-		);
+	// Session control plane — ALWAYS mounted, unguarded. Login can't require
+	// being logged in; `GET /api/session` is the SPA boot probe; logout must
+	// work with a stale cookie. The IP token-bucket (relocated brute-force
+	// surface) guards `POST /api/session/login`.
+	const loginRateLimiter = createIpRateLimiter({
+		onEvent: (event) => {
+			if (event.type === "blocked") {
+				runtime.serviceCtx.logger.warn(
+					`session-login ip=${event.ip} blocked retryAfterMs=${event.retryAfterMs}`,
+				);
+			} else if (event.type === "failure" && event.failures >= 3) {
+				runtime.serviceCtx.logger.warn(`session-login ip=${event.ip} failures=${event.failures}`);
+			}
+		},
+	});
+	app.route(
+		"/api/session",
+		createSessionRoute({
+			creds: options.basicAuthCredentials,
+			codec: options.sessionCodec,
+			rateLimiter: loginRateLimiter,
+			allowedOrigins: options.allowedOrigins,
+		}),
+	);
+
+	// Fail-closed invariant: creds ⟺ codec. Having exactly one set would
+	// silently skip the gate below and expose /api/* — refuse to build instead.
+	if (!!options.basicAuthCredentials !== !!options.sessionCodec) {
+		throw new Error("createApp: basicAuthCredentials and sessionCodec must be provided together");
+	}
+
+	// Cookie-session gate over the rest of /api/* (Q4: cookie-only, no Basic,
+	// no WWW-Authenticate). Skipped entirely when auth is unconfigured —
+	// bootstrap already did the fail-closed / loopback check. The middleware
+	// internally exempts /api/session/*.
+	if (options.basicAuthCredentials && options.sessionCodec) {
+		app.use("/api/*", createDashboardAuth(options.sessionCodec));
 	}
 
 	app.route("/api/health", createHealthRoute(deps));
@@ -148,10 +183,10 @@ export function createApp(runtime: AppRuntime, options: CreateAppOptions = {}): 
 		app.route("/api/auth", createAuthRoute({ ...deps, authSystem: options.authSystem }));
 	}
 
-	// Static dashboard. Mounted last so /api/* always wins routing. Basic-auth
-	// (when configured) applies only to /api/*; the dashboard shell is meant to
-	// be reachable so the operator's browser can prompt for credentials when it
-	// fetches /api/health on first load. Dashboard assets are non-secret.
+	// Static dashboard. Mounted last so /api/* always wins routing. The cookie
+	// gate (when configured) applies only to /api/*; the dashboard shell stays
+	// reachable so the SPA can boot, probe `GET /api/session`, and render its
+	// own login dialog. Dashboard assets are non-secret.
 	if (options.staticDir) {
 		app.use("/*", serveStatic({ root: options.staticDir }));
 	}

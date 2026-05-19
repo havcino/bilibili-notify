@@ -3,6 +3,7 @@ import { type ServerType, serve } from "@hono/node-server";
 import { createApp } from "./app.js";
 import { shouldRefuseBareAuth } from "./auth/bare-auth-policy.js";
 import { type AuthSystem, createAuthSystem } from "./auth/index.js";
+import { createSessionCodec } from "./auth/session.js";
 import { createWsTicketStore } from "./auth/ws-ticket.js";
 import { loadBootstrapConfig } from "./config/loader.js";
 import { startHistoryRetention } from "./history/retention.js";
@@ -157,12 +158,28 @@ async function main(): Promise<void> {
 	// Authorization 头,改用 `POST /api/auth/ws-ticket` 换短时 token,再用 `?ticket=`
 	// 完成 WS upgrade,避免把真实凭证拼进 URL 落进反代日志。
 	const wsTicketStore = basicAuthCredentials ? createWsTicketStore() : null;
+
+	// Dashboard session codec. Signing key = HKDF over the runtime's stable key
+	// material (the same key infra StorageManager uses — passphrase-derived from
+	// BN_COOKIE_KEY when set, else the persisted random master.key), so cookies
+	// survive a restart without a new required config knob. Built only when auth
+	// is configured; the credential fingerprint is folded into the HKDF salt so
+	// rotating the dashboard password invalidates every old cookie.
+	const sessionCodec = basicAuthCredentials
+		? createSessionCodec({
+				keyMaterial: await runtime.keyProvider.getKey(),
+				creds: basicAuthCredentials,
+			})
+		: undefined;
+
 	const app = createApp(runtime, {
 		authSystem,
 		basicAuthCredentials,
+		sessionCodec,
 		puppeteer,
 		staticDir: bootstrap.webDistDir,
 		wsTicketStore,
+		allowedOrigins: bootstrap.auth?.allowedOrigins,
 	});
 	let server: ServerType | undefined;
 	await new Promise<void>((resolve) => {
@@ -189,7 +206,7 @@ async function main(): Promise<void> {
 		bus: runtime.bus,
 		store: runtime.configStore,
 		serviceCtx: runtime.serviceCtx,
-		basicAuthCredentials,
+		authRequired: !!basicAuthCredentials,
 		wsTicketStore,
 		allowedOrigins: bootstrap.auth?.allowedOrigins,
 	});
