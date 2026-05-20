@@ -106,17 +106,21 @@ export function createSubsRoute(deps: RouteDeps): Hono {
 			return c.json({ error: "api_not_ready", message: "B 站 API 尚未就绪" }, 503);
 		}
 		try {
-			// biome-ignore lint/suspicious/noExplicitAny: B-station response shape varies by search_type
 			const res = (await engines.api.searchByType("bili_user", q, {
 				page,
 				pageSize: 5,
-			})) as any;
+			})) as {
+				code?: number;
+				message?: string;
+				data?: { result?: unknown[]; numResults?: number };
+			};
 			if (!res || res.code !== 0) {
 				const message = res?.message ?? "搜索失败";
 				return c.json({ error: "upstream_failed", code: res?.code, message }, 502);
 			}
-			// biome-ignore lint/suspicious/noExplicitAny: raw search result row
-			const raw: any[] = Array.isArray(res.data?.result) ? res.data.result : [];
+			const raw = (Array.isArray(res.data?.result) ? res.data.result : []) as Array<
+				Record<string, unknown>
+			>;
 			const results = raw.slice(0, 5).map((r) => ({
 				uid: String(r.mid),
 				name: stripHtmlTags(String(r.uname ?? "")),

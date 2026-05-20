@@ -1,3 +1,4 @@
+// biome-ignore-all lint/suspicious/noTemplateCurlyInString: 测试 yaml `${VAR}` 字面量插值语义,不能转为 template literal
 /**
  * 单元测试 — `loadBootstrapConfig`(启动配置 defaults < file < ENV < CLI 合并)。
  *

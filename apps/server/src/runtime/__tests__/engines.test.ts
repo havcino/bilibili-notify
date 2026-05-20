@@ -1,3 +1,4 @@
+// biome-ignore-all lint/suspicious/noExplicitAny: vitest mock class 字段/构造器入参故意保留 any,避免重复定义业务实例的窄类型
 /**
  * 单元测试 — `createEngines` 的「无重启热重载」契约(独立端配置流向核心)。
  *
