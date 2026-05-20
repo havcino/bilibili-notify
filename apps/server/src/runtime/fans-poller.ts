@@ -152,13 +152,25 @@ export function startFansPoller(opts: FansPollerOptions): FansPollerHandle {
 				]);
 				if (disposed) return;
 
+				// fallback 源:窗口里无足额样本时改用 jsonl 最早样本 + 标注真实跨度。
+				// 两个窗口都缺时复用同一次 findEarliest 查询。
+				const needFallback = !near24h || !near7d;
+				const earliest = needFallback ? await fansStore.findEarliest(sub.uid) : undefined;
+				if (disposed) return;
+
 				const prev = subRuntimeStore.get(sub.id);
 				const baseline = prev?.fansBaseline;
 				const nextBaseline = baseline ?? { value: current, ts: nowIso };
 				const deltaSubscribed = current - nextBaseline.value;
 
-				const delta24h = near24h ? current - near24h.value : null;
-				const delta7d = near7d ? current - near7d.value : null;
+				const sample24h = near24h ?? earliest;
+				const sample7d = near7d ?? earliest;
+				const delta24h = sample24h ? current - sample24h.value : null;
+				const delta7d = sample7d ? current - sample7d.value : null;
+				// AsOf 只在 fallback 时设(near24h 缺失但 earliest 有);窗口足额时不设,
+				// 前端据此决定是否渲染 ⓘ + tooltip。
+				const delta24hAsOf = !near24h && earliest ? earliest.ts : undefined;
+				const delta7dAsOf = !near7d && earliest ? earliest.ts : undefined;
 
 				// 写进 SubRuntimeStore(独立文件 + 原子写,**不发** config-changed)——
 				// fansBaseline 首次写、cachedProfile.fans/lastRefreshedAt 每次写。
@@ -188,6 +200,8 @@ export function startFansPoller(opts: FansPollerOptions): FansPollerHandle {
 					deltaSubscribed,
 					delta24h,
 					delta7d,
+					...(delta24hAsOf ? { delta24hAsOf } : {}),
+					...(delta7dAsOf ? { delta7dAsOf } : {}),
 				};
 				lastByUid.set(sub.uid, entry);
 			} catch (err) {

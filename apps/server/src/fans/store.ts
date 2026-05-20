@@ -30,6 +30,12 @@ export interface FansStore {
 	 * 实现:从文件尾向头流式读,第一条 ts <= target 的样本就是答案。
 	 */
 	findNearestBefore(uid: string, targetTsIso: string): Promise<FansSample | undefined>;
+	/**
+	 * 取 jsonl 最早一行有效样本(早返回,O(首行))。用于 24h/7d fallback:
+	 * 当没有 ≤ 目标时间的样本时,改用最早样本算 delta + UI 标注真实跨度。
+	 * 文件不存在 / 全空 / 全乱码 → undefined。
+	 */
+	findEarliest(uid: string): Promise<FansSample | undefined>;
 	/** 删除该 uid 的全部历史(订阅被移除时调用,避免遗留垃圾)。 */
 	dropUid(uid: string): Promise<void>;
 }
@@ -97,6 +103,33 @@ export function createFansStore(opts: CreateFansStoreOptions): FansStore {
 				}
 			}
 			return best;
+		},
+
+		async findEarliest(uid) {
+			await ensureRoot();
+			const file = fileFor(uid);
+			try {
+				const stream = createReadStream(file, { encoding: "utf-8" });
+				const reader = createInterface({ input: stream });
+				for await (const raw of reader) {
+					const line = raw.trim();
+					if (!line) continue;
+					try {
+						const parsed = JSON.parse(line) as FansSample;
+						if (typeof parsed.ts !== "string" || typeof parsed.value !== "number") continue;
+						reader.close();
+						stream.destroy();
+						return parsed;
+					} catch {
+						/* skip malformed line, keep scanning */
+					}
+				}
+			} catch (err) {
+				if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
+					opts.logger.warn(`[fans-store] read ${uid} failed: ${String(err)}`);
+				}
+			}
+			return undefined;
 		},
 
 		async dropUid(uid) {
