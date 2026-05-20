@@ -26,15 +26,16 @@ jobs:
       - name: Lint (Biome)
         run: vp exec biome ci .
 
-      # `vp run build` runs the root build script (pnpm -r run build + koishi
-      # console client); vp injects the embedded pnpm into the subprocess PATH
-      # so the legacy script body keeps working. This is the double-end build
-      # (packages + koishi shells + apps/server tsdown + apps/web Vite).
+      # `vpr <script>` 是 vp 的 shim 简写,等价 `vp run <script>`,从 root
+      # package.json scripts 入口走。build 内部 `pnpm -r run build + koishi
+      # console client`;vp 把内嵌 pnpm 注入子进程 PATH 让 legacy script body
+      # 继续 work。这是双端 build(packages + koishi shells + apps/server vp
+      # pack + apps/web Vite)。typecheck 与 test 同模式。
       - name: Build (double-end)
-        run: vp run build
+        run: vpr build
 
       - name: Typecheck
-        run: vp run typecheck
+        run: vpr typecheck
 
       - name: Test
-        run: vp test
+        run: vpr test
