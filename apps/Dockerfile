@@ -95,8 +95,12 @@ ENV NODE_ENV=production \
 # node_modules. We mirror that whole shape under /app.
 WORKDIR /app
 
-# 9 个 COPY 合到 5 个:小文件合并 + 大目录(node_modules / packages / dist)
-# 单独成层,利于 buildx layer cache 增量复用 + push 时只 push 变动层。
+# 小文件合并(全是文件,multi-source COPY 到 ./ 时各自落到对应名);大目录单独
+# 成层,利于 buildx layer cache 增量复用 + push 时只 push 变动层。
+#
+# 注意:multi-source COPY **目录** 时,复制的是目录的**内容**(不保留源目录名作为
+# 子目录),所以 lib 不能跟 server/package.json 一起合 — 必须单独 COPY 才保留
+# /app/apps/server/lib/ 这一层(CMD `node lib/index.mjs` 依赖这个路径)。
 COPY --from=builder \
      /repo/package.json \
      /repo/pnpm-workspace.yaml \
@@ -104,10 +108,8 @@ COPY --from=builder \
      ./
 COPY --from=builder /repo/node_modules ./node_modules
 COPY --from=builder /repo/packages ./packages
-COPY --from=builder \
-     /repo/apps/server/lib \
-     /repo/apps/server/package.json \
-     ./apps/server/
+COPY --from=builder /repo/apps/server/lib ./apps/server/lib
+COPY --from=builder /repo/apps/server/package.json ./apps/server/package.json
 COPY --from=builder /repo/apps/server/node_modules ./apps/server/node_modules
 COPY --from=builder /repo/apps/web/dist ./web-dist
 
