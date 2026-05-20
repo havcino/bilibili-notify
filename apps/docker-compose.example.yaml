@@ -26,11 +26,12 @@ services:
     ports:
       - "8787:8787"
     environment:
-      # B 模型开关 + 持久化路径(配合下面 ./config:/config 挂载,host 端
-      # ./config/bn.config.yaml 自动出现,跟 ./data 平级)
-      BN_CONFIG: /config/bn.config.yaml
-      # 以下 BN_* 都是 first-boot seed 源,**仅首次启动**写入 yaml;之后修改这里无效,
-      # 要改值请编辑 ./config/bn.config.yaml 后重启容器。
+      # 注意:BN_CONFIG / BN_DATA_DIR / BN_CHROME_PATH / BN_WEB_DIST / BN_HOST / BN_PORT
+      # 都是镜像 Dockerfile ENV 默认注入的(在 image 里固定),不要在这里重写 —
+      # 改坏路径会让 B 模型 seed 文件落到错位置,产生混乱。
+      #
+      # 以下 BN_* 是 first-boot seed 源,**仅首次启动**写入 ${BN_CONFIG} 指向的 yaml;
+      # 之后修改这里无效,要改值请编辑 ./config/bn.config.yaml 后重启容器。
       BN_LOG_LEVEL: info
       # TZ: Asia/Shanghai          # 时区(决定日志/历史按日切文件的本地"今天",镜像默认已设)
       # BN_DASHBOARD_USER: admin
