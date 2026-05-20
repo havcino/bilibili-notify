@@ -13,5 +13,6 @@
 		"experimentalDecorators": true,
 		"jsx": "react-jsx",
 		"types": ["node"]
-	}
+	},
+	"exclude": ["**/*.test.ts", "**/*.test.tsx", "**/__tests__/**"]
 }
