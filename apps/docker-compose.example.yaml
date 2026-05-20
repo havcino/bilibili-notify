@@ -16,6 +16,7 @@ services:
       - "8787:8787"
     environment:
       BN_LOG_LEVEL: info
+      # TZ: Asia/Shanghai          # 时区(决定日志/历史按日切文件的本地"今天",镜像默认已设)
       # BN_DASHBOARD_USER: admin
       # BN_DASHBOARD_PASS: change-me
     volumes:

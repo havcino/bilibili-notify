@@ -64,11 +64,13 @@ FROM node:${NODE_VERSION}-bookworm-slim AS runtime
 # fonts-noto-cjk + fonts-noto-color-emoji — render Chinese + emoji in screenshots.
 # tini — PID 1 signal forwarding so SIGINT/SIGTERM reach Node.
 # ca-certificates — HTTPS to bilibili.com / openai-compatible endpoints.
+# tzdata — TZ env var resolution (default Asia/Shanghai;运行时可 -e TZ= 覆盖).
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        chromium fonts-noto-cjk fonts-noto-color-emoji ca-certificates tini \
+        chromium fonts-noto-cjk fonts-noto-color-emoji ca-certificates tini tzdata \
     && rm -rf /var/lib/apt/lists/*
 
 ENV NODE_ENV=production \
+    TZ=Asia/Shanghai \
     BN_HOST=0.0.0.0 \
     BN_PORT=8787 \
     BN_DATA_DIR=/data \

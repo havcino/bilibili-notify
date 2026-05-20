@@ -93,6 +93,7 @@ docker run -d \
 
 | 环境变量 | 镜像内默认 | 用途 |
 |---|---|---|
+| `TZ` | `Asia/Shanghai` | 容器时区(影响 server 端日志/历史按日切文件的本地"今天")。`docker run -e TZ=Europe/Berlin` 可覆盖。Dashboard 日志展示的时间走的是**浏览器**所在系统时区,与 TZ 独立。 |
 | `BN_HOST` | `0.0.0.0` | 绑定地址 |
 | `BN_PORT` | `8787` | http 端口 |
 | `BN_DATA_DIR` | `/data` | 运行时状态(volume) |
