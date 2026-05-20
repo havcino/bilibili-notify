@@ -11,7 +11,8 @@
 			"!**/src/static",
 			"!.changeset",
 			"!**/.interface",
-			"!.bn-design"
+			"!.bn-design",
+			"!apps/**/data"
 		]
 	},
 	"formatter": {
