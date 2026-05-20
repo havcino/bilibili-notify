@@ -30,19 +30,14 @@ function env(over: Partial<WsEnvelope> & { type: string }): WsEnvelope {
 	return { ts: "2026-05-16T00:00:00.000Z", ...over };
 }
 
-interface Harness {
-	qc: QueryClient;
-	push: ReturnType<typeof vi.fn>;
-	invalidate: ReturnType<typeof vi.fn>;
-}
-
-function harness(): Harness {
+function harness() {
 	const qc = new QueryClient();
 	const invalidate = vi.fn(qc.invalidateQueries.bind(qc));
 	qc.invalidateQueries = invalidate;
 	const push = vi.fn<(view: PushEventView) => void>();
 	return { qc, push, invalidate };
 }
+type Harness = ReturnType<typeof harness>;
 
 function pushView(id: string): PushEventView {
 	return {

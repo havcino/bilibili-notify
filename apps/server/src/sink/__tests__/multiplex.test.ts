@@ -20,7 +20,7 @@ import type {
 	PushAdapter,
 	PushTarget,
 } from "@bilibili-notify/internal";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, type Mock, vi } from "vitest";
 import type { ConfigStore } from "../../config/store.js";
 import type { PlatformAdapter, ProbeResult } from "../../platforms/types.js";
 import { createMultiplexSink } from "../multiplex.js";
@@ -58,13 +58,14 @@ function makeStore(adapters: PushAdapter[], targets: PushTarget[]): ConfigStore 
 	} as unknown as ConfigStore;
 }
 
-function makeLogger(): Logger & { warn: ReturnType<typeof vi.fn> } {
+type LogFn = (msg: string, ...args: unknown[]) => void;
+function makeLogger(): Logger & { warn: Mock<LogFn> } {
 	return {
-		info: vi.fn(),
-		warn: vi.fn(),
-		error: vi.fn(),
-		debug: vi.fn(),
-	} as unknown as Logger & { warn: ReturnType<typeof vi.fn> };
+		info: vi.fn<LogFn>(),
+		warn: vi.fn<LogFn>(),
+		error: vi.fn<LogFn>(),
+		debug: vi.fn<LogFn>(),
+	} as unknown as Logger & { warn: Mock<LogFn> };
 }
 
 function makePlatformAdapter(
@@ -159,10 +160,16 @@ describe("createMultiplexSink — resolve / isAvailable", () => {
 	});
 });
 
+type OnDeliveryFn = (
+	target: PushTarget,
+	payload: NotificationPayload,
+	result: DeliveryResult,
+	opts: { private: boolean },
+) => void;
 describe("createMultiplexSink — dispatch (send / sendPrivate)", () => {
-	let onDelivery: ReturnType<typeof vi.fn>;
+	let onDelivery: Mock<OnDeliveryFn>;
 	beforeEach(() => {
-		onDelivery = vi.fn();
+		onDelivery = vi.fn<OnDeliveryFn>();
 	});
 
 	it("target 缺:返回 target not found,不触发 onDelivery", async () => {

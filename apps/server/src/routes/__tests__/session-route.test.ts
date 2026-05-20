@@ -109,7 +109,7 @@ describe("session route — POST /api/session/login", () => {
 			body: JSON.stringify(CREDS),
 		});
 		expect(res.status).toBe(400);
-		expect((await res.json()).error).toBe("auth_not_required");
+		expect(((await res.json()) as { error: string }).error).toBe("auth_not_required");
 	});
 
 	it("rate-limit: blocked after maxFailures with Retry-After, correct creds still 429", async () => {
@@ -174,7 +174,7 @@ describe("session route — Origin gate (F3, defence-in-depth)", () => {
 			body: JSON.stringify(CREDS),
 		});
 		expect(res.status).toBe(403);
-		expect((await res.json()).error).toBe("forbidden_origin");
+		expect(((await res.json()) as { error: string }).error).toBe("forbidden_origin");
 	});
 
 	it("configured + missing Origin → 403 (non-browser automation unsupported with gate)", async () => {
@@ -297,7 +297,7 @@ describe("session route — Origin gate (F3, defence-in-depth)", () => {
 			body: JSON.stringify(CREDS),
 		});
 		expect(inert.status).toBe(400);
-		expect((await inert.json()).error).toBe("auth_not_required");
+		expect(((await inert.json()) as { error: string }).error).toBe("auth_not_required");
 	});
 });
 

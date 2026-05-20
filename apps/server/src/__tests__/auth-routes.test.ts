@@ -14,17 +14,7 @@ import { createAppRuntime } from "../runtime/bootstrap.js";
 // `_setSnapshot` test-only escape hatch that lives on the fake itself.
 // ---------------------------------------------------------------------------
 
-interface FakeAuthSystem extends AuthSystem {
-	_setSnapshot: (s: LoginSnapshot) => void;
-	_emitAuthLost: () => void;
-	beginLogin: ReturnType<typeof vi.fn>;
-	refreshCookies: ReturnType<typeof vi.fn>;
-	resetCookies: ReturnType<typeof vi.fn>;
-	logout: ReturnType<typeof vi.fn>;
-	dispose: ReturnType<typeof vi.fn>;
-}
-
-function makeFakeAuthSystem(opts: { bus?: MessageBus } = {}): FakeAuthSystem {
+function makeFakeAuthSystem(opts: { bus?: MessageBus } = {}) {
 	let snapshot: LoginSnapshot = {
 		status: BiliLoginStatus.NOT_LOGIN,
 		msg: "未登录",
@@ -52,7 +42,11 @@ function makeFakeAuthSystem(opts: { bus?: MessageBus } = {}): FakeAuthSystem {
 		},
 		_emitAuthLost: () => opts.bus?.emit("auth-lost"),
 	};
-	return fake as unknown as FakeAuthSystem;
+	return fake;
+}
+type FakeAuthSystem = ReturnType<typeof makeFakeAuthSystem>;
+function asAuthSystem(fake: FakeAuthSystem): AuthSystem {
+	return fake as unknown as AuthSystem;
 }
 
 function makeBootstrap(dataDir: string): BootstrapConfig {
@@ -80,13 +74,13 @@ describe("auth routes", () => {
 		await rm(dataDir, { recursive: true, force: true });
 	});
 
-	async function buildApp(authSystem: AuthSystem): Promise<{
+	async function buildApp(fake: FakeAuthSystem): Promise<{
 		app: ReturnType<typeof createApp>;
 		runtime: ReturnType<typeof createAppRuntime>;
 	}> {
 		const runtime = createAppRuntime(makeBootstrap(dataDir));
 		await runtime.configStore.load();
-		const app = createApp(runtime, { authSystem });
+		const app = createApp(runtime, { authSystem: asAuthSystem(fake) });
 		return { app, runtime };
 	}
 
@@ -158,7 +152,7 @@ describe("auth routes", () => {
 			events.push("auth-lost");
 		});
 		const fake = makeFakeAuthSystem({ bus: runtime.bus });
-		const app = createApp(runtime, { authSystem: fake });
+		const app = createApp(runtime, { authSystem: asAuthSystem(fake) });
 
 		const res = await app.request("/api/auth/cookies/reset", { method: "POST" });
 		expect(res.status).toBe(200);
