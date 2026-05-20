@@ -42,8 +42,9 @@ function setProcEnv(k: string, v: string) {
 beforeEach(async () => {
 	cwd = await mkdtemp(join(tmpdir(), "bn-cfg-"));
 });
-afterEach(() => {
+afterEach(async () => {
 	for (const k of touchedEnv.splice(0)) delete process.env[k];
+	await rm(cwd, { recursive: true, force: true }).catch(() => {});
 });
 
 const write = (name: string, body: string) => writeFile(join(cwd, name), body, "utf8");
@@ -88,6 +89,36 @@ describe("loadBootstrapConfig — B 模型 first-boot seed", () => {
 		expect(fileObj.dataDir).toBe("./data");
 		expect(fileObj.logLevel).toBe("info");
 	});
+
+	it("round-trip:first-boot 返回的 config 与第二次启动读回的 config 深度相等(B3)", async () => {
+		const cfgPath = join(cwd, "bn.config.yaml");
+		const first = loadBootstrapConfig({
+			argv: [],
+			env: {
+				BN_CONFIG: cfgPath,
+				BN_HOST: "1.2.3.4",
+				BN_PORT: "9000",
+				BN_DATA_DIR: "/r/data",
+				BN_LOG_LEVEL: "debug",
+				BN_DASHBOARD_USER: "admin",
+				BN_DASHBOARD_PASS: "pw",
+			},
+			cwd,
+			log: () => {},
+		});
+		// 第二次启动:env 仍在但应被忽略,file 解析回来要跟 first 完全相等
+		const second = loadBootstrapConfig({
+			argv: [],
+			env: {
+				BN_CONFIG: cfgPath,
+				BN_HOST: "should-be-ignored",
+				BN_PORT: "0",
+			},
+			cwd,
+			log: () => {},
+		});
+		expect(second).toEqual(first);
+	});
 });
 
 describe("loadBootstrapConfig — B 模型:file 存在,env 被忽略", () => {
@@ -121,17 +152,23 @@ describe("loadBootstrapConfig — B 模型:file 存在,env 被忽略", () => {
 		expect(logged.some((m) => m.includes("first boot"))).toBe(false);
 	});
 
-	it("CLI 仍可叠加(file 存在分支也允许一次性 escape hatch)", async () => {
+	it("CLI 仍可叠加(file 存在分支也允许一次性 escape hatch)— 顶层 + nested 字段都验", async () => {
 		const cfgPath = join(cwd, "bn.config.yaml");
-		await writeFile(cfgPath, "server:\n  host: 127.0.0.1\n  port: 8787\n", "utf8");
+		await writeFile(
+			cfgPath,
+			"server:\n  host: 127.0.0.1\n  port: 8787\ndataDir: /file/data\nlogLevel: info\n",
+			"utf8",
+		);
 		const c = loadBootstrapConfig({
-			argv: ["--port=9000"],
+			argv: ["--port=9000", "--data-dir=/cli/data", "--log-level=debug"],
 			env: { BN_CONFIG: cfgPath },
 			cwd,
 			log: () => {},
 		});
-		expect(c.server.host).toBe("127.0.0.1"); // file
-		expect(c.server.port).toBe(9000); // CLI
+		expect(c.server.host).toBe("127.0.0.1"); // file 保留 nested 未冲突字段
+		expect(c.server.port).toBe(9000); // CLI 覆盖 nested
+		expect(c.dataDir).toBe("/cli/data"); // CLI 覆盖顶层
+		expect(c.logLevel).toBe("debug"); // CLI 覆盖顶层
 	});
 });
 
@@ -157,17 +194,35 @@ describe("loadBootstrapConfig — B 模型异常处理(Q5)", () => {
 		expect(c.logLevel).toBe("info");
 	});
 
-	it("schema 错(类型不对)→ 抛 Error,信息含字段路径 + 修复提示", async () => {
+	it("schema 错(类型不对)→ 抛 Error,信息含 read mode + 字段路径 + 修复提示", async () => {
 		const cfgPath = join(cwd, "bn.config.yaml");
 		await writeFile(cfgPath, "logLevel: not-a-valid-level\n", "utf8");
-		expect(() =>
-			loadBootstrapConfig({ argv: [], env: { BN_CONFIG: cfgPath }, cwd, log: () => {} }),
-		).toThrow(/schema error/);
+		// 强化断言:mode (read)、字段路径 logLevel、修复 hint 三段都要在,否则未来回归
+		// 把 parseOrRethrow 信息拆掉测试不会红
+		const fn = () =>
+			loadBootstrapConfig({ argv: [], env: { BN_CONFIG: cfgPath }, cwd, log: () => {} });
+		expect(fn).toThrow(/schema error \(read\)/);
+		expect(fn).toThrow(/logLevel/);
+		expect(fn).toThrow(/rm.*first boot 重新 seed/);
 	});
 
-	afterEach(async () => {
-		// 上面创建的目录/文件统一在 mkdtemp 里,beforeEach 重新建 → afterEach 全清
-		await rm(cwd, { recursive: true, force: true }).catch(() => {});
+	it("BN_CONFIG=foo.json first-boot:.json 扩展名写 JSON,第二次启动不炸(A1 回归守护)", async () => {
+		const cfgPath = join(cwd, "bn.config.json");
+		const first = loadBootstrapConfig({
+			argv: [],
+			env: { BN_CONFIG: cfgPath, BN_HOST: "1.2.3.4" },
+			cwd,
+			log: () => {},
+		});
+		expect(first.server.host).toBe("1.2.3.4");
+		// 第二次启动:JSON.parse 必须能读回,否则就是原 A1 bug 重现
+		const second = loadBootstrapConfig({
+			argv: [],
+			env: { BN_CONFIG: cfgPath, BN_HOST: "should-be-ignored" },
+			cwd,
+			log: () => {},
+		});
+		expect(second.server.host).toBe("1.2.3.4");
 	});
 });
 
@@ -207,6 +262,20 @@ describe("loadBootstrapConfig — legacy:默认值", () => {
 		expect(c.server).toEqual({ host: "0.0.0.0", port: 8787 });
 		expect(c.dataDir).toBe("./data");
 		expect(c.logLevel).toBe("info");
+	});
+
+	it("BN_CONFIG='' 空字符串走 legacy 分支(不抛、不 seed)— B1", async () => {
+		const logged: string[] = [];
+		const c = loadBootstrapConfig({
+			argv: [],
+			env: { BN_CONFIG: "", BN_HOST: "1.1.1.1" }, // 空 BN_CONFIG + 还有 BN_HOST
+			cwd,
+			log: (m) => logged.push(m),
+		});
+		// 走 legacy → env 仍生效(BN_HOST 覆盖默认)
+		expect(c.server.host).toBe("1.1.1.1");
+		// 不 seed
+		expect(logged.some((m) => m.includes("first boot"))).toBe(false);
 	});
 });
 

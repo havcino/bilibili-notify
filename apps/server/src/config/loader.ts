@@ -82,7 +82,7 @@ function loadBModel(
 		const fromEnv = readEnv(env);
 		const seedMerged = deepMerge(fromEnv, fromCli);
 		const seeded = parseOrRethrow(seedMerged, yamlPath, "seed");
-		writeSeedYaml(yamlPath, seeded, log);
+		writeSeedFile(yamlPath, seeded, log);
 		return seeded;
 	}
 
@@ -116,11 +116,19 @@ const SEED_HEADER = `# bilibili-notify bootstrap config (auto-generated on first
 #
 `;
 
-function writeSeedYaml(path: string, config: BootstrapConfig, log: (msg: string) => void): void {
+function writeSeedFile(path: string, config: BootstrapConfig, log: (msg: string) => void): void {
 	mkdirSync(dirname(path), { recursive: true });
-	const body = stringifyYaml(config, { indent: 2 });
+	// 扩展名 dispatch:.json 路径用 JSON.stringify,否则 yaml(yaml 加 SEED_HEADER 注释,
+	// JSON 不支持注释跳过)。若不分派,.json 扩展名的 first-boot 写出 yaml 内容 →
+	// 第二次启动 readYamlOrJson 走 JSON.parse 直接炸 → restart loop。
+	const isJson = path.toLowerCase().endsWith(".json");
+	const body = isJson
+		? JSON.stringify(config, null, 2)
+		: `${SEED_HEADER}${stringifyYaml(config, { indent: 2 })}`;
 	const tmp = `${path}.${process.pid}.${Date.now()}.tmp`;
-	writeFileSync(tmp, `${SEED_HEADER}${body}`, "utf8");
+	// mode 0o600:seed 文件可能含 cookieEncryptionKey / dashboard password 等 secret,
+	// 只对 owner 可读。tmpfile + rename 仍保持原子语义。
+	writeFileSync(tmp, body, { mode: 0o600, encoding: "utf8" });
 	renameSync(tmp, path);
 	log(`[bootstrap] first boot — seeded bootstrap config from ENV to ${path}`);
 }
