@@ -98,7 +98,9 @@ jobs:
         if: always()
         run: docker rm -f bn-smoke >/dev/null 2>&1 || true
 
+      # commit message 含 `[dry-run]` 时跳过推送(其它 step 照跑,用来验证 build + smoke)
       - name: Push image
+        if: ${{ !contains(github.event.head_commit.message, '[dry-run]') }}
         uses: docker/build-push-action@v6
         with:
           context: .
