@@ -28,8 +28,21 @@ nodeLinker: hoisted
 # benign (native binary builds + git-hook installer). Re-evaluate when
 # bumping versions; CI fails install if a *new* unapproved entry appears.
 allowBuilds:
-  "@parcel/watcher": true   # native fsevents/inotify shim used by vite watcher
-  esbuild: true             # downloads matching native binary
-  lefthook: true            # repo's git hooks installer (root prepare script)
-  protobufjs: true          # generates .js from .proto at install time
-  vue-demi: true            # writes vue 2/3 shim at install time
+  "@parcel/watcher": true # native fsevents/inotify shim used by vite watcher
+  esbuild: true # downloads matching native binary
+  lefthook: true # repo's git hooks installer (root prepare script)
+  protobufjs: true # generates .js from .proto at install time
+  vue-demi: true # writes vue 2/3 shim at install time
+
+minimumReleaseAgeExclude:
+  - '@voidzero-dev/vite-plus-core@0.1.22'
+  - '@voidzero-dev/vite-plus-darwin-arm64@0.1.22'
+  - '@voidzero-dev/vite-plus-darwin-x64@0.1.22'
+  - '@voidzero-dev/vite-plus-linux-arm64-gnu@0.1.22'
+  - '@voidzero-dev/vite-plus-linux-arm64-musl@0.1.22'
+  - '@voidzero-dev/vite-plus-linux-x64-gnu@0.1.22'
+  - '@voidzero-dev/vite-plus-linux-x64-musl@0.1.22'
+  - '@voidzero-dev/vite-plus-test@0.1.22'
+  - '@voidzero-dev/vite-plus-win32-arm64-msvc@0.1.22'
+  - '@voidzero-dev/vite-plus-win32-x64-msvc@0.1.22'
+  - vite-plus@0.1.22
