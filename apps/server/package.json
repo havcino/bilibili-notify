@@ -9,7 +9,7 @@
 		"build": "vp pack",
 		"typecheck": "tsc --noEmit",
 		"start": "node lib/index.mjs",
-		"test": "vp test run"
+		"test": "vp test"
 	},
 	"dependencies": {
 		"@bilibili-notify/ai": "workspace:*",

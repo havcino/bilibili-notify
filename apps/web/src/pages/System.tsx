@@ -236,7 +236,7 @@ function SystemSettingsSection({
 				/>
 			</Field>
 
-			<div className="mt-3 rounded-lg border border-bn-pink/20 bg-gradient-to-br from-bn-pink/8 to-transparent p-3">
+			<div className="mt-3 rounded-lg border border-bn-pink/20 bg-linear-to-br from-bn-pink/8 to-transparent p-3">
 				<div className="mb-1.5 flex items-center justify-between">
 					<span className="text-[12.5px] font-bold text-bn-text-primary">主人账号 · master</span>
 					<span className="text-[10.5px] text-bn-text-tertiary">

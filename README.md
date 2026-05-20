@@ -91,7 +91,7 @@ apps/       Hono 服务端 + React Dashboard
 vp install
 vp run typecheck
 vp run build
-vp test run
+vp test
 vp run dev:apps            # apps/server + apps/web 并行
 vp run check               # Biome lint + format(:fix 自动修)
 ```

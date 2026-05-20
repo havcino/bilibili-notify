@@ -37,4 +37,4 @@ jobs:
         run: vp run typecheck
 
       - name: Test
-        run: vp test run
+        run: vp test

@@ -26,7 +26,7 @@ vp install
 vp run build                          # pnpm -r run build (topo order) + koishi console UI
 vp run -F koishi-plugin-bilibili-notify build   # build one package — filter BEFORE the script name
 vp run typecheck                      # tsc --noEmit across the workspace
-vp test run                           # vite-plus → vitest, all packages
+vp test                               # vite-plus → vitest, all packages
 
 # Dashboard (apps/) dev — root scripts
 vp run dev:server   # tsx watch on apps/server
@@ -180,7 +180,7 @@ straight onto WS channels.
 - **tsdown** — builds each package to ESM (`.mjs`) + CJS (`.cjs`) with declaration files
 - **Biome** — linter + formatter (tab indent, 100-char line width). Vue files in lint scope.
 - **Lefthook** — pre-commit runs `biome check --staged --write` on staged ts/js/mjs/json files
-- **Vitest** — unit tests (`vp test run`)
+- **Vitest** — unit tests (`vp test`)
 - **Changesets** — release tooling. `updateInternalDependencies: "patch"` only **syncs version ranges in `package.json`** for downstream consumers; it does **not** automatically include publishable downstream packages in the release. When a change in package A affects the runtime behavior of publishable package B, B must be listed explicitly in the changeset frontmatter.
 
 ## Console UI (Koishi)
