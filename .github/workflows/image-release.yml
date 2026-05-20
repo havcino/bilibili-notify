@@ -99,6 +99,9 @@ jobs:
         run: docker rm -f bn-smoke >/dev/null 2>&1 || true
 
       # commit message 含 `[dry-run]` 时跳过推送(其它 step 照跑,用来验证 build + smoke)
+      # Push 阶段构 multi-arch manifest(amd64 + arm64),Docker pull 时按宿主架构
+      # 自动选 layer。Smoke 阶段保持 amd64 单平台(load: true 不支持多 arch,
+      # 且 GHA runner 是 amd64,native 跑 smoke 已足够)。
       - name: Push image
         if: ${{ !contains(github.event.head_commit.message, '[dry-run]') }}
         uses: docker/build-push-action@v6
@@ -108,6 +111,6 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          platforms: linux/amd64
+          platforms: linux/amd64,linux/arm64
           cache-from: type=gha
           cache-to: type=gha,mode=max
