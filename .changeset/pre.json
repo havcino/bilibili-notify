@@ -1,0 +1,25 @@
+{
+  "mode": "pre",
+  "tag": "alpha",
+  "initialVersions": {
+    "@bilibili-notify/server": "0.0.0",
+    "@bilibili-notify/web": "0.0.0",
+    "koishi-plugin-bilibili-notify-advanced-subscription": "2.0.1",
+    "koishi-plugin-bilibili-notify-ai": "1.0.1",
+    "koishi-plugin-bilibili-notify": "4.2.0",
+    "koishi-plugin-bilibili-notify-dynamic": "1.0.2",
+    "koishi-plugin-bilibili-notify-image": "0.1.1",
+    "koishi-plugin-bilibili-notify-live": "1.0.3",
+    "@bilibili-notify/koishi-runtime": "0.0.0",
+    "@bilibili-notify/ai": "0.0.0",
+    "@bilibili-notify/api": "0.1.0",
+    "@bilibili-notify/dynamic": "0.0.0",
+    "@bilibili-notify/image": "0.0.0",
+    "@bilibili-notify/internal": "0.0.3",
+    "@bilibili-notify/live": "0.0.0",
+    "@bilibili-notify/push": "1.0.2",
+    "@bilibili-notify/storage": "0.0.2",
+    "@bilibili-notify/subscription": "1.0.3"
+  },
+  "changesets": []
+}

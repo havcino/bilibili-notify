@@ -13,6 +13,7 @@
 	"files": [
 		"lib"
 	],
+	"license": "MIT",
 	"main": "./lib/index.cjs",
 	"types": "./lib/index.d.cts",
 	"exports": {
@@ -44,6 +45,5 @@
 	},
 	"engines": {
 		"node": ">=20.0.0"
-	},
-	"module": "./lib/index.mjs"
+	}
 }

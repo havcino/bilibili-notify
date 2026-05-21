@@ -22,7 +22,7 @@
 		"prepare": "lefthook install",
 		"changeset": "changeset",
 		"version": "changeset version",
-		"release": "pnpm build && changeset publish",
+		"release": "pnpm build && node scripts/publish.mjs",
 		"test": "vp test",
 		"knip": "knip --files"
 	},

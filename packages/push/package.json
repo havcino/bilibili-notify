@@ -13,8 +13,8 @@
 	"files": [
 		"lib"
 	],
+	"license": "MIT",
 	"main": "./lib/index.cjs",
-	"module": "./lib/index.mjs",
 	"types": "./lib/index.d.cts",
 	"exports": {
 		".": "./lib/index.cjs",

@@ -1,6 +1,6 @@
 {
 	"name": "@bilibili-notify/ai",
-	"version": "0.0.1",
+	"version": "0.0.0",
 	"repository": {
 		"type": "git",
 		"url": "https://github.com/Akokk0/bilibili-notify"
@@ -13,6 +13,7 @@
 	"files": [
 		"lib"
 	],
+	"license": "MIT",
 	"main": "./lib/index.cjs",
 	"module": "./lib/index.mjs",
 	"types": "./lib/index.d.cts",
