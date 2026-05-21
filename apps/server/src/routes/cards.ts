@@ -35,6 +35,7 @@ import {
 	type LiveCardProps,
 	renderCard,
 } from "@bilibili-notify/image";
+import type { NotificationPayload } from "@bilibili-notify/internal";
 import { Hono } from "hono";
 import { z } from "zod";
 import type { StandalonePuppeteer } from "../runtime/puppeteer.js";
@@ -87,6 +88,23 @@ type PreviewStyle = z.infer<typeof StyleSchema>;
 export interface PreviewResponse {
 	ok: boolean;
 	dataUrl?: string;
+	err?: string;
+}
+
+type PreviewKind = z.infer<typeof PreviewRequestSchema>["kind"];
+type PreviewContent = z.infer<typeof ContentSchema>;
+
+const TestPushRequestSchema = z.object({
+	targetId: z.uuid(),
+	kind: z.enum(["live", "dyn", "sc", "guard"]),
+	style: StyleSchema,
+	content: ContentSchema,
+});
+
+/** /api/cards/test-push 响应 —— 与 push.ts 的 TestResponse 同形。 */
+export interface TestPushResponse {
+	ok: boolean;
+	latencyMs: number;
 	err?: string;
 }
 
@@ -158,14 +176,84 @@ export function createCardsRoute(opts: CardsRouteOptions): Hono {
 		return null;
 	}
 
+	// 渲染一张样例卡片 → JPEG / PNG Buffer。/preview 与 /test-push 共用。失败抛 Error
+	// (消息直接面向用户)。SC / Guard 走 ImageRenderer;live / dyn 有 content 走真实
+	// 拉取,否则虚构 mock 数据。调用方须先确认 opts.puppeteer 存在。
+	async function renderPreviewCard(
+		kind: PreviewKind,
+		style: PreviewStyle,
+		content: PreviewContent,
+	): Promise<{ buffer: Buffer; mime: string }> {
+		const puppeteer = opts.puppeteer;
+		if (!puppeteer) throw new Error("puppeteer 未就绪");
+
+		if (kind === "sc") {
+			const renderer = getImageRenderer(style);
+			if (!renderer) throw new Error("puppeteer 未就绪");
+			// 登录账号 = SC 发送者(「我在别人直播间发条 SC 会长啥样」)。
+			const me = await getLoggedInAccount();
+			const buffer = await renderer.generateSCCard({
+				senderFace: me?.avatar ?? SVG_AVATAR_FAN,
+				senderName: me?.name ?? "示例粉丝",
+				masterName: "示例 UP 主",
+				masterAvatarUrl: SVG_AVATAR_BLUE,
+				text: content?.text?.trim() || "主播加油！这首要听到！示例 UP 主唱得太好了！",
+				price: content?.price ?? 30,
+			});
+			return { buffer, mime: "image/jpeg" };
+		}
+		if (kind === "guard") {
+			const renderer = getImageRenderer(style);
+			if (!renderer) throw new Error("puppeteer 未就绪");
+			// 登录账号 = 新舰长(触发上舰事件的人);显式 text 覆写仍优先。
+			const me = await getLoggedInAccount();
+			const uname = content?.text?.trim() || me?.name || "示例新舰长";
+			const face = me?.avatar ?? SVG_AVATAR_PINK;
+			const buffer = await renderer.generateGuardCard(
+				{ guardLevel: (content?.level ?? 3) as 1 | 2 | 3, uname, face, isAdmin: 0 },
+				{ masterAvatarUrl: SVG_AVATAR_BLUE, masterName: "示例 UP 主" },
+			);
+			return { buffer, mime: "image/jpeg" };
+		}
+		// Live + Dyn:有 content 走真实拉取,把用户输入错误原样抛出。
+		if (kind === "live" && content?.roomId?.trim()) {
+			const renderer = getImageRenderer(style);
+			if (!renderer) throw new Error("puppeteer 未就绪");
+			if (!opts.api) throw new Error("auth system 未就绪 — 后端账号尚未登录");
+			const buffer = await renderRealLive(opts.api, renderer, content.roomId.trim(), style);
+			return { buffer, mime: "image/jpeg" };
+		}
+		if (kind === "dyn" && content?.uid?.trim()) {
+			const renderer = getImageRenderer(style);
+			if (!renderer) throw new Error("puppeteer 未就绪");
+			if (!opts.api) throw new Error("auth system 未就绪 — 后端账号尚未登录");
+			const buffer = await renderRealDynamic(
+				opts.api,
+				renderer,
+				content.uid.trim(),
+				content.offset ?? 1,
+				style,
+			);
+			return { buffer, mime: "image/jpeg" };
+		}
+		// Live + Dyn 空 content:虚构 mock 数据,走 renderCard + screenshot 流水线
+		// (不经 ImageRenderer,未登录也能调色)。
+		const { component, props, title, htmlWidth } = buildPreviewSpec(kind, style);
+		const html = await renderCard(component, props, {
+			title,
+			font: style.font ?? "PingFang SC, sans-serif",
+			htmlWidth,
+		});
+		const buffer = await screenshotHtml(puppeteer, html);
+		return { buffer, mime: "image/png" };
+	}
+
 	app.post("/preview", async (c) => {
 		const body = (await c.req.json().catch(() => null)) as unknown;
 		const parsed = PreviewRequestSchema.safeParse(body);
 		if (!parsed.success) {
 			return c.json<PreviewResponse>({ ok: false, err: "invalid_request" }, 400);
 		}
-		const { kind, style, content } = parsed.data;
-
 		if (!opts.puppeteer) {
 			return c.json<PreviewResponse>(
 				{
@@ -175,117 +263,63 @@ export function createCardsRoute(opts: CardsRouteOptions): Hono {
 				503,
 			);
 		}
-
-		// SC + Guard always go through ImageRenderer.generateSCCard /
-		// generateGuardCard, mirroring the production push path. bgColor +
-		// captain badge are derived from level/price internally — gradient
-		// style fields are ignored for these two kinds.
+		const { kind, style, content } = parsed.data;
 		try {
-			if (kind === "sc") {
-				const renderer = getImageRenderer(style);
-				if (!renderer) throw new Error("puppeteer 未就绪");
-				// Logged-in account becomes the SC SENDER — when the operator is
-				// imagining "if I sent this SC in someone's room, what would the
-				// notification look like?", that's themselves.
-				const me = await getLoggedInAccount();
-				const buffer = await renderer.generateSCCard({
-					senderFace: me?.avatar ?? SVG_AVATAR_FAN,
-					senderName: me?.name ?? "示例粉丝",
-					masterName: "示例 UP 主",
-					masterAvatarUrl: SVG_AVATAR_BLUE,
-					text: content?.text?.trim() || "主播加油！这首要听到！示例 UP 主唱得太好了！",
-					price: content?.price ?? 30,
-				});
-				return c.json<PreviewResponse>({
-					ok: true,
-					dataUrl: `data:image/jpeg;base64,${buffer.toString("base64")}`,
-				});
-			}
-			if (kind === "guard") {
-				const renderer = getImageRenderer(style);
-				if (!renderer) throw new Error("puppeteer 未就绪");
-				// Logged-in account becomes the NEW CAPTAIN (the "sender" / actor
-				// who triggered the 上舰 event). Explicit text override still wins.
-				const me = await getLoggedInAccount();
-				const uname = content?.text?.trim() || me?.name || "示例新舰长";
-				const face = me?.avatar ?? SVG_AVATAR_PINK;
-				const buffer = await renderer.generateGuardCard(
-					{
-						guardLevel: (content?.level ?? 3) as 1 | 2 | 3,
-						uname,
-						face,
-						isAdmin: 0,
-					},
-					{ masterAvatarUrl: SVG_AVATAR_BLUE, masterName: "示例 UP 主" },
-				);
-				return c.json<PreviewResponse>({
-					ok: true,
-					dataUrl: `data:image/jpeg;base64,${buffer.toString("base64")}`,
-				});
-			}
-		} catch (err) {
-			const msg = err instanceof Error ? err.message : String(err);
-			log.error(`[cards] sc/guard render failed: ${msg}`);
-			return c.json<PreviewResponse>({ ok: false, err: msg }, 500);
-		}
-
-		// Live + Dyn real-fetch branches. Surface user-input errors verbatim
-		// instead of silently rendering mock data — silently lying would
-		// defeat the point of the input.
-		try {
-			if (kind === "live" && content?.roomId?.trim()) {
-				const renderer = getImageRenderer(style);
-				if (!renderer) throw new Error("puppeteer 未就绪");
-				if (!opts.api) throw new Error("auth system 未就绪 — 后端账号尚未登录");
-				const buffer = await renderRealLive(opts.api, renderer, content.roomId.trim(), style);
-				return c.json<PreviewResponse>({
-					ok: true,
-					dataUrl: `data:image/jpeg;base64,${buffer.toString("base64")}`,
-				});
-			}
-			if (kind === "dyn" && content?.uid?.trim()) {
-				const renderer = getImageRenderer(style);
-				if (!renderer) throw new Error("puppeteer 未就绪");
-				if (!opts.api) throw new Error("auth system 未就绪 — 后端账号尚未登录");
-				const buffer = await renderRealDynamic(
-					opts.api,
-					renderer,
-					content.uid.trim(),
-					content.offset ?? 1,
-					style,
-				);
-				return c.json<PreviewResponse>({
-					ok: true,
-					dataUrl: `data:image/jpeg;base64,${buffer.toString("base64")}`,
-				});
-			}
-		} catch (err) {
-			const msg = err instanceof Error ? err.message : String(err);
-			log.warn(`[cards] real-data preview failed (${kind}): ${msg}`);
-			return c.json<PreviewResponse>({ ok: false, err: msg }, 502);
-		}
-
-		// Live + Dyn fall-through (empty content): fabricated mock data via the
-		// raw renderCard + screenshot pipeline (does NOT use ImageRenderer, so
-		// the user can iterate on cardColorStart/End without an account).
-		try {
-			const { component, props, title, htmlWidth } = buildPreviewSpec(
-				kind as "live" | "dyn",
-				style,
-			);
-			const html = await renderCard(component, props, {
-				title,
-				font: style.font ?? "PingFang SC, sans-serif",
-				htmlWidth,
+			const { buffer, mime } = await renderPreviewCard(kind, style, content);
+			return c.json<PreviewResponse>({
+				ok: true,
+				dataUrl: `data:${mime};base64,${buffer.toString("base64")}`,
 			});
-			const buffer = await screenshotHtml(opts.puppeteer, html);
-			const dataUrl = `data:image/png;base64,${buffer.toString("base64")}`;
-			return c.json<PreviewResponse>({ ok: true, dataUrl });
 		} catch (err) {
 			const msg = err instanceof Error ? err.message : String(err);
-			log.error(`[cards] preview render failed: ${msg}`);
+			log.warn(`[cards] preview render failed (${kind}): ${msg}`);
 			return c.json<PreviewResponse>({ ok: false, err: msg }, 500);
 		}
+	});
+
+	// POST /api/cards/test-push — 渲染当前预览卡片(同 /preview 的草稿样式)并真实
+	// 推送给一个 PushTarget。图片 Tab「测试推送」用,所见即所推。
+	app.post("/test-push", async (c) => {
+		const body = (await c.req.json().catch(() => null)) as unknown;
+		const parsed = TestPushRequestSchema.safeParse(body);
+		if (!parsed.success) {
+			return c.json<TestPushResponse>({ ok: false, latencyMs: 0, err: "invalid_request" }, 400);
+		}
+		const { targetId, kind, style, content } = parsed.data;
+
+		if (!opts.puppeteer) {
+			return c.json<TestPushResponse>(
+				{ ok: false, latencyMs: 0, err: "puppeteer 未配置,无法渲染卡片" },
+				503,
+			);
+		}
+		const engines = opts.deps.runtime.engines;
+		if (!engines) {
+			return c.json<TestPushResponse>(
+				{ ok: false, latencyMs: 0, err: "engines not yet attached" },
+				503,
+			);
+		}
+		const target = opts.deps.store.getTargets().find((t) => t.id === targetId);
+		if (!target) {
+			return c.json<TestPushResponse>({ ok: false, latencyMs: 0, err: "target not found" }, 404);
+		}
+
+		let card: { buffer: Buffer; mime: string };
+		try {
+			card = await renderPreviewCard(kind, style, content);
+		} catch (err) {
+			const msg = err instanceof Error ? err.message : String(err);
+			log.warn(`[cards] test-push render failed (${kind}): ${msg}`);
+			return c.json<TestPushResponse>({ ok: false, latencyMs: 0, err: `卡片渲染失败:${msg}` }, 500);
+		}
+
+		const payload: NotificationPayload = {
+			kind: "image",
+			image: { buffer: card.buffer, mime: card.mime },
+		};
+		const result = await engines.push.sendToTarget(target.id, payload);
+		return c.json<TestPushResponse>(result);
 	});
 
 	return app;

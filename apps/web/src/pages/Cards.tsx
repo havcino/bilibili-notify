@@ -25,6 +25,7 @@ import {
 import { GlassBox } from "../components/glass-box";
 import { Icon, type IconName } from "../components/icons";
 import { ApiError, api } from "../services/api";
+import type { PushTarget } from "../types/domain";
 import type { CardStyle, GlobalConfig, LogLevel } from "../types/globals";
 
 type CardKind = "live" | "dyn" | "sc" | "guard";
@@ -149,6 +150,97 @@ function CardPreview({
 	content: PreviewContent;
 }) {
 	return <PreviewImage kind={kind} style={style} content={content} />;
+}
+
+interface TestPushResponse {
+	ok: boolean;
+	latencyMs: number;
+	err?: string;
+}
+
+/**
+ * 测试推送 —— 把当前预览卡片(草稿样式 + 类型 + 内容)渲染成图片,推给所选
+ * PushTarget。所见即所推:用的是左侧此刻在调的草稿,无需先保存。
+ */
+function TestPushBar({
+	kind,
+	style,
+	content,
+}: {
+	kind: CardKind;
+	style: CardStyle;
+	content: PreviewContent[CardKind];
+}) {
+	const targetsQuery = useQuery({
+		queryKey: ["targets"],
+		queryFn: () => api.get<PushTarget[]>("/api/targets"),
+	});
+	const targets = useMemo(
+		() => (targetsQuery.data ?? []).filter((t) => t.enabled),
+		[targetsQuery.data],
+	);
+	const [targetId, setTargetId] = useState("");
+	useEffect(() => {
+		// 目标列表到位后默认选第一个;所选目标被删 / 停用则回退到第一个。
+		const first = targets[0];
+		if (first && !targets.some((t) => t.id === targetId)) setTargetId(first.id);
+	}, [targets, targetId]);
+
+	const push = useMutation({
+		mutationFn: async () => {
+			const res = await api.post<TestPushResponse>("/api/cards/test-push", {
+				targetId,
+				kind,
+				style,
+				content,
+			});
+			if (!res.ok) throw new ApiError(500, res, res.err ?? "推送失败");
+			return res;
+		},
+	});
+
+	return (
+		<div className="space-y-1.5">
+			<div className="flex items-center gap-2 rounded-md border border-black/5 bg-white/60 px-3 py-2.5">
+				<span className="shrink-0 text-[12px] font-bold text-bn-text-primary">测试推送</span>
+				<select
+					value={targetId}
+					onChange={(e) => setTargetId(e.target.value)}
+					disabled={targets.length === 0}
+					className="min-w-0 flex-1 rounded border border-gray-200 bg-white px-2 py-1 text-[12px] text-bn-text-primary disabled:opacity-50"
+				>
+					{targets.length === 0 ? (
+						<option value="">无可用推送目标</option>
+					) : (
+						targets.map((t) => (
+							<option key={t.id} value={t.id}>
+								{t.name}
+							</option>
+						))
+					)}
+				</select>
+				<Btn
+					variant="primary"
+					size="sm"
+					onClick={() => push.mutate()}
+					disabled={push.isPending || !targetId}
+				>
+					{push.isPending ? "推送中…" : "测试推送"}
+				</Btn>
+			</div>
+			{push.isError ? (
+				<div className="text-[11px] text-red-600">
+					推送失败:{(push.error as ApiError)?.message ?? "未知错误"}
+				</div>
+			) : push.isSuccess ? (
+				<div className="text-[11px] text-emerald-600">已送达 · {push.data.latencyMs}ms</div>
+			) : (
+				<div className="text-[11px] text-bn-text-tertiary">
+					把当前预览卡片(草稿样式)作为图片推送到所选目标
+				</div>
+			)}
+		</div>
+	);
 }
 
 // Server-side override is `LogLevel` strings; the LogLevelPicker speaks 1|2|3
@@ -509,6 +601,8 @@ export default function Cards() {
 							per-UP 覆盖 → 高级规则 → cardStyleOverride
 						</span>
 					</div>
+
+					<TestPushBar kind={kind} style={draft} content={content[kind]} />
 				</div>
 			</div>
 		</div>
