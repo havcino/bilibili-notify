@@ -48,4 +48,14 @@ export interface PlatformAdapter {
 	 * return `{ ok: null }` so the UI can render "probe unsupported".
 	 */
 	probe(adapter: PushAdapter): Promise<ProbeResult>;
+	/**
+	 * Stateful adapters only — called once at boot and again on every
+	 * `config-changed: adapters`. Reconcile live connections / listeners against
+	 * the current adapter set (start / stop / rebind). MUST be idempotent and
+	 * cheap (no-op when nothing changed) and MUST NOT write config or trigger a
+	 * probe (would loop back through `config-changed`).
+	 */
+	reconcile?(adapters: readonly PushAdapter[]): void;
+	/** Stateful adapters only — close all connections / listeners / timers on shutdown. Idempotent. */
+	dispose?(): void | Promise<void>;
 }

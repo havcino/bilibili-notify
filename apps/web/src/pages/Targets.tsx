@@ -9,11 +9,14 @@ import {
 	KNOWN_PLATFORMS,
 	makeEmptyAdapter,
 	makeEmptyTarget,
+	type OnebotAdapterConfig,
 	type OnebotSession,
+	type OnebotTransport,
 	type PushAdapter,
 	type PushTarget,
 	type PushTargetPlatform,
 	type PushTargetScope,
+	switchOnebotTransport,
 } from "../types/domain";
 
 /**
@@ -38,6 +41,13 @@ const SCOPES: ReadonlyArray<{ value: PushTargetScope; label: string }> = [
 const ONEBOT_SCOPES: ReadonlyArray<{ value: PushTargetScope; label: string }> = [
 	{ value: "group", label: "群聊" },
 	{ value: "private", label: "私聊" },
+];
+
+/** OneBot 连接方式 —— 是 adapter config 的 transport 字段,不是独立 platform。 */
+const ONEBOT_TRANSPORTS: ReadonlyArray<{ value: OnebotTransport; label: string }> = [
+	{ value: "http", label: "HTTP" },
+	{ value: "ws", label: "正向 WS" },
+	{ value: "ws-reverse", label: "反向 WS" },
 ];
 
 function scopesFor(platform: PushTarget["platform"]): ReadonlyArray<{
@@ -65,7 +75,12 @@ function scopeLabel(s: PushTargetScope): string {
 }
 
 function adapterEndpointSummary(a: PushAdapter): string {
-	if (a.platform === "onebot") return a.config.baseUrl;
+	if (a.platform === "onebot") {
+		const c = a.config;
+		if (c.transport === "http") return c.baseUrl;
+		if (c.transport === "ws") return c.url;
+		return `反向 WS :${c.port}`;
+	}
 	if (a.platform === "webhook") return a.config.url;
 	return "Dashboard 通知中心";
 }
@@ -299,9 +314,7 @@ function AdapterEditorModal({
 				{value.platform !== "web-dashboard" ? (
 					<SectionBox
 						title="连接参数"
-						subtitle={
-							value.platform === "onebot" ? "OneBot v11 HTTP 服务接入信息" : "Webhook 投递终点"
-						}
+						subtitle={value.platform === "onebot" ? "OneBot v11 连接信息" : "Webhook 投递终点"}
 						accent={tint}
 					>
 						<AdapterConnectionFields adapter={value} onChange={onChange} />
@@ -346,32 +359,93 @@ function AdapterConnectionFields({
 }) {
 	if (adapter.platform === "onebot") {
 		const cfg = adapter.config;
+		const setCfg = (next: OnebotAdapterConfig) => onChange({ ...adapter, config: next });
 		return (
 			<>
-				<Field label="HTTP baseUrl" code="config.baseUrl" required>
-					<TInput
-						value={cfg.baseUrl}
-						onChange={(v) => onChange({ ...adapter, config: { ...cfg, baseUrl: v } })}
-						placeholder="http://napcat:3000"
-						mono
-					/>
+				<Field label="连接方式" code="config.transport" required>
+					<div className="flex flex-wrap gap-1.5">
+						{ONEBOT_TRANSPORTS.map((t) => {
+							const active = cfg.transport === t.value;
+							return (
+								<button
+									key={t.value}
+									type="button"
+									onClick={() => setCfg(switchOnebotTransport(cfg, t.value))}
+									className="rounded-md border px-2.5 py-1 text-[12px] font-bold transition"
+									style={
+										active
+											? { background: "#3b82f618", color: "#3b82f6", borderColor: "#3b82f655" }
+											: { background: "#f5f5f5", color: "#666", borderColor: "#ececec" }
+									}
+								>
+									{t.label}
+								</button>
+							);
+						})}
+					</div>
 				</Field>
-				<Field label="accessToken" code="config.accessToken">
+
+				{cfg.transport === "http" ? (
+					<Field label="HTTP baseUrl" code="config.baseUrl" required>
+						<TInput
+							value={cfg.baseUrl}
+							onChange={(v) => setCfg({ ...cfg, baseUrl: v })}
+							placeholder="http://napcat:3000"
+							mono
+						/>
+					</Field>
+				) : null}
+				{cfg.transport === "ws" ? (
+					<Field label="正向 WS 地址" code="config.url" required hint="bot 的 OneBot 正向 WS 服务">
+						<TInput
+							value={cfg.url}
+							onChange={(v) => setCfg({ ...cfg, url: v })}
+							placeholder="ws://napcat:3001"
+							mono
+						/>
+					</Field>
+				) : null}
+				{cfg.transport === "ws-reverse" ? (
+					<Field
+						label="反向 WS 监听端口"
+						code="config.port"
+						hint="bot 主动连入此端口;端口即身份,与主端口 8787 独立"
+					>
+						<TNum
+							value={cfg.port}
+							onChange={(v) => setCfg({ ...cfg, port: v })}
+							min={1}
+							max={65_535}
+							width={120}
+						/>
+					</Field>
+				) : null}
+
+				<Field
+					label="accessToken"
+					code="config.accessToken"
+					hint={
+						cfg.transport === "ws-reverse"
+							? "校验连入 bot 的握手;反向 WS 强烈建议设置,否则端口对局域网裸开"
+							: undefined
+					}
+				>
 					<TInput
 						value={cfg.accessToken ?? ""}
-						onChange={(v) =>
-							onChange({
-								...adapter,
-								config: { ...cfg, accessToken: v || undefined },
-							})
-						}
+						onChange={(v) => setCfg({ ...cfg, accessToken: v || undefined })}
 						secret
 					/>
 				</Field>
-				<Field label="请求超时" code="config.timeoutMs" hint="单次 HTTP 请求总超时(毫秒)">
+				<Field
+					label={cfg.transport === "http" ? "请求超时" : "响应超时"}
+					code="config.timeoutMs"
+					hint={
+						cfg.transport === "http" ? "单次 HTTP 请求总超时(毫秒)" : "等 OneBot echo 响应的超时"
+					}
+				>
 					<TNum
 						value={cfg.timeoutMs}
-						onChange={(v) => onChange({ ...adapter, config: { ...cfg, timeoutMs: v } })}
+						onChange={(v) => setCfg({ ...cfg, timeoutMs: v })}
 						min={1000}
 						step={1000}
 						suffix="ms"
@@ -381,7 +455,7 @@ function AdapterConnectionFields({
 				<Field label="重试次数" code="config.retryTimes" hint="不含首次,失败后再尝试">
 					<TNum
 						value={cfg.retryTimes}
-						onChange={(v) => onChange({ ...adapter, config: { ...cfg, retryTimes: v } })}
+						onChange={(v) => setCfg({ ...cfg, retryTimes: v })}
 						min={0}
 						max={10}
 						suffix="次"
@@ -390,19 +464,25 @@ function AdapterConnectionFields({
 				<Field label="重试间隔" code="config.retryIntervalMs">
 					<TNum
 						value={cfg.retryIntervalMs}
-						onChange={(v) => onChange({ ...adapter, config: { ...cfg, retryIntervalMs: v } })}
+						onChange={(v) => setCfg({ ...cfg, retryIntervalMs: v })}
 						min={0}
 						step={500}
 						suffix="ms"
 						width={120}
 					/>
 				</Field>
-				<Field label="自定义请求头" code="config.headers" hint="例如反向代理鉴权头">
-					<HeadersEditor
-						value={cfg.headers}
-						onChange={(next) => onChange({ ...adapter, config: { ...cfg, headers: next } })}
-					/>
-				</Field>
+				{cfg.transport !== "ws-reverse" ? (
+					<Field
+						label={cfg.transport === "http" ? "自定义请求头" : "WS 握手头"}
+						code="config.headers"
+						hint="例如反向代理鉴权头"
+					>
+						<HeadersEditor
+							value={cfg.headers}
+							onChange={(next) => setCfg({ ...cfg, headers: next })}
+						/>
+					</Field>
+				) : null}
 			</>
 		);
 	}

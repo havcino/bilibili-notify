@@ -194,6 +194,10 @@ export function createEngines(opts: CreateEnginesOptions): EnginesRuntime {
 		},
 	});
 
+	// 有状态 adapter(OneBot ws / ws-reverse)—— boot 时按当前 adapter 集合建立
+	// 正向连接 / 反向监听器。后续每次 config-changed:adapters 再 reconcile(见下)。
+	for (const ad of opts.adapters) ad.reconcile?.(opts.configStore.getAdapters());
+
 	const masterTarget = (): PushTarget | undefined => {
 		const id = globals().master.targetId;
 		if (!id) return undefined;
@@ -526,11 +530,17 @@ export function createEngines(opts: CreateEnginesOptions): EnginesRuntime {
 
 	handles.push(
 		opts.bus.on("config-changed", (scope) => {
-			// NOTE: we deliberately do NOT trigger probeAllAdapters on 'adapters'
-			// config-changed. The probe writes back via patchAdapter → emits
-			// 'adapters' config-changed → would re-trigger probeAllAdapters in an
-			// emit loop. Users wait at most one 5-min tick after editing an
-			// adapter (or click "测试" for an immediate refresh).
+			if (scope === "adapters") {
+				// 有状态 adapter(OneBot ws / ws-reverse)按新 adapter 集合 reconcile
+				// 连接 / 监听器。reconcile 幂等、不写 config、不调 probe → 不会 emit
+				// config-changed,无成环。
+				//
+				// 刻意不在这里触发 probeAllAdapters:probe 经 patchAdapter 写回
+				// testStatus 会再 emit config-changed:adapters → 死循环。adapter
+				// 连通状态由 5 分钟轮询刷新(或用户点"测试"立即刷)。
+				for (const ad of opts.adapters) ad.reconcile?.(opts.configStore.getAdapters());
+				return;
+			}
 			if (scope === "globals" || scope === "targets") {
 				// targets 也可能影响 master 解析(被引用的 target 删了 / 改了元数据)。
 				// 单独一行先 push,避免后续 globals-only 路径未执行时漏掉。
@@ -637,6 +647,14 @@ export function createEngines(opts: CreateEnginesOptions): EnginesRuntime {
 			masterNotifier.dispose();
 		} catch (e) {
 			log.warn(`[engines] masterNotifier.dispose failed: ${String(e)}`);
+		}
+		// 有状态 adapter:关正向连接 / 反向监听器 / 定时器。best-effort 同步触发。
+		for (const ad of opts.adapters) {
+			try {
+				void ad.dispose?.();
+			} catch (e) {
+				log.warn(`[engines] adapter dispose failed: ${String(e)}`);
+			}
 		}
 	};
 	opts.serviceCtx.onDispose(dispose);

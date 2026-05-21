@@ -264,6 +264,7 @@ function migrateLegacyTargets(raw: unknown[]): {
 					enabled: true,
 					platform: "onebot",
 					config: {
+						transport: "http",
 						baseUrl,
 						accessToken: accessToken || undefined,
 						protocolVersion: cfg.protocolVersion ?? "v11",

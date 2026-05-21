@@ -23,21 +23,73 @@ export type PushTargetScope = z.infer<typeof PushTargetScopeSchema>;
 /* Adapter (connection-level) configs                                         */
 /* -------------------------------------------------------------------------- */
 
-export const OnebotAdapterConfigSchema = z.object({
-	baseUrl: z.url(),
+/**
+ * OneBot 适配器三种连接方式(`transport`)共用的字段。
+ * `transport` 是连接属性,只活在 adapter config 里 —— PushTarget / session 不受影响。
+ */
+const onebotCommonConfigShape = {
 	accessToken: z.string().optional(),
 	/** OneBot 协议版本；首期固定 v11，留位以便后续扩展 v12。 */
 	protocolVersion: z.literal("v11").default("v11"),
-	/** 附加到每次请求的 HTTP header（例如自定义鉴权头）。 */
-	headers: z.record(z.string(), z.string()).default({}),
-	/** 单次请求总超时（毫秒），覆盖连接 + 响应。 */
+	/** 单次操作总超时（毫秒）。HTTP = 请求超时；WS = 等 echo 响应超时。 */
 	timeoutMs: z.number().int().positive().default(15_000),
 	/** 失败时的重试次数（不含首次）。 */
 	retryTimes: z.number().int().min(0).default(0),
 	/** 两次重试之间的等待（毫秒）。 */
 	retryIntervalMs: z.number().int().min(0).default(1_000),
-});
+} as const;
+
+/** HTTP:独立端用 fetch POST 到 bot 的 OneBot HTTP API。 */
+export const OnebotHttpConfigSchema = z
+	.object({
+		// `.default("http")` 兼顾迁移:早期 adapters.json 的 onebot 条目没有 `transport`
+		// 字段,union 试到本 branch 时 default 补上 → 旧数据按 http 加载。
+		transport: z.literal("http").default("http"),
+		/** bot 的 OneBot HTTP API 根地址。 */
+		baseUrl: z.url(),
+		/** 附加到每次请求的 HTTP header（例如自定义鉴权头）。 */
+		headers: z.record(z.string(), z.string()).default({}),
+		...onebotCommonConfigShape,
+	})
+	.strict();
+
+/** 正向 WS:独立端作为 WS 客户端,主动连到 bot 的 WS 服务。 */
+export const OnebotWsConfigSchema = z
+	.object({
+		transport: z.literal("ws"),
+		/** bot 的 OneBot 正向 WS 地址,必须 `ws://` 或 `wss://`。 */
+		url: z.string().regex(/^wss?:\/\/\S+$/i, "必须是 ws:// 或 wss:// 地址"),
+		/** WS 握手请求头（例如自定义鉴权头）。 */
+		headers: z.record(z.string(), z.string()).default({}),
+		...onebotCommonConfigShape,
+	})
+	.strict();
+
+/** 反向 WS:独立端监听 `port`,bot 作为客户端主动连进来。端口即身份。 */
+export const OnebotWsReverseConfigSchema = z
+	.object({
+		transport: z.literal("ws-reverse"),
+		/** 独立端为该 adapter 开的 WS 监听端口；bot 连 `ws://<host>:<port>/`。 */
+		port: z.number().int().min(1).max(65_535),
+		...onebotCommonConfigShape,
+	})
+	.strict();
+
+/**
+ * OneBot 适配器连接配置 —— 按 `transport` 区分 HTTP / 正向 WS / 反向 WS。
+ *
+ * 用 `z.union`(而非 `discriminatedUnion`):http branch 的 `transport` 带
+ * `.default("http")`,早期没有 `transport` 字段的旧 adapters.json 条目试到 http
+ * branch 时 default 补上 → 旧数据无缝按 http 加载。三 branch 的 `transport` 是互斥
+ * literal,新数据只会命中唯一一个 branch,无歧义。
+ */
+export const OnebotAdapterConfigSchema = z.union([
+	OnebotHttpConfigSchema,
+	OnebotWsConfigSchema,
+	OnebotWsReverseConfigSchema,
+]);
 export type OnebotAdapterConfig = z.infer<typeof OnebotAdapterConfigSchema>;
+export type OnebotTransport = OnebotAdapterConfig["transport"];
 
 export const WebhookAdapterConfigSchema = z.object({
 	url: z.url(),

@@ -57,15 +57,33 @@ export const DEFAULT_FEATURE_FLAGS: Record<FeatureKey, boolean> = {
 
 export type PushTargetScope = "group" | "private" | "channel";
 
-export interface OnebotAdapterConfig {
-	baseUrl: string;
+/** OneBot 三种连接方式(transport)共用的连接字段。 */
+interface OnebotAdapterConfigCommon {
 	accessToken?: string;
 	protocolVersion?: "v11";
-	headers: Record<string, string>;
 	timeoutMs: number;
 	retryTimes: number;
 	retryIntervalMs: number;
 }
+
+/**
+ * OneBot 适配器连接配置 —— 按 `transport` 区分 HTTP / 正向 WS / 反向 WS。
+ * 镜像 `@bilibili-notify/internal` 的 `OnebotAdapterConfigSchema`(union)。
+ */
+export type OnebotAdapterConfig =
+	| (OnebotAdapterConfigCommon & {
+			transport: "http";
+			baseUrl: string;
+			headers: Record<string, string>;
+	  })
+	| (OnebotAdapterConfigCommon & {
+			transport: "ws";
+			url: string;
+			headers: Record<string, string>;
+	  })
+	| (OnebotAdapterConfigCommon & { transport: "ws-reverse"; port: number });
+
+export type OnebotTransport = OnebotAdapterConfig["transport"];
 
 export interface WebhookAdapterConfig {
 	url: string;
@@ -334,6 +352,7 @@ export function makeEmptyAdapter(platform: PushTargetPlatform, name: string): Pu
 			...base,
 			platform: "onebot",
 			config: {
+				transport: "http",
 				baseUrl: "http://127.0.0.1:3000",
 				protocolVersion: "v11",
 				headers: {},
@@ -355,6 +374,31 @@ export function makeEmptyAdapter(platform: PushTargetPlatform, name: string): Pu
 		platform: "web-dashboard",
 		config: {},
 	};
+}
+
+/**
+ * 切换 OneBot 适配器的连接方式 —— 整体替换 config(branch schema 是 strict,不能
+ * 留上一个 transport 的残字段),保留 accessToken / 超时 / 重试等共用字段。切到
+ * ws / ws-reverse 时,若 retryTimes 还是 0 则提到 3(bot 偶发重连不丢首条推送)。
+ */
+export function switchOnebotTransport(
+	cfg: OnebotAdapterConfig,
+	transport: OnebotTransport,
+): OnebotAdapterConfig {
+	const common: OnebotAdapterConfigCommon = {
+		accessToken: cfg.accessToken,
+		protocolVersion: cfg.protocolVersion ?? "v11",
+		timeoutMs: cfg.timeoutMs,
+		retryTimes: cfg.retryTimes || (transport === "http" ? 0 : 3),
+		retryIntervalMs: cfg.retryIntervalMs,
+	};
+	if (transport === "http") {
+		return { ...common, transport: "http", baseUrl: "http://127.0.0.1:3000", headers: {} };
+	}
+	if (transport === "ws") {
+		return { ...common, transport: "ws", url: "ws://127.0.0.1:3001", headers: {} };
+	}
+	return { ...common, transport: "ws-reverse", port: 9797 };
 }
 
 export function makeEmptyTarget(adapter: PushAdapter, name: string): PushTarget {

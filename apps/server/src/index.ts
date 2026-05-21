@@ -104,7 +104,7 @@ async function main(): Promise<void> {
 	// subscription-changed listener handles deletions made while running.
 	await runtime.subRuntimeStore.prune(subBinding.store.list().map((s) => s.id));
 	const adapters = [
-		createOnebotAdapter({ logger: log }),
+		createOnebotAdapter({ logger: log, serviceCtx: runtime.serviceCtx }),
 		createWebhookAdapter({ logger: log }),
 		createWebDashboardAdapter({ logger: log }),
 	];

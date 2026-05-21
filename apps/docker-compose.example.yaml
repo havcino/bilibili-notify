@@ -25,6 +25,8 @@ services:
     restart: unless-stopped
     ports:
       - "8787:8787"
+      # 若用 OneBot「反向 WS」适配器:dashboard 里给该 adapter 配的监听端口也要在这
+      # 映射出去。例如 adapter 用默认 port 9797 → 再加一行 "9797:9797"。
     environment:
       # 注意:BN_CONFIG / BN_DATA_DIR / BN_CHROME_PATH / BN_WEB_DIST / BN_HOST / BN_PORT
       # 都是镜像 Dockerfile ENV 默认注入的(在 image 里固定),不要在这里重写 —
