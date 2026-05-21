@@ -528,6 +528,11 @@ export function createEngines(opts: CreateEnginesOptions): EnginesRuntime {
 	// Allow process exit without waiting for the next tick.
 	probeTimer.unref?.();
 
+	// config-changed:globals handler 的「上次已应用的 globals」快照。用来 diff 出本次
+	// 实际改了哪些 section,只热更受影响的子系统 —— 否则改 AI 人设也会重设 UA、重排
+	// 健康检查定时器(无谓扇出 + 日志噪音)。
+	let prevGlobals = initialGlobals;
+
 	handles.push(
 		opts.bus.on("config-changed", (scope) => {
 			if (scope === "adapters") {
@@ -548,20 +553,33 @@ export function createEngines(opts: CreateEnginesOptions): EnginesRuntime {
 				if (scope === "targets") return;
 			}
 			if (scope === "globals") {
-				// Push log-level changes onto the live pino instances so dashboard
-				// edits take effect without a server restart.
 				const g = globals();
-				opts.serviceCtx.setLevel(resolveLevel(g, "core"));
-				dynamicCtx.setLevel(resolveLevel(g, "dynamic"));
-				liveCtx.setLevel(resolveLevel(g, "live"));
-				aiCtx.setLevel(resolveLevel(g, "ai"));
-				imageCtx.setLevel(resolveLevel(g, "image"));
-				// User-Agent 直接推到 BilibiliAPI 的 axios default headers。
-				opts.api.setUserAgent(g.app.userAgent);
-				// healthCheckMinutes 推到 LoginFlow:dispose 旧 setInterval + 按新间隔重 arm。
-				opts.loginFlow.setHealthCheckMs(g.app.healthCheckMinutes * 60_000);
+				const prev = prevGlobals;
+				prevGlobals = g;
+				// config 对象来自 Zod parse、键序稳定 → JSON 序列化即可作相等判断。
+				// 只热更本次真正改了的 section,避免编辑一个模块扇出到其它模块。
+				const eq = (a: unknown, b: unknown): boolean => JSON.stringify(a) === JSON.stringify(b);
+				const appChanged = !eq(prev.app, g.app);
+				const aiChanged = !eq(prev.defaults.ai, g.defaults.ai);
+				const cardStyleChanged = !eq(prev.defaults.cardStyle, g.defaults.cardStyle);
+				const scheduleChanged = !eq(prev.defaults.schedule, g.defaults.schedule);
+				const filtersChanged = !eq(prev.defaults.filters, g.defaults.filters);
+				const templatesChanged = !eq(prev.defaults.templates, g.defaults.templates);
+				const featuresChanged = !eq(prev.defaults.features, g.defaults.features);
+
+				if (appChanged) {
+					// log level / User-Agent / healthCheck —— 都在 app section。
+					opts.serviceCtx.setLevel(resolveLevel(g, "core"));
+					dynamicCtx.setLevel(resolveLevel(g, "dynamic"));
+					liveCtx.setLevel(resolveLevel(g, "live"));
+					aiCtx.setLevel(resolveLevel(g, "ai"));
+					imageCtx.setLevel(resolveLevel(g, "image"));
+					opts.api.setUserAgent(g.app.userAgent);
+					// healthCheckMinutes → LoginFlow:dispose 旧 setInterval + 按新间隔重 arm。
+					opts.loginFlow.setHealthCheckMs(g.app.healthCheckMinutes * 60_000);
+				}
 				// ImageRenderer 配色热更(仅在已构造时有意义)。
-				if (imageRenderer) {
+				if (cardStyleChanged && imageRenderer) {
 					const cs = g.defaults.cardStyle;
 					imageRenderer.updateConfig({
 						cardColorStart: cs.cardColorStart,
@@ -571,32 +589,71 @@ export function createEngines(opts: CreateEnginesOptions): EnginesRuntime {
 						followerDisplay: true,
 					});
 				}
-				dynamic.updateConfig(dynamicConfig());
-				live.updateConfig(liveConfig());
-				// AI 实例热重载:lazy 构造 + 配置失效降级 + 已存在时增量 updateConfig。
-				// 引擎构造时 ai 字段是 snapshot,新建/置空后必须通过 setAi/setCommentary
-				// 把引用同步过去,否则永远沿用启动时的 null。
-				const a = globals().defaults.ai;
-				const needsCommentary = Boolean(a.apiKey && a.baseUrl);
-				if (!needsCommentary && commentary) {
-					try {
-						commentary.stop();
-					} catch (e) {
-						log.warn(`[ai] commentary.stop on disable failed: ${String(e)}`);
+				// dynamicConfig() 读 app.dynamicCron + defaults.{filters,cardStyle.enabled,ai.enabled}。
+				if (appChanged || filtersChanged || cardStyleChanged || aiChanged) {
+					dynamic.updateConfig(dynamicConfig());
+				}
+				// liveConfig() 读 defaults.{schedule,filters,templates,cardStyle.enabled,ai.enabled}。
+				if (
+					scheduleChanged ||
+					filtersChanged ||
+					templatesChanged ||
+					cardStyleChanged ||
+					aiChanged
+				) {
+					live.updateConfig(liveConfig());
+				}
+				if (aiChanged) {
+					// AI 实例热重载:lazy 构造 + 配置失效降级 + 已存在时增量 updateConfig。
+					// 引擎构造时 ai 字段是 snapshot,新建/置空后必须通过 setAi/setCommentary
+					// 把引用同步过去,否则永远沿用启动时的 null。
+					const a = g.defaults.ai;
+					const needsCommentary = Boolean(a.apiKey && a.baseUrl);
+					if (!needsCommentary && commentary) {
+						try {
+							commentary.stop();
+						} catch (e) {
+							log.warn(`[ai] commentary.stop on disable failed: ${String(e)}`);
+						}
+						commentary = null;
+						dynamic.setAi(undefined);
+						live.setCommentary(null);
+					} else if (needsCommentary && !commentary) {
+						commentary = buildCommentary();
+						dynamic.setAi(commentary ?? undefined);
+						live.setCommentary(commentary);
+						if (commentary) log.info("[ai] commentary 已激活");
+					} else if (commentary) {
+						commentary.updateConfig(buildAiConfig());
+						log.info(
+							`[ai] commentary 配置已更新: model=${a.model}, persona.name=${a.persona.name}, traits=${a.persona.traits}`,
+						);
 					}
-					commentary = null;
-					dynamic.setAi(undefined);
-					live.setCommentary(null);
-				} else if (needsCommentary && !commentary) {
-					commentary = buildCommentary();
-					dynamic.setAi(commentary ?? undefined);
-					live.setCommentary(commentary);
-					if (commentary) log.info("[ai] commentary 已激活");
-				} else if (commentary) {
-					commentary.updateConfig(buildAiConfig());
-					log.info(
-						`[ai] commentary 配置已更新: model=${a.model}, persona.name=${a.persona.name}, traits=${a.persona.traits}`,
+				}
+				// LiveEngine 是事件驱动 —— per-sub 视图(aiOverride / customCardStyle /
+				// pushTime / 模板…)在 start / applyOps 时定格,不像 DynamicEngine 每个
+				// cron tick 重读 getSubs() 自愈。resolve() 把 ai / cardStyle / schedule /
+				// filters / templates / features 折进每个 sub 的 eff —— 任一变化都给所有
+				// 订阅合成 update op 走 applyOps 增量路径,刷新活跃 listener 的 per-sub
+				// 状态(Object.assign,不重连 WS)。否则全局默认改了直到重启才在 live 生效。
+				if (
+					aiChanged ||
+					cardStyleChanged ||
+					scheduleChanged ||
+					filtersChanged ||
+					templatesChanged ||
+					featuresChanged
+				) {
+					const refreshOps = subscriptionOpsToLive(
+						opts.subscriptionStore.list().map((sub) => ({ type: "update" as const, sub })),
+						opts.subscriptionStore,
+						opts.subRuntimeStore,
+						g,
 					);
+					live.applyOps(refreshOps, (uid) => {
+						const sub = opts.subscriptionStore.findByUid(uid);
+						return sub ? buildLiveSubViewSingle(sub, opts.subRuntimeStore, g) : undefined;
+					});
 				}
 			}
 		}),

@@ -105,7 +105,6 @@ async function runEnableCheck(args: EnableCheckArgs): Promise<EnableCheckResult>
 	// connection (and vice versa) simply because the persisted state already had
 	// `enabled = true`. Each dashboard tab now only validates what it owns.
 	const touchesCardStyle = pluck(args.patch, ["defaults", "cardStyle"]) !== undefined;
-	const touchesAi = pluck(args.patch, ["defaults", "ai"]) !== undefined;
 
 	if (touchesCardStyle) {
 		const cardEnabled = mergedFlag(
@@ -118,30 +117,48 @@ async function runEnableCheck(args: EnableCheckArgs): Promise<EnableCheckResult>
 		}
 	}
 
-	if (touchesAi) {
-		const aiEnabled = mergedFlag(
-			args.current.defaults.ai.enabled,
-			pluck(args.patch, ["defaults", "ai", "enabled"]),
+	if (shouldRunAiEnableCheck(args.current, args.patch)) {
+		const apiKey = mergedString(
+			args.current.defaults.ai.apiKey,
+			pluck(args.patch, ["defaults", "ai", "apiKey"]),
 		);
-		if (aiEnabled) {
-			const apiKey = mergedString(
-				args.current.defaults.ai.apiKey,
-				pluck(args.patch, ["defaults", "ai", "apiKey"]),
-			);
-			const baseUrl = mergedString(
-				args.current.defaults.ai.baseUrl,
-				pluck(args.patch, ["defaults", "ai", "baseUrl"]),
-			);
-			const model = mergedString(
-				args.current.defaults.ai.model,
-				pluck(args.patch, ["defaults", "ai", "model"]),
-			);
-			const r = await checkAiEnable({ apiKey, baseUrl, model });
-			if (!r.ok) return r;
-		}
+		const baseUrl = mergedString(
+			args.current.defaults.ai.baseUrl,
+			pluck(args.patch, ["defaults", "ai", "baseUrl"]),
+		);
+		const model = mergedString(
+			args.current.defaults.ai.model,
+			pluck(args.patch, ["defaults", "ai", "model"]),
+		);
+		const r = await checkAiEnable({ apiKey, baseUrl, model });
+		if (!r.ok) return r;
 	}
 
 	return { ok: true };
+}
+
+/**
+ * AI 连接探活(checkAiEnable,会真打一次 chat/completions 请求)是否该跑。仅两种情况:
+ *  1. 本次 patch 改了连接字段 apiKey / baseUrl / model;
+ *  2. 本次 patch 把 ai.enabled 从 false 翻成 true(启用动作本身要验)。
+ * 改 persona / prompt / temperature 不触发探活;AI 最终为禁用态时一律不跑。
+ * apiKey 经 stripRedactedSecrets 处理:用户没动它时已从 patch 剔除,pluck 自然取不到。
+ */
+export function shouldRunAiEnableCheck(
+	current: import("@bilibili-notify/internal").GlobalConfig,
+	patch: Record<string, unknown>,
+): boolean {
+	const aiEnabled = mergedFlag(
+		current.defaults.ai.enabled,
+		pluck(patch, ["defaults", "ai", "enabled"]),
+	);
+	if (!aiEnabled) return false;
+	const touchesConnection =
+		pluck(patch, ["defaults", "ai", "apiKey"]) !== undefined ||
+		pluck(patch, ["defaults", "ai", "baseUrl"]) !== undefined ||
+		pluck(patch, ["defaults", "ai", "model"]) !== undefined;
+	const enabling = !current.defaults.ai.enabled && aiEnabled;
+	return touchesConnection || enabling;
 }
 
 // ── Image / puppeteer probe ────────────────────────────────────────────────

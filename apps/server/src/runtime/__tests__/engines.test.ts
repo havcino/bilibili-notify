@@ -287,7 +287,7 @@ describe("createEngines — boot wiring", () => {
 });
 
 describe("createEngines — config-changed globals 热重载", () => {
-	it("一次 globals 变更同步热推 dynamic/live/level/UA/health/master", () => {
+	it("改 app 字段:热推 level/UA/health + dynamic,不碰 live.updateConfig", () => {
 		const c = setup();
 		active = c;
 		patchGlobals(c, (g) => {
@@ -297,13 +297,13 @@ describe("createEngines — config-changed globals 热重载", () => {
 		c.bus.emit("config-changed", "globals");
 
 		expect(H.dynamic[0].updateConfig).toHaveBeenCalledTimes(1);
-		expect(H.live[0].updateConfig).toHaveBeenCalledTimes(1);
-		// boot 1 次 + globals 1 次 = 2。
+		// boot 1 次 + 此次 1 次 = 2。
 		expect(c.serviceCtx.setLevel).toHaveBeenCalledTimes(2);
-		// boot 1 次 + globals 1 次 = 2。
 		expect(c.api.setUserAgent).toHaveBeenCalledTimes(2);
 		expect(c.loginFlow.setHealthCheckMs).toHaveBeenCalledWith(45 * 60_000);
 		expect(H.push[0].setMaster).toHaveBeenCalledTimes(1);
+		// app 变更不在 liveConfig() 的输入内 → live.updateConfig 不应触发(item 4:不扇出)。
+		expect(H.live[0].updateConfig).not.toHaveBeenCalled();
 	});
 
 	it("新 dynamicCron 透传进 DynamicEngineConfig", () => {
@@ -315,6 +315,45 @@ describe("createEngines — config-changed globals 热重载", () => {
 		c.bus.emit("config-changed", "globals");
 		const cfg = H.dynamic[0].updateConfig.mock.calls.at(-1)?.[0];
 		expect(cfg.dynamicCron).toBe("*/7 * * * *");
+	});
+
+	it("item 4 — 改 defaults.ai 不扇出重设 UA / level / healthCheck", () => {
+		const c = setup({ globals: aiGlobals() });
+		active = c;
+		patchGlobals(c, (g) => {
+			g.defaults.ai.persona.name = "恶魔兔";
+		});
+		c.bus.emit("config-changed", "globals");
+		// boot 各 1 次;改 AI 人设不应再扇出到 app section。
+		expect(c.api.setUserAgent).toHaveBeenCalledTimes(1);
+		expect(c.serviceCtx.setLevel).toHaveBeenCalledTimes(1);
+		expect(c.loginFlow.setHealthCheckMs).not.toHaveBeenCalled();
+		// AI 本身仍热更。
+		expect(H.ai[0].updateConfig).toHaveBeenCalledTimes(1);
+	});
+
+	it("item 3 — 改全局配置:live.applyOps 收到全部订阅的 update op(刷新 per-sub 视图)", () => {
+		const sub = makeEmptySubscription({ id: "sub-1", uid: "1" });
+		const c = setup({ globals: aiGlobals(), subs: [sub] });
+		active = c;
+		patchGlobals(c, (g) => {
+			g.defaults.ai.persona.name = "恶魔兔";
+		});
+		c.bus.emit("config-changed", "globals");
+		const liveOps = H.live[0].applyOps.mock.calls.at(-1)?.[0];
+		expect(liveOps).toHaveLength(1);
+		expect(liveOps[0]).toMatchObject({ type: "update", uid: "1" });
+	});
+
+	it("no-op:globals 未变的 config-changed 不热推任何子系统", () => {
+		const c = setup();
+		active = c;
+		c.bus.emit("config-changed", "globals");
+		expect(H.dynamic[0].updateConfig).not.toHaveBeenCalled();
+		expect(H.live[0].updateConfig).not.toHaveBeenCalled();
+		expect(H.live[0].applyOps).not.toHaveBeenCalled();
+		// 仅 boot 推过一次。
+		expect(c.api.setUserAgent).toHaveBeenCalledTimes(1);
 	});
 
 	it("targets scope:仅 push.setMaster,早退不触发 dynamic.updateConfig", () => {
@@ -389,6 +428,8 @@ describe("createEngines — image 配色热更", () => {
 		c.bus.emit("config-changed", "globals");
 		const last = H.image[0].updateConfig.mock.calls.at(-1)?.[0];
 		expect(last.cardColorStart).toBe("#123456");
+		// cardStyle 变更不在 app section → 不扇出重设 UA(仅 boot 1 次)。
+		expect(c.api.setUserAgent).toHaveBeenCalledTimes(1);
 	});
 });
 
