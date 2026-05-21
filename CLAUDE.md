@@ -48,7 +48,6 @@ apps/       Hono 服务端 + React Dashboard
 
 - `dev` —— 活跃开发主干,三类目录改动都落这。
 - `main` —— GitHub 默认分支;`dev → main` 合并触发 koishi npm 发版。
-- `refactor` —— 已停更的死分支(`dev` 改名前的旧名)。
 
 独立端 Docker 镜像 tag:`dev`→`:alpha`、`main`→`:latest`。详见 `docs/agents/build-release.md`。
 

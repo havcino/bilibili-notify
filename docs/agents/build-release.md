@@ -16,7 +16,6 @@
 
 - **`dev`** —— 活跃开发主干。`packages/` `koishi/` `apps/` 三类改动都落这。
 - **`main`** —— GitHub 默认分支,旧版发布快照。`dev → main` 合并触发 koishi changesets npm 发版(`publish.yml` 监听 push to `main`)。
-- **`refactor`** —— 已停更的死分支,是 `dev` 改名前的旧名,保留不删。
 
 两种产品形态都从 `dev` 持续出货:koishi 端经 changesets 发 npm(动 `packages/*` 与 `koishi/*`);独立端发 Docker 镜像(动 `apps/*`,从不发 npm)。
 
