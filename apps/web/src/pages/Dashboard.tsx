@@ -359,27 +359,7 @@ function formatDeltaNumber(n: number): string {
 	return `${n > 0 ? "+" : ""}${n.toLocaleString()}`;
 }
 
-/** asOf → "实际覆盖 N {分钟|小时|天}";解析失败 / 未来时间 → "数据起点"。 */
-function formatFansSpanTip(asOf: string): string {
-	const ms = Date.now() - new Date(asOf).getTime();
-	if (Number.isNaN(ms) || ms < 0) return "数据起点";
-	const minutes = Math.floor(ms / 60_000);
-	if (minutes < 60) return `实际覆盖 ${minutes} 分钟`;
-	const hours = Math.floor(minutes / 60);
-	if (hours < 24) return `实际覆盖 ${hours} 小时`;
-	const days = Math.floor(hours / 24);
-	return `实际覆盖 ${days} 天`;
-}
-
-function FansDeltaCol({
-	label,
-	value,
-	asOf,
-}: {
-	label: string;
-	value: number | null;
-	asOf?: string;
-}) {
+function FansDeltaCol({ label, value }: { label: string; value: number | null }) {
 	const isNull = value == null;
 	const text = isNull ? "—" : value === 0 ? "±0" : formatDeltaNumber(value);
 	const color = isNull ? "#94a3b8" : value === 0 ? "#94a3b8" : value > 0 ? "#22c55e" : "#ef4444";
@@ -387,14 +367,6 @@ function FansDeltaCol({
 		<div className="w-16 text-right">
 			<div className="font-mono text-[13px] font-bold" style={{ color }}>
 				{text}
-				{asOf ? (
-					<span
-						title={formatFansSpanTip(asOf)}
-						className="ml-0.5 cursor-help text-[10px] text-bn-text-tertiary"
-					>
-						ⓘ
-					</span>
-				) : null}
 			</div>
 			<div className="font-mono text-[10px] text-bn-text-tertiary">{label}</div>
 		</div>
@@ -464,8 +436,8 @@ function FansPanel({ subs }: { subs: Subscription[] }) {
 									</div>
 								</div>
 								<FansDeltaCol label="起点" value={e.deltaSubscribed} />
-								<FansDeltaCol label="24h" value={e.delta24h} asOf={e.delta24hAsOf} />
-								<FansDeltaCol label="7d" value={e.delta7d} asOf={e.delta7dAsOf} />
+								<FansDeltaCol label="24h" value={e.delta24h} />
+								<FansDeltaCol label="7d" value={e.delta7d} />
 							</div>
 						);
 					})}

@@ -95,13 +95,6 @@ export interface FansEntry {
 	deltaSubscribed: number | null;
 	delta24h: number | null;
 	delta7d: number | null;
-	/**
-	 * fallback 标记:当 delta24h 不是 24h 前样本算出的(因为窗口内无样本)
-	 * 而是用 jsonl 最早样本 fallback 时,带这条最早样本的 ISO ts。UI 据此
-	 * 显示 ⓘ + "实际覆盖 N 小时"。窗口足额时后端不设此字段。
-	 */
-	delta24hAsOf?: string;
-	delta7dAsOf?: string;
 }
 
 export interface FansResponse {

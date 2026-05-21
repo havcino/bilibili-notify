@@ -88,20 +88,10 @@ export interface FansRefreshEntry {
 	ts: string;
 	/** delta 相对 subscribed baseline;subscribed baseline 缺失时为 null。 */
 	deltaSubscribed: number | null;
-	/**
-	 * delta 相对 24h 前最近一条样本;若没有 ≤ 24h 前的样本,fallback 到 jsonl 最早一条。
-	 * 完全没有任何样本时才为 null。
-	 */
+	/** delta 相对 24h 前最近一条样本;窗口内无样本时为 null。 */
 	delta24h: number | null;
-	/**
-	 * 当 delta24h 是 fallback 计算(用最早可用样本而非 24h 前样本)时,这里携带
-	 * 那条最早样本的 ISO ts;UI 据此显示"实际覆盖 N 小时"。fallback 没发生时不设。
-	 */
-	delta24hAsOf?: string;
-	/** delta 相对 7d 前最近一条样本;同 delta24h 语义,fallback 到 jsonl 最早一条。 */
+	/** delta 相对 7d 前最近一条样本;窗口内无样本时为 null。 */
 	delta7d: number | null;
-	/** 同 delta24hAsOf,fallback 时携带最早样本 ts。 */
-	delta7dAsOf?: string;
 }
 
 /** ConfigStore 在 set 后 emit 'config-changed' 时携带的范围标识。 */
