@@ -5,7 +5,7 @@ name: bilibili-notify — build + publish
 on:
   push:
     branches:
-      - refactor
+      - dev
       - main
     paths:
       - "apps/**"
@@ -47,11 +47,13 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: docker.io/akokk0/bilibili-notify
+          # dev → :alpha(持续构建)  main → :latest(稳定版,koishi 发版合并后才有)
+          # image-v*.*.* tag → :image-vX.Y.Z   每个 commit → :<short-sha>
           tags: |
-            type=ref,event=branch
+            type=raw,value=alpha,enable=${{ github.ref == 'refs/heads/dev' }}
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
             type=ref,event=tag
             type=sha,prefix=,format=short
-            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
 
       - name: Build image (load, no push)
         uses: docker/build-push-action@v6

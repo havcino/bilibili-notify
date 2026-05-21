@@ -1,55 +1,28 @@
-# Usage:
-#   cp docker-compose.example.yaml docker-compose.yaml
-#   docker compose up -d
-#
-# host 端布局(./data 跟 ./config 在 docker-compose.yaml 同级平铺):
-#   ./
-#   ├── data/                  # state(订阅 / 历史 / 日志 / 凭据 等持久数据)
-#   ├── config/                # 配置目录
-#   │   └── bn.config.yaml     # 首次启动后自动出现(B 模型 seed)
-#   └── docker-compose.yaml
-#
-# 配置模型(B):BN_* 环境变量仅在**首次启动**写入 ${BN_CONFIG} 指向的 yaml,
-# 此后 loader 忽略所有 env,以 yaml 为真相。改配置 → 编辑 ./config/bn.config.yaml
-# + docker compose restart。完全重置 → rm ./config/bn.config.yaml + 再启动一次。
-# 详见 apps/server/src/config/loader.ts 顶部注释。
+# 用法:cp docker-compose.example.yaml docker-compose.yaml && docker compose up -d
+# 配置走 B 模型:首启动后改配置请编辑 ./config/bn.config.yaml 再 docker compose restart。
 
 services:
   bilibili-notify:
-    image: akokk0/bilibili-notify:latest
-    # Or build locally:
-    # build:
-    #   context: ..
-    #   dockerfile: apps/Dockerfile
+    image: akokk0/bilibili-notify:alpha
+    # 本地构建改用:build: { context: .., dockerfile: apps/Dockerfile }
     container_name: bilibili-notify
     restart: unless-stopped
     ports:
       - "8787:8787"
-      # 若用 OneBot「反向 WS」适配器:dashboard 里给该 adapter 配的监听端口也要在这
-      # 映射出去。例如 adapter 用默认 port 9797 → 再加一行 "9797:9797"。
+      # 用 OneBot 反向 WS 适配器时,把它的监听端口也映射出来,如 "9797:9797"
     environment:
-      # 注意:BN_CONFIG / BN_DATA_DIR / BN_CHROME_PATH / BN_WEB_DIST / BN_HOST / BN_PORT
-      # 都是镜像 Dockerfile ENV 默认注入的(在 image 里固定),不要在这里重写 —
-      # 改坏路径会让 B 模型 seed 文件落到错位置,产生混乱。
-      #
-      # 以下 BN_* 是 first-boot seed 源,**仅首次启动**写入 ${BN_CONFIG} 指向的 yaml;
-      # 之后修改这里无效,要改值请编辑 ./config/bn.config.yaml 后重启容器。
+      # BN_* 仅首启动 seed 进 yaml;之后改值请编辑 ./config/bn.config.yaml
       BN_LOG_LEVEL: info
-      # dashboard 登录凭据 —— 容器监听 0.0.0.0,无 auth 会被安全门禁拒绝启动。
-      # 首次启动后请务必登录 dashboard 或编辑 ./config/bn.config.yaml 改掉默认密码!
-      # 若把下面两行删掉,首启动会自动生成随机密码(打印进 docker logs + 写入 yaml)。
+      # dashboard 登录凭据;首启动后请改掉默认密码。删掉这两行则自动生成随机密码
       BN_DASHBOARD_USER: admin
       BN_DASHBOARD_PASS: change-me-on-first-boot
-      # TZ: Asia/Shanghai          # 时区(决定日志/历史按日切文件的本地"今天",镜像默认已设)
-      # BN_COOKIE_KEY: change-me-too   # AES-256-GCM 派生密钥
+      # BN_COOKIE_KEY: ""          # secrets 加密密钥,openssl rand -base64 32
     volumes:
-      - ./data:/data
-      - ./config:/config
-    # depends_on:
-    #   - napcat
+      - ./data:/data              # 运行时状态
+      - ./config:/config          # bn.config.yaml 所在
+    # depends_on: [napcat]
 
-  # Optional NapCat sidecar (OneBot v11). Configure via WebUI on first launch,
-  # then add PushTarget platform=onebot baseUrl=http://napcat:3000 in dashboard.
+  # 可选 NapCat 边车(OneBot v11);WebUI http://<host>:6099 配 QQ 账号
   # napcat:
   #   image: mlikiowa/napcat-docker:latest
   #   container_name: napcat
