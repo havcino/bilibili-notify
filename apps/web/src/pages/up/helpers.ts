@@ -1,4 +1,4 @@
-import type { FeatureKey, PushTarget, Subscription } from "../../types/domain";
+import type { FeatureKey, PushTarget, Subscription, SubscriptionRouting } from "../../types/domain";
 import { DEFAULT_FEATURE_FLAGS, FEATURE_KEYS } from "../../types/domain";
 
 const PALETTE = [
@@ -50,4 +50,24 @@ export function relativeTime(iso: string | undefined): string {
 	if (delta < 3_600_000) return `${Math.floor(delta / 60_000)} 分钟前`;
 	if (delta < 86_400_000) return `${Math.floor(delta / 3_600_000)} 小时前`;
 	return `${Math.floor(delta / 86_400_000)} 天前`;
+}
+
+/**
+ * 切到「自定义」推送模式时,target 的 routing 初始化为 = 订阅项生效特性集:
+ * subscribedFeatures 命中的 feature 收该 target,未命中的把它剔除;其余 target
+ * 原样保留。让「自定义」从「跟随订阅项现状」起步,而非默认全部特性全开。
+ */
+export function routingAlignedToFeatures(sub: Subscription, targetId: string): SubscriptionRouting {
+	const want = new Set<FeatureKey>(subscribedFeatures(sub));
+	const out = {} as SubscriptionRouting;
+	for (const k of FEATURE_KEYS) {
+		const cur = sub.routing[k];
+		const has = cur.includes(targetId);
+		if (want.has(k)) {
+			out[k] = has ? cur : [...cur, targetId];
+		} else {
+			out[k] = has ? cur.filter((id) => id !== targetId) : cur;
+		}
+	}
+	return out;
 }

@@ -14,6 +14,7 @@
 
 import { type CSSProperties, type ReactNode, useEffect } from "react";
 import { createPortal } from "react-dom";
+import { Btn } from "./atoms";
 
 export interface ModalShellProps {
 	children: ReactNode;
@@ -65,5 +66,50 @@ export function ModalShell({
 			</div>
 		</div>,
 		document.body,
+	);
+}
+
+export interface ConfirmDialogProps {
+	/** 标题行(粗体)。省略则只显示 message。 */
+	title?: string;
+	message: ReactNode;
+	/** 确认按钮文案,默认「确认」。 */
+	confirmLabel?: string;
+	/** 取消按钮文案,默认「取消」。 */
+	cancelLabel?: string;
+	/** confirm 按钮用 danger 红色样式 —— 销毁性操作(如丢弃修改)。 */
+	danger?: boolean;
+	onConfirm: () => void;
+	onCancel: () => void;
+}
+
+/**
+ * ConfirmDialog — ModalShell 之上的轻量「确认 / 取消」对话框,替代浏览器原生
+ * `window.confirm`,与应用 UI 风格一致。ESC / 点击遮罩 = onCancel。
+ */
+export function ConfirmDialog({
+	title,
+	message,
+	confirmLabel = "确认",
+	cancelLabel = "取消",
+	danger = false,
+	onConfirm,
+	onCancel,
+}: ConfirmDialogProps) {
+	return (
+		<ModalShell onCancel={onCancel} width={340} bodyClassName="p-5">
+			{title ? (
+				<div className="mb-1.5 text-[14px] font-bold text-bn-text-primary">{title}</div>
+			) : null}
+			<div className="text-[13px] leading-relaxed text-bn-text-secondary">{message}</div>
+			<div className="mt-4 flex justify-end gap-2">
+				<Btn variant="outline" size="sm" onClick={onCancel}>
+					{cancelLabel}
+				</Btn>
+				<Btn variant={danger ? "danger" : "primary"} size="sm" onClick={onConfirm}>
+					{confirmLabel}
+				</Btn>
+			</div>
+		</ModalShell>
 	);
 }

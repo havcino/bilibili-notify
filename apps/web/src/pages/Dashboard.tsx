@@ -313,14 +313,14 @@ function TimelinePanel({
 									/>
 								</div>
 								<div
-									className="flex flex-1 items-center gap-2.5 rounded-lg bg-white/70 px-3 py-2 text-[12.5px]"
+									className="flex min-w-0 flex-1 items-center gap-2.5 rounded-lg bg-white/70 px-3 py-2 text-[12.5px]"
 									style={!h.ok ? { borderLeft: "3px solid #ef4444" } : undefined}
 								>
 									<Avatar name={name} color={color} size={24} url={avatar} />
 									<Pill color={tone} subtle size="sm">
 										{TIMELINE_LABEL[h.source] ?? h.source}
 									</Pill>
-									<div className="flex-1 truncate text-bn-text-tertiary">
+									<div className="min-w-0 flex-1 truncate text-bn-text-tertiary">
 										<span className="font-bold text-bn-text-primary">{name}</span>
 										{h.text ? ` · ${h.text}` : ""}
 									</div>

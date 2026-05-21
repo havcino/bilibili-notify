@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { type FeatureKey, makeEmptySubscription } from "../../types/domain";
-import { subscribedFeatures } from "./helpers";
+import { FEATURE_KEYS, type FeatureKey, makeEmptySubscription } from "../../types/domain";
+import { routingAlignedToFeatures, subscribedFeatures } from "./helpers";
 
 /**
  * 回归:订阅卡片的特性标签必须反映「订阅项主开关」(overrides.features,缺省继承
@@ -40,5 +40,50 @@ describe("subscribedFeatures", () => {
 			features: { live: false, liveEnd: false, wordcloud: false, liveSummary: false },
 		};
 		expect(subscribedFeatures(sub)).toEqual(["dynamic"]);
+	});
+});
+
+/**
+ * 切到「自定义」推送模式时,target 的 routing 应对齐订阅项生效特性 —— 而非维持
+ * follow 模式灌进的全 9 项(否则自定义矩阵默认全开)。
+ */
+describe("routingAlignedToFeatures", () => {
+	const DEFAULT_ON: FeatureKey[] = ["dynamic", "live", "liveEnd", "wordcloud", "liveSummary"];
+	const DEFAULT_OFF: FeatureKey[] = [
+		"liveGuardBuy",
+		"superchat",
+		"specialDanmaku",
+		"specialUserEnter",
+	];
+
+	it("follow 模式灌满全 9 项 → 对齐后只留生效特性", () => {
+		const sub = makeEmptySubscription("100");
+		for (const k of FEATURE_KEYS) sub.routing[k] = ["t-1"];
+		const routing = routingAlignedToFeatures(sub, "t-1");
+		for (const k of DEFAULT_ON) expect(routing[k]).toContain("t-1");
+		for (const k of DEFAULT_OFF) expect(routing[k]).not.toContain("t-1");
+	});
+
+	it("target 原本不在任何 routing → 只加进生效特性", () => {
+		const sub = makeEmptySubscription("100");
+		const routing = routingAlignedToFeatures(sub, "t-1");
+		expect(routing.dynamic).toEqual(["t-1"]);
+		expect(routing.superchat).toEqual([]);
+	});
+
+	it("跟随 overrides:开 superchat 则纳入,关 dynamic 则剔除", () => {
+		const sub = makeEmptySubscription("100");
+		for (const k of FEATURE_KEYS) sub.routing[k] = ["t-1"];
+		sub.overrides = { features: { superchat: true, dynamic: false } };
+		const routing = routingAlignedToFeatures(sub, "t-1");
+		expect(routing.superchat).toContain("t-1");
+		expect(routing.dynamic).not.toContain("t-1");
+	});
+
+	it("不影响其它 target", () => {
+		const sub = makeEmptySubscription("100");
+		for (const k of FEATURE_KEYS) sub.routing[k] = ["t-1", "t-2"];
+		const routing = routingAlignedToFeatures(sub, "t-1");
+		for (const k of FEATURE_KEYS) expect(routing[k]).toContain("t-2");
 	});
 });

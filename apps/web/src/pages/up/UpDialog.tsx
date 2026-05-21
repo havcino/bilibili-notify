@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Avatar, Btn, PlatformIcon, Toggle } from "../../components/atoms";
-import { ModalShell } from "../../components/dialog";
+import { ConfirmDialog, ModalShell } from "../../components/dialog";
 import { Icon } from "../../components/icons";
 import {
 	DEFAULT_FEATURE_FLAGS,
@@ -10,7 +10,12 @@ import {
 	type PushTarget,
 	type Subscription,
 } from "../../types/domain";
-import { colorFromUid, displayName, targetsById as makeTargetsById } from "./helpers";
+import {
+	colorFromUid,
+	displayName,
+	targetsById as makeTargetsById,
+	routingAlignedToFeatures,
+} from "./helpers";
 
 const FEATURE_GROUPS: ReadonlyArray<{
 	label: string;
@@ -129,12 +134,15 @@ export function UpDialog({
 	// when its routing entries can transiently be empty).
 	const [sessionAttached, setSessionAttached] = useState<Set<string>>(new Set());
 	const [showPicker, setShowPicker] = useState(false);
+	// dirty 关闭时弹自定义「丢弃确认」对话框,替代浏览器原生 window.confirm。
+	const [confirmingDiscard, setConfirmingDiscard] = useState(false);
 
 	useEffect(() => {
 		setDraft(sub);
 		setCustomSet(inferCustomSet(sub, targets));
 		setSessionAttached(new Set());
 		setShowPicker(false);
+		setConfirmingDiscard(false);
 	}, [sub, targets]);
 
 	const targetsByIdMap = useMemo(() => makeTargetsById(targets), [targets]);
@@ -164,7 +172,12 @@ export function UpDialog({
 	const dirty = mode === "create" || (sub ? stableStr(sub) !== stableStr(draft) : false);
 
 	function requestClose(): void {
-		if (dirty && !window.confirm("丢弃未保存的修改?")) return;
+		// 确认弹窗已开 → 交给它处理(ESC / 点遮罩),避免本函数重复触发。
+		if (confirmingDiscard) return;
+		if (dirty) {
+			setConfirmingDiscard(true);
+			return;
+		}
 		onClose();
 	}
 
@@ -317,9 +330,10 @@ export function UpDialog({
 
 	/**
 	 * Flip a target between follow and custom mode.
-	 * - To custom: 只标 customSet,routing 不动 —— 用户接下来在矩阵里自己增删 feature
+	 * - To custom: routing 对齐订阅项生效特性(routingAlignedToFeatures)——「从跟随
+	 *   订阅项现状起步」再由用户在矩阵里微调,而非默认全 9 项全开。
 	 * - To follow: 把 target 加回所有 9 个 features 的 routing(完整 = follow 的标志);
-	 *   atAll Map 里的 explicit override 一并清掉(features 总开关 + atAllDefaults 接管)
+	 *   per-target atAll 显式覆写一并清掉,回归「跟订阅默认走」。
 	 */
 	function switchTargetMode(targetId: string, toCustom: boolean): void {
 		setCustomSet((prev) => {
@@ -328,26 +342,33 @@ export function UpDialog({
 			else next.delete(targetId);
 			return next;
 		});
-		if (!toCustom) {
-			setDraft((d) => {
-				if (!d) return d;
-				let routing = d.routing;
-				for (const k of FEATURE_KEYS) {
-					if (!routing[k].includes(targetId)) {
-						routing = { ...routing, [k]: [...routing[k], targetId] };
-					}
+		setDraft((d) => {
+			if (!d) return d;
+			let atAll = d.atAll;
+			const clearAtAll = (scope: "dynamic" | "live"): void => {
+				if (targetId in atAll[scope]) {
+					const { [targetId]: _gone, ...rest } = atAll[scope];
+					atAll = { ...atAll, [scope]: rest };
 				}
-				// 切回 follow 时,per-target atAll 显式覆写也清掉,回归「跟订阅默认走」
-				const atAll = { ...d.atAll };
-				for (const scope of ["dynamic", "live"] as const) {
-					if (targetId in atAll[scope]) {
-						const { [targetId]: _gone, ...rest } = atAll[scope];
-						atAll[scope] = rest;
-					}
-				}
+			};
+			if (toCustom) {
+				const routing = routingAlignedToFeatures(d, targetId);
+				// 对齐时若把 target 移出 dynamic / live,其 atAll 显式覆写一并作废。
+				if (!routing.dynamic.includes(targetId)) clearAtAll("dynamic");
+				if (!routing.live.includes(targetId)) clearAtAll("live");
 				return { ...d, routing, atAll };
-			});
-		}
+			}
+			let routing = d.routing;
+			for (const k of FEATURE_KEYS) {
+				if (!routing[k].includes(targetId)) {
+					routing = { ...routing, [k]: [...routing[k], targetId] };
+				}
+			}
+			// 切回 follow:per-target atAll 显式覆写清掉,回归「跟订阅默认走」。
+			clearAtAll("dynamic");
+			clearAtAll("live");
+			return { ...d, routing, atAll };
+		});
 	}
 
 	function removeStaleId(id: string): void {
@@ -638,6 +659,17 @@ export function UpDialog({
 					</Btn>
 				</div>
 			</div>
+			{confirmingDiscard ? (
+				<ConfirmDialog
+					title="丢弃未保存的修改?"
+					message="你对这个订阅做的改动尚未保存,关闭后将丢失。"
+					confirmLabel="丢弃"
+					cancelLabel="继续编辑"
+					danger
+					onConfirm={onClose}
+					onCancel={() => setConfirmingDiscard(false)}
+				/>
+			) : null}
 		</ModalShell>
 	);
 }
