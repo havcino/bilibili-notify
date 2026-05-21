@@ -1,6 +1,8 @@
+import { randomBytes } from "node:crypto";
 import { mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { dirname, resolve as resolvePath } from "node:path";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
+import { shouldRefuseBareAuth } from "../auth/bare-auth-policy.js";
 import { type BootstrapConfig, BootstrapConfigSchema } from "./schema.js";
 
 export interface LoadBootstrapConfigOptions {
@@ -19,9 +21,11 @@ export interface LoadBootstrapConfigOptions {
  *
  * 两条分支,由 `BN_CONFIG` 是否显式设置切换:
  *
- *   - **`BN_CONFIG` 已设(部署主路径,docker 镜像 ENV 默认 `/data/bn.config.yaml`)**:
- *       1. 路径不存在(ENOENT)→ first boot:env + CLI + schema defaults 算出配置 →
- *          stringify yaml,原子写入(tmpfile + rename)→ 返回配置
+ *   - **`BN_CONFIG` 已设(部署主路径,docker 镜像 ENV 默认 `/config/bn.config.yaml`)**:
+ *       1. 路径不存在(ENOENT)→ first boot:env + CLI + schema defaults 算出配置;
+ *          若结果监听 non-loopback 又无 basicAuth(裸暴露,index.ts 门禁会 fail-closed
+ *          拒绝启动)→ 就地生成兜底凭据(随机密码)补进 auth → stringify yaml,
+ *          原子写入(tmpfile + rename)→ 返回配置
  *       2. 路径是目录(EISDIR,常见于 docker bind-mount 单文件 host 端未创建)→
  *          精准报错挂掉,日志指向 docs(不自动救场:删用户挂载对象有数据丢失风险)
  *       3. 路径是文件 → 读取 + parse,**忽略所有 env**(file 是唯一真相),仅 CLI 可叠加覆盖
@@ -33,8 +37,8 @@ export interface LoadBootstrapConfigOptions {
  *       不 seed(没有显式的 yaml 落点),不破坏 dev 模式。
  *
  * `dataDir` 在 B 模型下跟其他字段一样 seed/读 — BN_CONFIG 已显式指定 yaml 路径,
- * 与 dataDir(state 目录)解耦,无鸡生蛋。docker 部署 image 默认 `BN_CONFIG=/data/bn.config.yaml`
- * 配合用户 `./data:/data` mount,yaml 自动出现在 host 端 `./data/`,可直接 vim 编辑。
+ * 与 dataDir(state 目录)解耦,无鸡生蛋。docker 部署 image 默认 `BN_CONFIG=/config/bn.config.yaml`
+ * 配合用户 `./config:/config` mount,yaml 自动出现在 host 端 `./config/`,可直接 vim 编辑。
  */
 export function loadBootstrapConfig(opts: LoadBootstrapConfigOptions = {}): BootstrapConfig {
 	const argv = opts.argv ?? process.argv.slice(2);
@@ -82,6 +86,7 @@ function loadBModel(
 		const fromEnv = readEnv(env);
 		const seedMerged = deepMerge(fromEnv, fromCli);
 		const seeded = parseOrRethrow(seedMerged, yamlPath, "seed");
+		maybeSeedDashboardCredentials(seeded, env, log);
 		writeSeedFile(yamlPath, seeded, log);
 		return seeded;
 	}
@@ -131,6 +136,48 @@ function writeSeedFile(path: string, config: BootstrapConfig, log: (msg: string)
 	writeFileSync(tmp, body, { mode: 0o600, encoding: "utf8" });
 	renameSync(tmp, path);
 	log(`[bootstrap] first boot — seeded bootstrap config from ENV to ${path}`);
+}
+
+/**
+ * First-boot 安全兜底:若 seed 出的配置没有 dashboard basicAuth,且监听 non-loopback
+ * 又没设逃生口 `BN_ALLOW_NO_AUTH=1` —— 此时 index.ts 的 bare-auth 门禁会 fail-closed
+ * 拒绝启动(docker 镜像 ENV 默认 `BN_HOST=0.0.0.0`,首启动必中),容器进无限重启循环。
+ * 这里**就地**生成兜底凭据补进 `config.auth.basicAuth`(用户名取 `BN_DASHBOARD_USER`,
+ * 未设则 `admin`;密码恒为随机),门禁因此放行。
+ *
+ * 触发判定直接复用门禁的 `shouldRefuseBareAuth` —— 保证「会生成」⇔「否则会被拒」,
+ * 单一事实源。loopback 部署 / 显式 `BN_ALLOW_NO_AUTH=1` 时不强塞凭据(裸跑本就合法)。
+ *
+ * 凭据随后由 `writeSeedFile` 写进 yaml(host 端 `./config/bn.config.yaml`,mode 0600)
+ * 并经 `log` 打到 stderr(docker logs 可见),用户两处都能取。随机串走 base64url
+ * (字符集 `A-Za-z0-9-_`),不含 `${`,不会被 `interpolateEnvDeep` 二次替换。
+ */
+function maybeSeedDashboardCredentials(
+	config: BootstrapConfig,
+	env: NodeJS.ProcessEnv,
+	log: (msg: string) => void,
+): void {
+	if (config.auth?.basicAuth) return; // 用户已通过 BN_DASHBOARD_USER/PASS 显式提供
+	const allowNoAuth = env.BN_ALLOW_NO_AUTH === "1";
+	const refuse = shouldRefuseBareAuth({
+		host: config.server.host,
+		hasBasicAuth: false,
+		allowNoAuth,
+	});
+	if (!refuse) return; // loopback 或显式逃生口 —— 裸跑合法,不生成
+
+	// 半配置(只设 BN_DASHBOARD_USER 没设 PASS,readEnv 因不成对未写 basicAuth)时
+	// 尊重用户设的用户名,仅兜底生成密码;未设则回落 `admin`。
+	const username = env.BN_DASHBOARD_USER || "admin";
+	const password = randomBytes(18).toString("base64url");
+	config.auth = { ...config.auth, basicAuth: { username, password } };
+	log(
+		"[bootstrap] dashboard auth 未配置且监听 non-loopback —— 已自动生成登录凭据:\n" +
+			`             username: ${username}\n` +
+			`             password: ${password}\n` +
+			"           凭据已写入 bootstrap yaml(host 端 ./config/bn.config.yaml)。" +
+			"登录后请编辑该文件修改 auth.basicAuth 并重启容器。",
+	);
 }
 
 type PathState = "missing" | "directory" | "file";

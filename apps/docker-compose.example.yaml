@@ -33,9 +33,12 @@ services:
       # 以下 BN_* 是 first-boot seed 源,**仅首次启动**写入 ${BN_CONFIG} 指向的 yaml;
       # 之后修改这里无效,要改值请编辑 ./config/bn.config.yaml 后重启容器。
       BN_LOG_LEVEL: info
+      # dashboard 登录凭据 —— 容器监听 0.0.0.0,无 auth 会被安全门禁拒绝启动。
+      # 首次启动后请务必登录 dashboard 或编辑 ./config/bn.config.yaml 改掉默认密码!
+      # 若把下面两行删掉,首启动会自动生成随机密码(打印进 docker logs + 写入 yaml)。
+      BN_DASHBOARD_USER: admin
+      BN_DASHBOARD_PASS: change-me-on-first-boot
       # TZ: Asia/Shanghai          # 时区(决定日志/历史按日切文件的本地"今天",镜像默认已设)
-      # BN_DASHBOARD_USER: admin
-      # BN_DASHBOARD_PASS: change-me-on-first-boot
       # BN_COOKIE_KEY: change-me-too   # AES-256-GCM 派生密钥
     volumes:
       - ./data:/data

@@ -6,6 +6,8 @@
  *   **A. BN_CONFIG 显式设置(B 模型,docker 部署主路径)**
  *   - 路径不存在 → first-boot seed:env + CLI 写入 yaml(含 SEED_HEADER 注释),
  *     返回与文件等价的 config
+ *   - first-boot 若监听 non-loopback 又无 basicAuth(否则 index.ts 门禁 fail-closed
+ *     拒启)→ 自动生成 admin + 随机密码补进 auth;loopback / BN_ALLOW_NO_AUTH=1 不生成
  *   - 路径是目录(EISDIR)→ 抛 Error,信息提及 bind-mount + docs 引用
  *   - 路径是文件 → 读 file,**完全忽略 env**(包括镜像内置 BN_HOST=0.0.0.0
  *     这种 implicit override),仅 CLI 仍可叠加覆盖
@@ -249,6 +251,152 @@ describe("loadBootstrapConfig — B 模型 dataDir 也走 file 真相", () => {
 		});
 		const fileObj = parseYaml(await readFile(cfgPath, "utf8")) as Record<string, unknown>;
 		expect(fileObj.dataDir).toBe("/seed/data");
+	});
+});
+
+// ---------------------------------------------------------------------------
+// B 模型 — first-boot dashboard 凭据自动兜底
+// ---------------------------------------------------------------------------
+
+describe("loadBootstrapConfig — B 模型 first-boot 凭据自动生成", () => {
+	it("non-loopback + 无 auth → 自动生成 admin + 随机密码,写进 yaml + 打日志", async () => {
+		const cfgPath = join(cwd, "bn.config.yaml");
+		const logged: string[] = [];
+		const c = loadBootstrapConfig({
+			argv: [],
+			env: { BN_CONFIG: cfgPath, BN_HOST: "0.0.0.0" },
+			cwd,
+			log: (m) => logged.push(m),
+		});
+		expect(c.auth?.basicAuth?.username).toBe("admin");
+		const pw = c.auth?.basicAuth?.password ?? "";
+		expect(pw).toMatch(/^[A-Za-z0-9_-]+$/); // base64url,插值安全
+		expect(pw.length).toBeGreaterThanOrEqual(16); // 足够熵
+		// 凭据写进了 yaml(host 端可取)
+		const fileObj = parseYaml(await readFile(cfgPath, "utf8")) as Record<string, unknown>;
+		const fileAuth = (fileObj.auth as Record<string, unknown>).basicAuth as Record<string, unknown>;
+		expect(fileAuth.username).toBe("admin");
+		expect(fileAuth.password).toBe(pw);
+		// 打了日志(docker logs 可见)
+		expect(logged.some((m) => m.includes("自动生成") && m.includes("password:"))).toBe(true);
+	});
+
+	it("BN_ALLOW_NO_AUTH=1 → 不生成(尊重显式逃生口)", () => {
+		const cfgPath = join(cwd, "bn.config.yaml");
+		const c = loadBootstrapConfig({
+			argv: [],
+			env: { BN_CONFIG: cfgPath, BN_HOST: "0.0.0.0", BN_ALLOW_NO_AUTH: "1" },
+			cwd,
+			log: () => {},
+		});
+		expect(c.auth?.basicAuth).toBeUndefined();
+	});
+
+	it("loopback host(127.0.0.1)→ 不生成(裸跑本就合法)", () => {
+		const cfgPath = join(cwd, "bn.config.yaml");
+		const c = loadBootstrapConfig({
+			argv: [],
+			env: { BN_CONFIG: cfgPath, BN_HOST: "127.0.0.1" },
+			cwd,
+			log: () => {},
+		});
+		expect(c.auth?.basicAuth).toBeUndefined();
+	});
+
+	it("用户已给 BN_DASHBOARD_USER/PASS → 用用户的,不覆盖成随机", () => {
+		const cfgPath = join(cwd, "bn.config.yaml");
+		const c = loadBootstrapConfig({
+			argv: [],
+			env: {
+				BN_CONFIG: cfgPath,
+				BN_HOST: "0.0.0.0",
+				BN_DASHBOARD_USER: "myuser",
+				BN_DASHBOARD_PASS: "mypass",
+			},
+			cwd,
+			log: () => {},
+		});
+		expect(c.auth?.basicAuth).toEqual({ username: "myuser", password: "mypass" });
+	});
+
+	it("生成的密码插值安全 + 第二次启动原样读回(不再生成、不被 ${} 替换)", async () => {
+		const cfgPath = join(cwd, "bn.config.yaml");
+		const first = loadBootstrapConfig({
+			argv: [],
+			env: { BN_CONFIG: cfgPath, BN_HOST: "0.0.0.0" },
+			cwd,
+			log: () => {},
+		});
+		const pw = first.auth?.basicAuth?.password;
+		expect(pw).toBeTruthy();
+		expect(pw).not.toContain("${");
+		// 第二次启动:file 存在分支,既不重新生成也不被插值改写
+		const second = loadBootstrapConfig({
+			argv: [],
+			env: { BN_CONFIG: cfgPath, BN_HOST: "0.0.0.0" },
+			cwd,
+			log: () => {},
+		});
+		expect(second.auth?.basicAuth?.password).toBe(pw);
+	});
+
+	it("两次独立 first-boot 生成不同密码(随机性 sanity)", () => {
+		const a = loadBootstrapConfig({
+			argv: [],
+			env: { BN_CONFIG: join(cwd, "a.yaml"), BN_HOST: "0.0.0.0" },
+			cwd,
+			log: () => {},
+		});
+		const b = loadBootstrapConfig({
+			argv: [],
+			env: { BN_CONFIG: join(cwd, "b.yaml"), BN_HOST: "0.0.0.0" },
+			cwd,
+			log: () => {},
+		});
+		expect(a.auth?.basicAuth?.password).not.toBe(b.auth?.basicAuth?.password);
+	});
+
+	it("无 BN_HOST(走 schema 默认 0.0.0.0)→ 仍触发生成(docker 镜像 ENV 缺省路径)", () => {
+		const cfgPath = join(cwd, "bn.config.yaml");
+		const c = loadBootstrapConfig({
+			argv: [],
+			env: { BN_CONFIG: cfgPath }, // 无 BN_HOST,schema 默认 host=0.0.0.0
+			cwd,
+			log: () => {},
+		});
+		expect(c.server.host).toBe("0.0.0.0");
+		expect(c.auth?.basicAuth?.username).toBe("admin");
+	});
+
+	it("半配置:只给 BN_DASHBOARD_USER 不给 PASS → 保留用户名,仅兜底生成密码", async () => {
+		// readEnv 要求 USER+PASS 成对才写 auth.basicAuth,只给 USER 时整个 auth 为空 →
+		// maybeSeedDashboardCredentials 兜底:username 取 BN_DASHBOARD_USER(尊重用户
+		// 输入,不静默丢弃),password 仍随机生成。
+		const cfgPath = join(cwd, "bn.config.yaml");
+		const c = loadBootstrapConfig({
+			argv: [],
+			env: { BN_CONFIG: cfgPath, BN_HOST: "0.0.0.0", BN_DASHBOARD_USER: "myadmin" },
+			cwd,
+			log: () => {},
+		});
+		expect(c.auth?.basicAuth?.username).toBe("myadmin"); // 保留用户设的,而非回落 admin
+		expect(c.auth?.basicAuth?.password).toMatch(/^[A-Za-z0-9_-]+$/); // 密码仍是随机生成
+		const fileObj = parseYaml(await readFile(cfgPath, "utf8")) as Record<string, unknown>;
+		const fileAuth = (fileObj.auth as Record<string, unknown>).basicAuth as Record<string, unknown>;
+		expect(fileAuth.username).toBe("myadmin");
+	});
+
+	it("seed 出的凭据满足 BasicAuthSchema(username/password 均 min(1))", () => {
+		// maybeSeedDashboardCredentials 在 parseOrRethrow 之后 mutate config.auth,
+		// 注入的 basicAuth 不再过 schema 校验 —— 守护注入值本身合法。
+		const c = loadBootstrapConfig({
+			argv: [],
+			env: { BN_CONFIG: join(cwd, "bn.config.yaml"), BN_HOST: "0.0.0.0" },
+			cwd,
+			log: () => {},
+		});
+		expect(c.auth?.basicAuth?.username.length ?? 0).toBeGreaterThan(0);
+		expect(c.auth?.basicAuth?.password.length ?? 0).toBeGreaterThan(0);
 	});
 });
 
