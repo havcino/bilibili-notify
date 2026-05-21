@@ -49,7 +49,7 @@ apps/       Hono 服务端 + React Dashboard
 - `dev` —— 活跃开发主干,三类目录改动都落这。
 - `main` —— GitHub 默认分支;`dev → main` 合并触发 koishi npm 发版。
 
-独立端 Docker 镜像 tag:`dev`→`:alpha`、`main`→`:latest`。详见 `docs/agents/build-release.md`。
+独立端 Docker 镜像 tag:`dev` push→`:alpha`、`v*.*.*` git tag→`:latest`(与 koishi 的 `dev→main` 发版解耦,`main` 不触发镜像构建)。详见 `docs/agents/build-release.md`。
 
 ## 深入参考(`docs/agents/`)
 

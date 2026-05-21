@@ -68,7 +68,7 @@ docker run -d --name bilibili-notify \
 
 浏览器打开 `http://<host>:8787`。首次启动自动生成 dashboard 登录凭据,见容器日志或 `./config/bn.config.yaml`。完整部署 / 配置见 **[apps/README.md](./apps/README.md)**。
 
-镜像 tag:`alpha` = 持续构建(当前可用);`latest` = 稳定版;`image-vX.Y.Z` = 固定版本。
+镜像 tag:`alpha` = 持续构建(当前可用);`latest` = 稳定版;`vX.Y.Z` = 固定版本。
 
 ## 仓库结构
 

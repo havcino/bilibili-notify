@@ -17,7 +17,7 @@
 - **`dev`** —— 活跃开发主干。`packages/` `koishi/` `apps/` 三类改动都落这。
 - **`main`** —— GitHub 默认分支,旧版发布快照。`dev → main` 合并触发 koishi changesets npm 发版(`publish.yml` 监听 push to `main`)。
 
-两种产品形态都从 `dev` 持续出货:koishi 端经 changesets 发 npm(动 `packages/*` 与 `koishi/*`);独立端发 Docker 镜像(动 `apps/*`,从不发 npm)。
+两种产品形态发布节奏独立:koishi 端经 changesets 发 npm —— `dev → main` 合并触发(`publish.yml`);独立端发 Docker 镜像,从不发 npm —— `dev` push 持续出 `:alpha`,稳定版 `:latest` 由显式 `v*.*.*` git tag 触发。`dev → main` 合并**不**触发独立端镜像构建,koishi 发版与独立端发版互不牵动。
 
 ## Docker 镜像(独立端)
 
@@ -28,11 +28,13 @@
 | Tag | 来源 |
 |---|---|
 | `:alpha` | push `dev` —— 持续构建,当前的可用镜像 |
-| `:latest` | push `main` —— 稳定版;`main` 含 `apps/` 后才会有(即首次 `dev→main` 发版合并之后) |
-| `:image-vX.Y.Z` | git tag `image-v*.*.*` —— 固定版本 |
+| `:latest` | git tag `v*.*.*` —— 独立端稳定版,显式打 tag 才发 |
+| `:vX.Y.Z` | git tag `v*.*.*` —— 固定版本(与 `:latest` 同一次 tag 一并产出) |
 | `:<short-sha>` | 每个 commit —— 不可变,用于回滚 / 精确 pin |
 
-触发分支:`dev` / `main`;触发 git tag:`image-v*.*.*`。鉴权用 `DOCKERHUB_TOKEN` repo secret。commit message 含 `[dry-run]` 时跳过 push 步骤(build + smoke test 照跑)。
+触发:push `dev`(命中 `paths` 时)+ git tag `v*.*.*`。`main` **不**是触发分支 —— 独立端发版与 koishi 的 `dev→main` 合并完全解耦,稳定版改由打 `v*.*.*` tag 控制(`paths` 过滤器不作用于 tag push,tag 恒触发)。koishi 的 changeset 发版 tag 是 `包名@版本` 形态,不匹配 `v*.*.*`,两者互不串扰。鉴权用 `DOCKERHUB_TOKEN` repo secret。commit message 含 `[dry-run]` 时跳过 push 步骤(build + smoke test 照跑)。
+
+发独立端稳定版:`git tag v1.2.3 && git push origin v1.2.3` —— 一次 tag 同时产出 `:latest` 与 `:v1.2.3`。
 
 ### Dockerfile
 

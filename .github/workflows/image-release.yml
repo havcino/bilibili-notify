@@ -3,10 +3,11 @@ name: bilibili-notify — build + publish
 # Required repo secret: DOCKERHUB_TOKEN
 
 on:
+  # dev push(命中 paths)→ :alpha;v*.*.* tag → :latest(paths 不作用于 tag,
+  # 故 tag 恒触发)。koishi 发版的 dev→main 合并不触发本工作流。
   push:
     branches:
       - dev
-      - main
     paths:
       - "apps/**"
       - "packages/**"
@@ -14,7 +15,7 @@ on:
       - ".dockerignore"
       - ".github/workflows/image-release.yml"
     tags:
-      - "image-v*.*.*"
+      - "v*.*.*"
   workflow_dispatch:
 
 permissions:
@@ -47,11 +48,12 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: docker.io/akokk0/bilibili-notify
-          # dev → :alpha(持续构建)  main → :latest(稳定版,koishi 发版合并后才有)
-          # image-v*.*.* tag → :image-vX.Y.Z   每个 commit → :<short-sha>
+          # dev push → :alpha(持续构建)。v*.*.* tag → :latest + :vX.Y.Z
+          # (独立端稳定版,显式打 tag 才发)。每个 commit → :<short-sha>。
+          # :latest 与 koishi 发版(dev→main)解耦 —— main push 不再触发本工作流。
           tags: |
             type=raw,value=alpha,enable=${{ github.ref == 'refs/heads/dev' }}
-            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
             type=ref,event=tag
             type=sha,prefix=,format=short
 
