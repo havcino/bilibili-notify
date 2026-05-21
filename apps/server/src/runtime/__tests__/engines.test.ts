@@ -18,8 +18,8 @@
  *   dispose():                stop 全引擎 + 解绑 bus(dispose 后 config-changed 不再生效)
  */
 
-import type { GlobalConfig } from "@bilibili-notify/internal";
-import { makeDefaultGlobalConfig } from "@bilibili-notify/internal";
+import type { GlobalConfig, Subscription } from "@bilibili-notify/internal";
+import { makeDefaultGlobalConfig, makeEmptySubscription } from "@bilibili-notify/internal";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ConfigStore } from "../../config/store.js";
 import { createNodeMessageBus } from "../message-bus.js";
@@ -187,19 +187,23 @@ interface Ctx {
 	loginFlow: { setHealthCheckMs: ReturnType<typeof vi.fn> };
 }
 
-function setup(opts?: { globals?: GlobalConfig; puppeteer?: boolean }): Ctx {
+function setup(opts?: { globals?: GlobalConfig; puppeteer?: boolean; subs?: Subscription[] }): Ctx {
 	const serviceCtx = makeServiceCtx();
 	const configStore = makeConfigStore(opts?.globals ?? makeDefaultGlobalConfig());
 	const api = { setUserAgent: vi.fn() };
 	const loginFlow = { setHealthCheckMs: vi.fn() };
 	const bus = createNodeMessageBus();
+	const subs = opts?.subs ?? [];
 	const runtime = createEngines({
 		serviceCtx: serviceCtx as unknown as NodeServiceContext,
 		api: api as any,
 		loginFlow: loginFlow as any,
 		configStore: configStore as unknown as ConfigStore,
 		historyStore: { append: vi.fn(async () => {}) } as any,
-		subscriptionStore: { list: () => [], findByUid: () => undefined } as any,
+		subscriptionStore: {
+			list: () => subs,
+			findByUid: (uid: string) => subs.find((s) => s.uid === uid),
+		} as any,
 		subRuntimeStore: {
 			get: () => undefined,
 			getAll: () => ({}),
@@ -436,5 +440,86 @@ describe("createEngines — dispose", () => {
 		expect(dyn.stop).toHaveBeenCalledTimes(1);
 		expect(live.stop).toHaveBeenCalledTimes(1);
 		expect(push.stop).toHaveBeenCalledTimes(1);
+	});
+});
+
+// 回归:禁用一个 UP 时,dynamic 与 live 必须同步停推。
+// 此前 subscriptionOpsToLive 的 update 分支不看 sub.enabled,把禁用翻译成带
+// live:true 的 update op,LiveEngine(常驻 WS、事件驱动)listener 一直挂着照推;
+// dynamic 因有 cron getSubs() 兜底才显得「正常」。修复:op 翻译层显式 gate enabled。
+describe("createEngines — 订阅禁用/启用转译", () => {
+	function makeSub(uid: string, enabled: boolean): Subscription {
+		const s = makeEmptySubscription({ id: `sub-${uid}`, uid });
+		s.enabled = enabled;
+		return s;
+	}
+
+	it("禁用订阅 update:live.applyOps 收到 delete、dynamic.applyOps 收到 dynamic:false", () => {
+		const sub = makeSub("100", false);
+		const c = setup({ subs: [sub] });
+		active = c;
+		c.bus.emit("subscription-changed", [{ type: "update", sub }]);
+
+		expect(H.live[0].applyOps.mock.calls.at(-1)?.[0]).toEqual([{ type: "delete", uid: "100" }]);
+		expect(H.dynamic[0].applyOps.mock.calls.at(-1)?.[0]).toEqual([
+			{ type: "update", uid: "100", changes: [{ scope: "dynamic", dynamic: false }] },
+		]);
+	});
+
+	it("启用订阅 update:live.applyOps 收到完整 update(非 delete),dynamic 为 dynamic:true", () => {
+		const sub = makeSub("200", true);
+		const c = setup({ subs: [sub] });
+		active = c;
+		c.bus.emit("subscription-changed", [{ type: "update", sub }]);
+
+		const liveOps = H.live[0].applyOps.mock.calls.at(-1)?.[0];
+		expect(liveOps).toHaveLength(1);
+		expect(liveOps[0].type).toBe("update");
+		expect(liveOps[0].uid).toBe("200");
+		expect(H.dynamic[0].applyOps.mock.calls.at(-1)?.[0]).toEqual([
+			{ type: "update", uid: "200", changes: [{ scope: "dynamic", dynamic: true }] },
+		]);
+	});
+
+	it("禁用订阅 add:不向 live.applyOps 下发 add op", () => {
+		const sub = makeSub("300", false);
+		const c = setup({ subs: [sub] });
+		active = c;
+		c.bus.emit("subscription-changed", [{ type: "add", sub }]);
+
+		expect(H.live[0].applyOps.mock.calls.at(-1)?.[0]).toEqual([]);
+	});
+
+	it("remove op:live 与 dynamic 均收到 delete(无视 enabled)", () => {
+		const sub = makeSub("400", true);
+		const c = setup({ subs: [sub] });
+		active = c;
+		c.bus.emit("subscription-changed", [{ type: "remove", id: sub.id, uid: "400" }]);
+
+		expect(H.live[0].applyOps.mock.calls.at(-1)?.[0]).toEqual([{ type: "delete", uid: "400" }]);
+		expect(H.dynamic[0].applyOps.mock.calls.at(-1)?.[0]).toEqual([{ type: "delete", uid: "400" }]);
+	});
+
+	it("连续 disable→enable→disable:live 翻译在 delete / update 间正确切换", () => {
+		const sub = makeSub("500", true);
+		const c = setup({ subs: [sub] });
+		active = c;
+		const liveOpsOf = () => H.live[0].applyOps.mock.calls.at(-1)?.[0];
+
+		// disable
+		sub.enabled = false;
+		c.bus.emit("subscription-changed", [{ type: "update", sub }]);
+		expect(liveOpsOf()).toEqual([{ type: "delete", uid: "500" }]);
+
+		// re-enable → 完整 update(LiveEngine.applyOps 见无 listener 走 lookupFullSub 重建)
+		sub.enabled = true;
+		c.bus.emit("subscription-changed", [{ type: "update", sub }]);
+		expect(liveOpsOf()).toHaveLength(1);
+		expect(liveOpsOf()[0].type).toBe("update");
+
+		// disable again
+		sub.enabled = false;
+		c.bus.emit("subscription-changed", [{ type: "update", sub }]);
+		expect(liveOpsOf()).toEqual([{ type: "delete", uid: "500" }]);
 	});
 });

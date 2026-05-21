@@ -982,6 +982,10 @@ function subscriptionOpsToDynamic(
 ): DynamicSubOp[] {
 	const out: DynamicSubOp[] = [];
 	const hasDyn = (sub: Subscription): boolean => {
+		// 禁用订阅一律不纳入动态轮询。与 buildDynamicSubsView 的 `if(!sub.enabled)`
+		// gate 保持一致 —— op 翻译层也 gate 后,禁用立即经 applyOps 走 stopDynamicForUid,
+		// 不必等下一个 cron tick 重读 getSubs()。
+		if (!sub.enabled) return false;
 		const eff = resolve(sub, globals.defaults);
 		return eff.features.dynamic;
 	};
@@ -1026,12 +1030,23 @@ function subscriptionOpsToLive(
 	const out: LiveSubscriptionOp[] = [];
 	for (const op of ops) {
 		if (op.type === "add") {
+			// 禁用态新增不开监听器。新增订阅默认 enabled,此处为防御性兜底。
+			if (!op.sub.enabled) continue;
 			out.push({ type: "add", sub: buildLiveSubViewSingle(op.sub, subRuntimeStore, globals) });
 		} else if (op.type === "remove") {
 			out.push({ type: "delete", uid: op.uid });
 		} else {
 			const sub = store.findByUid(op.sub.uid);
 			if (!sub) continue;
+			// 禁用订阅 = 拆掉直播监听器。LiveEngine 是事件驱动(常驻 WS),不像
+			// DynamicEngine 有 cron 每轮重读 getSubs() 兜底 —— update op 必须显式翻译
+			// 成 delete,否则 listener 一直挂着、直播事件照推(已修 bug)。重新启用时
+			// 走下面的 update 分支发完整 LiveScopedChange,LiveEngine.applyOps 见无
+			// 活跃 listener → lookupFullSub → startForUid 重新拉起。
+			if (!sub.enabled) {
+				out.push({ type: "delete", uid: op.sub.uid });
+				continue;
+			}
 			// 用完整 SubItemView 投影出所有 LiveScopedChange 支持的字段——路由布尔、
 			// per-UP 阈值 / 调度 / AI override 之外,模板 / 上舰 / 特别关注 / 卡片样式
 			// 也跟着一起同步,避免活跃 listener 用旧值(本来 add 路径就走这里,update
