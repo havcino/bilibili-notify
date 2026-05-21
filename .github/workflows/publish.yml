@@ -6,6 +6,10 @@ on:
 
 concurrency: ${{ github.workflow }}-${{ github.ref }}
 
+# 让 checkout / setup-vp / changesets 等 JS action 跑在 Node 24(2026-06-02 起 GitHub 强制)
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
 jobs:
   ci-and-publish:
     runs-on: ubuntu-latest
