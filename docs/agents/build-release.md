@@ -17,24 +17,37 @@
 - **`dev`** —— 活跃开发主干。`packages/` `koishi/` `apps/` 三类改动都落这。
 - **`main`** —— GitHub 默认分支,旧版发布快照。`dev → main` 合并触发 koishi changesets npm 发版(`publish.yml` 监听 push to `main`)。
 
-两种产品形态发布节奏独立:koishi 端经 changesets 发 npm —— `dev → main` 合并触发(`publish.yml`);独立端发 Docker 镜像,从不发 npm —— `dev` push 持续出 `:alpha`,稳定版 `:latest` 由显式 `v*.*.*` git tag 触发。`dev → main` 合并**不**触发独立端镜像构建,koishi 发版与独立端发版互不牵动。
+两种产品形态发布节奏独立:koishi 端经 changesets 发 npm —— `dev → main` 合并触发(`publish.yml`);独立端发 Docker 镜像,从不发 npm —— 由 `apps/server/package.json` 的 `version` 字段驱动(见下)。`dev → main` 合并**不**触发独立端镜像构建,koishi 发版与独立端发版互不牵动。
 
 ## Docker 镜像(独立端)
 
 镜像仓库:Docker Hub `docker.io/akokk0/bilibili-notify`。
 
-### Tag 方案(`.github/workflows/image-release.yml`)
+### 版本号 = 唯一事实源
+
+独立端版本号取自 `apps/server/package.json`(后端)与 `apps/web/package.json`(前端)的 `version` 字段,**手动维护**。两个包都是 `private`、永不发 npm,且进了 `.changeset/config.json` 的 `ignore` —— changeset 完全不碰它们,业务包改动也不会连带 bump 它们。
+
+- 后端 `apps/server` 的 version 是镜像的发布版本:决定构建触发、Docker tag、alpha/正式渠道。
+- 前端 `apps/web` 的 version 仅供概览页展示,不单独触发构建。
+
+运行时 `resolveAppVersion`(`apps/server/src/routes/health.ts`)读 `apps/server/package.json#version`;`/api/health` 的 `version` 与概览页「后端 X」据此显示。
+
+### 构建触发(`.github/workflows/image-release.yml`)
+
+push 到 `dev` 且改动命中 `paths: ["apps/server/package.json"]` 才构建 —— **手动 bump `apps/server` 的 version 即「发版」**。只改代码、不动 version → 不构建,代码静待在 `dev` 上,发版节奏完全由维护者掌控。`workflow_dispatch` 可手动触发。鉴权用 `DOCKERHUB_TOKEN` repo secret;commit message 含 `[dry-run]` 时跳过 push 步骤(build + smoke test 照跑)。
+
+### Tag 方案
+
+渠道按版本串判定:version 含 prerelease 标识(有 `-`,如 `0.1.0-alpha.0`)走 alpha,纯 semver 走正式。不打 git tag。
 
 | Tag | 来源 |
 |---|---|
-| `:alpha` | push `dev` —— 持续构建,当前的可用镜像 |
-| `:latest` | git tag `v*.*.*` —— 独立端稳定版,显式打 tag 才发 |
-| `:vX.Y.Z` | git tag `v*.*.*` —— 固定版本(与 `:latest` 同一次 tag 一并产出) |
-| `:<short-sha>` | 每个 commit —— 不可变,用于回滚 / 精确 pin |
+| `:alpha` | `apps/server` version 是 prerelease(`X.Y.Z-alpha.N`)—— 滚动渠道 tag |
+| `:latest` | `apps/server` version 是纯 semver(`X.Y.Z`)—— 滚动渠道 tag |
+| `:vX.Y.Z[-alpha.N]` | 不可变版本 tag,跟 `apps/server` version 走 |
+| `:<short-sha>` | 每个构建 —— 不可变,用于回滚 / 精确 pin |
 
-触发:push `dev`(命中 `paths` 时)+ git tag `v*.*.*`。`main` **不**是触发分支 —— 独立端发版与 koishi 的 `dev→main` 合并完全解耦,稳定版改由打 `v*.*.*` tag 控制(`paths` 过滤器不作用于 tag push,tag 恒触发)。koishi 的 changeset 发版 tag 是 `包名@版本` 形态,不匹配 `v*.*.*`,两者互不串扰。鉴权用 `DOCKERHUB_TOKEN` repo secret。commit message 含 `[dry-run]` 时跳过 push 步骤(build + smoke test 照跑)。
-
-发独立端稳定版:`git tag v1.2.3 && git push origin v1.2.3` —— 一次 tag 同时产出 `:latest` 与 `:v1.2.3`。
+发 alpha:把 `apps/server/package.json` 的 version 改成 `X.Y.Z-alpha.N` 推到 `dev`。发正式版:改成纯 `X.Y.Z` 推到 `dev`。
 
 ### Dockerfile
 

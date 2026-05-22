@@ -1,4 +1,6 @@
+import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
+import { join } from "node:path";
 import { Hono } from "hono";
 import type { ConfigScopeMeta } from "../config/store.js";
 import type { ModuleStatus } from "../runtime/engines.js";
@@ -62,15 +64,22 @@ const MODULE_VERSIONS: ModuleVersions = {
 	ai: readPkgVersion("@bilibili-notify/ai/package.json"),
 };
 
-/** 独立端自身版本:镜像构建注入 APP_VERSION,本地 dev(未设)回退 "dev"。 */
-export function resolveAppVersion(env: NodeJS.ProcessEnv): string {
-	return env.APP_VERSION || "dev";
+/**
+ * 独立端自身版本,取自 apps/server/package.json#version。版本号是唯一事实源、
+ * 手动维护;`apps/server` 被 changeset `ignore`,`changeset version` 不会改它,
+ * 故运行时读到的就是仓库里手填的版本。镜像 tag 与 alpha/正式渠道亦据它推导
+ * (见 .github/workflows/image-release.yml)。读不到则回退 "dev"。
+ */
+export function resolveAppVersion(pkgPath: string = join(process.cwd(), "package.json")): string {
+	try {
+		const pkg = JSON.parse(readFileSync(pkgPath, "utf8")) as { version?: string };
+		return pkg.version || "dev";
+	} catch {
+		return "dev";
+	}
 }
 
-// APP_VERSION 由镜像构建按 git ref 注入(v* tag → vX.Y.Z、dev push → dev-<sha>);
-// 见 apps/Dockerfile 与 .github/workflows/image-release.yml。不读 apps/server 自身
-// package.json —— 它是 private 包、version 恒为 0.0.0。
-const APP_VERSION = resolveAppVersion(process.env);
+const APP_VERSION = resolveAppVersion();
 const startedAtMs = Date.now();
 
 /**

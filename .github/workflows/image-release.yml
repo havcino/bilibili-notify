@@ -3,19 +3,14 @@ name: bilibili-notify — build + publish
 # Required repo secret: DOCKERHUB_TOKEN
 
 on:
-  # dev push(命中 paths)→ :alpha;v*.*.* tag → :latest(paths 不作用于 tag,
-  # 故 tag 恒触发)。koishi 发版的 dev→main 合并不触发本工作流。
+  # 只有改动 apps/server/package.json 才构建 —— 手动 bump version 即「发版」。
+  # 改代码不动 version → 不构建,代码静待在 dev 上,发版节奏完全由维护者掌控。
+  # 渠道按版本串判定(见下 Read standalone version / Compute image metadata)。
   push:
     branches:
       - dev
     paths:
-      - "apps/**"
-      - "packages/**"
-      - "pnpm-lock.yaml"
-      - ".dockerignore"
-      - ".github/workflows/image-release.yml"
-    tags:
-      - "v*.*.*"
+      - "apps/server/package.json"
   workflow_dispatch:
 
 permissions:
@@ -43,38 +38,37 @@ jobs:
           username: akokk0
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
+      # 独立端版本号 = apps/server/package.json#version(手动维护,唯一事实源)。
+      # 含 prerelease 标识(有 `-`,如 0.1.0-alpha.0)→ alpha 渠道,否则正式。
+      - name: Read standalone version
+        id: ver
+        run: |
+          V=$(node -p "require('./apps/server/package.json').version")
+          echo "value=$V" >> "$GITHUB_OUTPUT"
+          if [[ "$V" == *-* ]]; then
+            echo "prerelease=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "prerelease=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Compute image metadata
         id: meta
         uses: docker/metadata-action@v5
         with:
           images: docker.io/akokk0/bilibili-notify
-          # dev push → :alpha(持续构建)。v*.*.* tag → :latest + :vX.Y.Z
-          # (独立端稳定版,显式打 tag 才发)。每个 commit → :<short-sha>。
-          # :latest 与 koishi 发版(dev→main)解耦 —— main push 不再触发本工作流。
+          # 渠道按版本串判定:prerelease → :alpha,纯 semver → :latest。另打不可变
+          # 版本 tag :vX.Y.Z[-alpha.N] 与每-commit :<short-sha>。
           tags: |
-            type=raw,value=alpha,enable=${{ github.ref == 'refs/heads/dev' }}
-            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
-            type=ref,event=tag
+            type=raw,value=latest,enable=${{ steps.ver.outputs.prerelease == 'false' }}
+            type=raw,value=alpha,enable=${{ steps.ver.outputs.prerelease == 'true' }}
+            type=raw,value=v${{ steps.ver.outputs.value }}
             type=sha,prefix=,format=short
-
-      # 独立端自身版本号,注入镜像供 /api/health 显示。v* tag → vX.Y.Z;dev push
-      # → dev-<short-sha>。与 koishi/npm 的 changeset 版本线无关。
-      - name: Compute app version
-        id: appver
-        run: |
-          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
-            echo "value=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
-          else
-            echo "value=${GITHUB_REF_NAME}-$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
-          fi
 
       - name: Build image (load, no push)
         uses: docker/build-push-action@v6
         with:
           context: .
           file: ./apps/Dockerfile
-          build-args: |
-            APP_VERSION=${{ steps.appver.outputs.value }}
           load: true
           push: false
           tags: bilibili-notify:smoke
@@ -98,6 +92,13 @@ jobs:
           done
           if [ -z "$ok" ]; then
             echo "::error::/api/health never returned status:ok within ~60s"
+            docker logs bn-smoke || true
+            exit 1
+          fi
+          ver=$(curl -fsS http://localhost:8787/api/health | jq -r '.version')
+          echo "GET /api/health -> version: $ver"
+          if [ "$ver" != "${{ steps.ver.outputs.value }}" ]; then
+            echo "::error::/api/health version '$ver' != apps/server/package.json '${{ steps.ver.outputs.value }}'"
             docker logs bn-smoke || true
             exit 1
           fi
@@ -125,8 +126,6 @@ jobs:
         with:
           context: .
           file: ./apps/Dockerfile
-          build-args: |
-            APP_VERSION=${{ steps.appver.outputs.value }}
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}

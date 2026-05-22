@@ -1,10 +1,20 @@
+import { readFileSync } from "node:fs";
 import tailwind from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 
+// 前端自身版本,注入概览页展示。源 = apps/web/package.json#version(手动维护)。
+const webPkg = JSON.parse(readFileSync(new URL("./package.json", import.meta.url), "utf8")) as {
+	version: string;
+};
+
 // 测试走 vitest 默认 node 环境 + 默认 include — 4 个 channel hook 的事件分发已拆
 // 成纯 handler 函数,不渲染 React,无需 jsdom。
 export default defineConfig({
+	// __WEB_VERSION__ 编译期替换为字面量;声明见 src/vite-env.d.ts。
+	define: {
+		__WEB_VERSION__: JSON.stringify(webPkg.version),
+	},
 	plugins: [react(), tailwind()],
 	server: {
 		port: 5173,

@@ -119,16 +119,11 @@ COPY --from=builder \
 COPY --from=builder /repo/node_modules ./node_modules
 COPY --from=builder /repo/packages ./packages
 COPY --from=builder /repo/apps/server/lib ./apps/server/lib
+# apps/server/package.json —— 既供 node 解析 workspace 包,也供运行时
+# resolveAppVersion 读取独立端版本号(见 src/routes/health.ts)。
 COPY --from=builder /repo/apps/server/package.json ./apps/server/package.json
 COPY --from=builder /repo/apps/server/node_modules ./apps/server/node_modules
 COPY --from=builder /repo/apps/web/dist ./web-dist
-
-# 独立端自身版本,CI(image-release.yml)按 git ref 注入:v* tag → vX.Y.Z、
-# dev push → dev-<sha>;手动 docker build 不传则为 dev。/api/health 读它。
-# 紧贴所有 COPY 之后:APP_VERSION 每次构建都变(含 sha),置末尾只让末几个
-# 元数据层失效,不动上面昂贵的 COPY 层。
-ARG APP_VERSION=dev
-ENV APP_VERSION=${APP_VERSION}
 
 WORKDIR /app/apps/server
 
