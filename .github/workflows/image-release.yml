@@ -161,7 +161,7 @@ jobs:
           # GHA bot 身份(跟 changeset-bot 等保持一致风格)。
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git tag -a "$TAG" -m "独立端 $VERSION (image: docker.io/akokk0/bilibili-notify:$TAG)"
+          git tag -a "$TAG" -m "独立端 $VERSION (image: akokk0/bilibili-notify:$TAG)"
           git push origin "$TAG"
 
       # git tag 存在后,创建对应 GitHub Release —— GitHub Releases 页面是用户找发
@@ -207,13 +207,13 @@ jobs:
             echo "不可变 tag:"
             echo
             echo '```bash'
-            echo "docker pull docker.io/akokk0/bilibili-notify:$TAG"
+            echo "docker pull akokk0/bilibili-notify:$TAG"
             echo '```'
             echo
             echo "滚动 \`:$CHANNEL\` 渠道:"
             echo
             echo '```bash'
-            echo "docker pull docker.io/akokk0/bilibili-notify:$CHANNEL"
+            echo "docker pull akokk0/bilibili-notify:$CHANNEL"
             echo '```'
             if [ -n "$PREV_TAG" ]; then
               echo
