@@ -17,6 +17,7 @@ import { Btn, Input } from "./atoms";
  */
 export function LoginDialog({ variant }: { variant: "cold" | "overlay" }) {
 	const markAuthed = useSessionStore((s) => s.markAuthed);
+	const setStatus = useSessionStore((s) => s.setStatus);
 	const [username, setUsername] = useState("");
 	const [password, setPassword] = useState("");
 	const [busy, setBusy] = useState(false);
@@ -54,6 +55,12 @@ export function LoginDialog({ variant }: { variant: "cold" | "overlay" }) {
 		if (result.ok) {
 			setPassword("");
 			markAuthed();
+			return;
+		}
+		// 后端权威告知未启用鉴权 —— 同步 store 让 AuthGate 关掉 dialog,
+		// 而不是把一条用户无法处理的报错挂在表单上。
+		if (result.kind === "auth_disabled") {
+			setStatus({ authRequired: false, authed: true });
 			return;
 		}
 		setError(result.message);
