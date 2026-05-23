@@ -1,5 +1,5 @@
 ---
-"@bilibili-notify/internal": minor
+"@bilibili-notify/internal": patch
 "@bilibili-notify/dynamic": patch
 "koishi-plugin-bilibili-notify": patch
 "koishi-plugin-bilibili-notify-dynamic": patch

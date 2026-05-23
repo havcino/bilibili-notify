@@ -1,6 +1,6 @@
 ---
-"koishi-plugin-bilibili-notify-image": minor
-"@bilibili-notify/image": minor
+"koishi-plugin-bilibili-notify-image": patch
+"@bilibili-notify/image": patch
 ---
 
 `followerDisplay`(显示=true)全链路重命名 + 语义反转为 `hideFollower`(隐藏=true),对齐 `hideDesc` 命名风格。范围横跨 koishi plugin Schema 与 `@bilibili-notify/image` 的 `ImageRendererConfig` / `LiveCardProps` 公共接口,两端中间不再做桥接取反。
