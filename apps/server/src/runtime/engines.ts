@@ -318,9 +318,11 @@ export function createEngines(opts: CreateEnginesOptions): EnginesRuntime {
 			config: {
 				cardColorStart: cs.cardColorStart,
 				cardColorEnd: cs.cardColorEnd,
-				font: "PingFang SC, sans-serif",
-				hideDesc: false,
-				followerDisplay: true,
+				font: cs.font,
+				hideDesc: cs.hideDesc,
+				// dashboard 用 hideFollower(隐藏=true)对齐 hideDesc 语义;ImageRenderer
+				// public API 保持 koishi 兼容的正向 followerDisplay(显示=true),取反传。
+				followerDisplay: !cs.hideFollower,
 			},
 		});
 		imageRenderer.start();
@@ -575,15 +577,15 @@ export function createEngines(opts: CreateEnginesOptions): EnginesRuntime {
 					// healthCheckMinutes → LoginFlow:dispose 旧 setInterval + 按新间隔重 arm。
 					opts.loginFlow.setHealthCheckMs(g.app.healthCheckMinutes * 60_000);
 				}
-				// ImageRenderer 配色热更(仅在已构造时有意义)。
+				// ImageRenderer 配色 / 字体 / 显示项热更(仅在已构造时有意义)。
 				if (cardStyleChanged && imageRenderer) {
 					const cs = g.defaults.cardStyle;
 					imageRenderer.updateConfig({
 						cardColorStart: cs.cardColorStart,
 						cardColorEnd: cs.cardColorEnd,
-						font: "PingFang SC, sans-serif",
-						hideDesc: false,
-						followerDisplay: true,
+						font: cs.font,
+						hideDesc: cs.hideDesc,
+						followerDisplay: !cs.hideFollower,
 					});
 				}
 				// dynamicConfig() 读 app.dynamicCron + defaults.{filters,cardStyle.enabled,ai.enabled}。

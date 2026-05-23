@@ -243,6 +243,9 @@ export interface CardStyleFull {
 	enabled: boolean;
 	cardColorStart: string;
 	cardColorEnd: string;
+	font: string;
+	hideDesc: boolean;
+	hideFollower: boolean;
 }
 export type CardStyleOverride = Partial<CardStyleFull>;
 

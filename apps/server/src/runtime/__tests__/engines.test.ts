@@ -431,6 +431,30 @@ describe("createEngines — image 配色热更", () => {
 		// cardStyle 变更不在 app section → 不扇出重设 UA(仅 boot 1 次)。
 		expect(c.api.setUserAgent).toHaveBeenCalledTimes(1);
 	});
+
+	it("font / hideDesc / hideFollower 改完热推 ImageRenderer;hideFollower 取反成 followerDisplay", () => {
+		const c = setup({ puppeteer: true });
+		active = c;
+		// boot 时构造的 ImageRenderer 已收到 default(PingFang / false / false)。
+		const bootConfig = H.image[0].opts.config;
+		expect(bootConfig.font).toBe("PingFang SC, sans-serif");
+		expect(bootConfig.hideDesc).toBe(false);
+		expect(bootConfig.followerDisplay).toBe(true);
+
+		patchGlobals(c, (g) => {
+			g.defaults.cardStyle.font = "Noto Sans CJK SC";
+			g.defaults.cardStyle.hideDesc = true;
+			g.defaults.cardStyle.hideFollower = true;
+		});
+		c.bus.emit("config-changed", "globals");
+		const last = H.image[0].updateConfig.mock.calls.at(-1)?.[0];
+		expect(last).toMatchObject({
+			font: "Noto Sans CJK SC",
+			hideDesc: true,
+			// dashboard hideFollower=true → ImageRenderer followerDisplay=false。
+			followerDisplay: false,
+		});
+	});
 });
 
 describe("createEngines — 订阅 / 鉴权事件转译", () => {

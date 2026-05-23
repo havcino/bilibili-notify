@@ -224,6 +224,9 @@ export const DEFAULT_CARD_STYLE = {
 	enabled: true,
 	cardColorStart: "#e0c3fc",
 	cardColorEnd: "#8ec5fc",
+	font: "PingFang SC, sans-serif",
+	hideDesc: false,
+	hideFollower: false,
 } as const;
 
 /** 工厂：创建一份完整的默认 GlobalConfig（不含 bootstrap，供 Koishi 端用）。 */
