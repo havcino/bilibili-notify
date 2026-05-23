@@ -1,5 +1,7 @@
 /** @jsxImportSource vue */
 
+import { htmlToPlain } from "../html-to-plain";
+
 export type LiveCardProps = {
 	hideDesc: boolean;
 	followerDisplay: boolean;
@@ -41,29 +43,33 @@ export function LiveCard(p: LiveCardProps) {
 
 	const status = statusLabel();
 	const follower = p.followerDisplay ? followerText() : "";
+	// B 站 `room_info.description` 是富文本(可能含 <p>/<br> 等标签,或 entity-encoded
+	// 形式如 `&lt;p&gt;...`);直接交给 JSX 文本插值会被 escape 成字面字符串。
+	// 简介区域只展示纯文本,这里统一剥成 plain text。
+	const description = htmlToPlain(p.data.description);
 
 	return (
 		<div
-			class="h-auto p-[15px]"
+			class="h-auto p-3.75"
 			style={{
 				background: `linear-gradient(to right bottom, ${p.cardColorStart}, ${p.cardColorEnd})`,
 			}}
 		>
 			<div
-				class="overflow-hidden rounded-[12px]"
+				class="overflow-hidden rounded-xl"
 				style="background: rgba(255,255,255,0.82); backdrop-filter: blur(10px); box-shadow: 0 4px 16px rgba(0,0,0,0.12); min-width: 360px;"
 			>
 				{/* ── 封面图 ── */}
-				<div class="px-[16px] pt-[14px]">
+				<div class="px-4 pt-3.5">
 					<div class="relative w-full">
 						<img
-							class="block w-full rounded-[8px]"
+							class="block w-full rounded-lg"
 							src={p.cover ? p.data.user_cover : p.data.keyframe}
 							alt="封面"
 						/>
 						{/* 直播状态角标，叠在封面右上角 */}
 						<div
-							class="absolute top-[12px] right-[12px] inline-flex items-center px-[10px] rounded-[12px] text-white text-[12px] font-bold"
+							class="absolute top-3 right-3 inline-flex items-center px-2.5 rounded-xl text-white text-[12px] font-bold"
 							style={{
 								backgroundColor: status.bg,
 								height: "24px",
@@ -77,13 +83,13 @@ export function LiveCard(p: LiveCardProps) {
 				</div>
 
 				{/* ── 主播信息 ── */}
-				<div class="flex items-center gap-[10px] px-[16px] pt-[14px] pb-[10px]">
+				<div class="flex items-center gap-2.5 px-4 pt-3.5 pb-2.5">
 					<img
-						class="w-[44px] h-[44px] rounded-full object-cover shrink-0"
+						class="w-11 h-11 rounded-full object-cover shrink-0"
 						src={p.userface}
 						alt="主播头像"
 					/>
-					<div class="flex flex-col gap-[2px] min-w-0">
+					<div class="flex flex-col gap-0.5 min-w-0">
 						<span class="text-[16px] font-bold leading-none" style="color: #18191C;">
 							{p.username}
 						</span>
@@ -94,7 +100,7 @@ export function LiveCard(p: LiveCardProps) {
 				</div>
 
 				{/* ── 直播标题 ── */}
-				<div class="px-[16px] pb-[10px] text-[17px] font-bold leading-snug" style="color: #18191C;">
+				<div class="px-4 pb-2.5 text-[17px] font-bold leading-snug" style="color: #18191C;">
 					{p.data.title}
 				</div>
 
@@ -102,7 +108,7 @@ export function LiveCard(p: LiveCardProps) {
 				<div style="height: 1px; background: rgba(0,0,0,0.06); margin: 0 16px;" />
 
 				{/* ── 数据区 ── */}
-				<div class="px-[16px] py-[10px] flex flex-col gap-[6px]">
+				<div class="px-4 py-2.5 flex flex-col gap-1.5">
 					<div class="flex justify-between text-[13px]" style="color: #666;">
 						<span>{statsLeft()}</span>
 						<span>分区：{p.data.area_name}</span>
@@ -115,8 +121,8 @@ export function LiveCard(p: LiveCardProps) {
 					)}
 
 					{!p.hideDesc && (
-						<div class="text-[13px] leading-[1.5]" style="color: #999;">
-							{p.data.description || "这个主播很懒，什么简介都没写"}
+						<div class="text-[13px] leading-normal" style="color: #999;">
+							{description || "这个主播很懒，什么简介都没写"}
 						</div>
 					)}
 				</div>
