@@ -1,4 +1,5 @@
 import type { DynamicFilterConfig } from "@bilibili-notify/dynamic";
+import { DEFAULT_DYNAMIC_CRON } from "@bilibili-notify/internal";
 import { Schema } from "koishi";
 
 export interface BilibiliNotifyDynamicConfig {
@@ -25,7 +26,7 @@ export const BilibiliNotifyDynamicSchema: Schema<BilibiliNotifyDynamicConfig> = 
 			"发送动态时要不要顺便发链接呢？但如果主人用的是 QQ 官方机器人，这个开关不要开喔～不然会出事的 (；>_<)！",
 		),
 	dynamicCron: Schema.string()
-		.default("*/2 * * * *")
+		.default(DEFAULT_DYNAMIC_CRON)
 		.description(
 			"主人想多久检查一次动态呢？这里填写 cron 表达式～太短太频繁会吓到女仆的，请温柔一点 (〃ﾉωﾉ)",
 		),

@@ -1,4 +1,5 @@
 import type { PersonaKey } from "@bilibili-notify/ai";
+import { DEFAULT_AI } from "@bilibili-notify/internal";
 import { Schema } from "koishi";
 
 export interface PersonaConfig {
@@ -111,13 +112,11 @@ export const BilibiliNotifyAIConfigSchema: Schema<BilibiliNotifyAIConfig> = Sche
 	persona: PersonaConfigSchema,
 
 	dynamicPrompt: Schema.string()
-		.default("请根据以上动态内容，用简短幽默的语言写一句话点评，不超过两句")
+		.default(DEFAULT_AI.dynamicPrompt)
 		.description("点评动态时追加在人格提示词之后的场景说明"),
 
 	liveSummaryPrompt: Schema.string()
-		.default(
-			"请根据以上弹幕数据，保持角色风格，生成一段有趣的直播总结，突出热词亮点和弹幕排行，控制在200字以内",
-		)
+		.default(DEFAULT_AI.liveSummaryPrompt)
 		.description("生成直播总结时追加在人格提示词之后的场景说明"),
 
 	enableConversation: Schema.boolean()

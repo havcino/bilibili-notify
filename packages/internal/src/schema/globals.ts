@@ -48,12 +48,18 @@ export const ModuleLogLevelsSchema = z
 	.optional();
 export type ModuleLogLevels = z.infer<typeof ModuleLogLevelsSchema>;
 
+/** Koishi/standalone 共享的 dynamic 轮询 cron 默认值。对齐 `AppConfigSchema.dynamicCron`。 */
+export const DEFAULT_DYNAMIC_CRON = "*/2 * * * *";
+
+/** 登录健康检查间隔(分钟)默认值。对齐 `AppConfigSchema.healthCheckMinutes`。 */
+export const DEFAULT_HEALTH_CHECK_MINUTES = 30;
+
 export const AppConfigSchema = z.object({
 	logLevel: LogLevelSchema.default("info"),
 	logLevels: ModuleLogLevelsSchema,
 	userAgent: z.string().optional(),
-	dynamicCron: z.string().default("*/2 * * * *"),
-	healthCheckMinutes: z.number().int().min(5).max(180).default(30),
+	dynamicCron: z.string().default(DEFAULT_DYNAMIC_CRON),
+	healthCheckMinutes: z.number().int().min(5).max(180).default(DEFAULT_HEALTH_CHECK_MINUTES),
 	historyRetentionDays: z.number().int().min(1).max(365).default(30),
 	/**
 	 * 日志归档保留天数。`startLogRetention` 每轮按此删除更旧的 day 文件。
@@ -90,7 +96,7 @@ export const GlobalConfigSchema = z.object({
 export type GlobalConfig = z.infer<typeof GlobalConfigSchema>;
 
 /** 模板默认值（占位，可由 UI 编辑）。 */
-const DEFAULT_TEMPLATES = {
+export const DEFAULT_TEMPLATES = {
 	liveStart: "{name} 开播了！\n直播间标题：{title}\n直播间链接：{link}",
 	liveOngoing: "{name} 仍在直播中（已直播 {duration}）\n标题：{title}\n看过：{watched}",
 	liveEnd: "{name} 下播了，直播时长 {duration}",
@@ -143,7 +149,7 @@ const PRESET_GENTLE_MAID = {
 		"用温柔的语气向主人讲讲直播主要发生了什么(150-200 字),从弹幕和氛围中提炼亮点。",
 } as const;
 
-const DEFAULT_AI = {
+export const DEFAULT_AI = {
 	enabled: false,
 	model: "gpt-4o-mini",
 	temperature: 0.7,
@@ -208,7 +214,7 @@ const DEFAULT_AI = {
 	],
 } as const;
 
-const DEFAULT_CARD_STYLE = {
+export const DEFAULT_CARD_STYLE = {
 	enabled: true,
 	cardColorStart: "#e0c3fc",
 	cardColorEnd: "#8ec5fc",

@@ -1,3 +1,4 @@
+import { DEFAULT_CARD_STYLE } from "@bilibili-notify/internal";
 import { Schema } from "koishi";
 
 export interface BilibiliNotifyImageConfig {
@@ -19,12 +20,12 @@ export const BilibiliNotifyImageConfig: Schema<BilibiliNotifyImageConfig> = Sche
 			"这里可以设置日志等级喔～3 是最详细的调试信息，1 是只显示错误信息。主人可以根据需要选择合适的等级，让女仆更好地为您服务 (๑•̀ㅂ•́)و✧",
 		),
 	cardColorStart: Schema.string()
-		.default("#e0c3fc")
+		.default(DEFAULT_CARD_STYLE.cardColorStart)
 		.description(
 			"这是推送卡片渐变背景的起始颜色～主人喜欢什么颜色，女仆就用什么颜色 (〃´-`〃)♡ 请填写十六进制颜色值哦！",
 		),
 	cardColorEnd: Schema.string()
-		.default("#8ec5fc")
+		.default(DEFAULT_CARD_STYLE.cardColorEnd)
 		.description("这是推送卡片渐变背景的结束颜色～和起始颜色搭配使用，打造漂亮的渐变效果 (*´∀`)~♡"),
 	font: Schema.string()
 		.default("sans-serif")

@@ -1,52 +1,9 @@
-import type { CommentaryCallOverride } from "@bilibili-notify/ai";
 import type {
-	EffectiveSubscription,
-	FeatureKey,
-	GlobalDefaults,
 	NotificationPayload,
 	PayloadSegment,
-	Subscription,
 	SubscriptionOp,
 } from "@bilibili-notify/internal";
-import { BILIBILI_NOTIFY_TOKEN, resolve } from "@bilibili-notify/internal";
-import { liveTypeAllowsAtAll, liveTypeToFeature } from "./live-type-map";
-
-/**
- * Gate fn: features.X = source-side 订阅开关。routing 由推送层 BilibiliPush 在
- * broadcast 时按 routing 空 = 无 sink 兜底,这里不 AND routing——features=true /
- * routing=[] 的 UP 仍开监听 / build payload,加 routing 后下次事件立即生效。
- * 对齐 standalone `apps/server/src/runtime/engines.ts` 的 `feat(k)` helper。
- */
-function gate(eff: EffectiveSubscription, k: FeatureKey): boolean {
-	return eff.features[k];
-}
-
-/**
- * 把 resolve 后的 eff.ai 翻译成 LiveEngine 调 CommentaryGenerator 时的 per-call
- * override 形态。对齐 standalone `apps/server/src/runtime/engines.ts:buildAiOverride`。
- *
- * 复制一份(而非抽到共享位置)是因为:CommentaryCallOverride 类型在 @bilibili-notify/ai,
- * EffectiveSubscription 在 @bilibili-notify/internal——共享 helper 会让 internal 反过来
- * 依赖 ai,形成循环。
- */
-function buildAiOverride(eff: EffectiveSubscription): CommentaryCallOverride {
-	return {
-		persona: {
-			preset: "custom" as const,
-			name: eff.ai.persona.name,
-			addressUser: eff.ai.persona.addressUser,
-			addressSelf: eff.ai.persona.addressSelf,
-			traits: eff.ai.persona.traits,
-			catchphrase: eff.ai.persona.catchphrase,
-			customBase: eff.ai.persona.baseRole,
-			extraPrompt: eff.ai.persona.extraSystemPrompt,
-		},
-		dynamicPrompt: eff.ai.dynamicPrompt,
-		liveSummaryPrompt: eff.ai.liveSummaryPrompt,
-		temperature: eff.ai.temperature,
-	};
-}
-
+import { BILIBILI_NOTIFY_TOKEN } from "@bilibili-notify/internal";
 import { makeKoishiServiceContext } from "@bilibili-notify/koishi-runtime";
 import {
 	type LiveContentBuilder,
@@ -54,14 +11,14 @@ import {
 	type LiveEngineConfig,
 	type LiveSubscriptionOp,
 	type PushLike,
-	type SubItemView,
-	type SubscriptionsView,
 } from "@bilibili-notify/live";
 import type { BilibiliPush } from "@bilibili-notify/push";
 import { type Awaitable, type Context, type Element, h, Service } from "koishi";
 import type {} from "koishi-plugin-bilibili-notify";
 import { liveCommands } from "./commands";
 import type { BilibiliNotifyLiveConfig } from "./config";
+import { liveTypeAllowsAtAll, liveTypeToFeature } from "./live-type-map";
+import { resolveFeatures, storeToLiveView, storeToSubItemView } from "./sub-view";
 
 declare module "koishi" {
 	interface Context {
@@ -211,88 +168,6 @@ function adaptPush(push: BilibiliPush): PushLike {
 	};
 }
 
-/** Build SubscriptionsView from SubscriptionStore for LiveEngine. */
-// biome-ignore lint/suspicious/noExplicitAny: store type from InternalsShape
-function storeToLiveView(store: any, defaults: GlobalDefaults): SubscriptionsView {
-	const view: SubscriptionsView = {};
-	for (const sub of store.list() as Subscription[]) {
-		if (!sub.enabled) continue;
-		const eff = resolve(sub, defaults);
-
-		const liveView: SubItemView = {
-			uid: sub.uid,
-			uname: sub.uid,
-			roomId: "", // live engine resolves roomId via API
-			dynamic: gate(eff, "dynamic"),
-			live: gate(eff, "live"),
-			liveEnd: gate(eff, "liveEnd"),
-			liveGuardBuy: gate(eff, "liveGuardBuy"),
-			superchat: gate(eff, "superchat"),
-			wordcloud: gate(eff, "wordcloud"),
-			liveSummary: gate(eff, "liveSummary"),
-			target: sub.routing, // routing is structurally compatible as Partial<Record<LivePushFeature, unknown[]>>
-			customCardStyle: sub.overrides.cardStyle
-				? {
-						enable: true,
-						cardColorStart: sub.overrides.cardStyle.cardColorStart,
-						cardColorEnd: sub.overrides.cardStyle.cardColorEnd,
-					}
-				: { enable: false },
-			customLiveMsg: sub.overrides.templates?.liveStart
-				? {
-						enable: true,
-						customLiveStart: sub.overrides.templates.liveStart,
-						customLive: sub.overrides.templates.liveOngoing,
-						customLiveEnd: sub.overrides.templates.liveEnd,
-					}
-				: { enable: false },
-			customGuardBuy: sub.overrides.templates?.guardBuy
-				? {
-						enable: true,
-						captainImgUrl: sub.overrides.templates.guardBuy.captain.imageUrl,
-						supervisorImgUrl: sub.overrides.templates.guardBuy.commander.imageUrl,
-						governorImgUrl: sub.overrides.templates.guardBuy.governor.imageUrl,
-					}
-				: { enable: false },
-			customLiveSummary: sub.overrides.templates?.liveSummary
-				? { enable: true, liveSummary: sub.overrides.templates.liveSummary }
-				: { enable: false },
-			customSpecialDanmakuUsers: (sub.specialUsers as { uid: string; kinds: string[] }[]).some(
-				(u) => u.kinds.includes("danmaku"),
-			)
-				? {
-						enable: true,
-						specialDanmakuUsers: (sub.specialUsers as { uid: string; kinds: string[] }[])
-							.filter((u) => u.kinds.includes("danmaku"))
-							.map((u) => u.uid),
-						msgTemplate: sub.overrides.templates?.specialDanmaku ?? "",
-					}
-				: { enable: false, msgTemplate: "" },
-			customSpecialUsersEnterTheRoom: (sub.specialUsers as { uid: string; kinds: string[] }[]).some(
-				(u) => u.kinds.includes("enter"),
-			)
-				? {
-						enable: true,
-						specialUsersEnterTheRoom: (sub.specialUsers as { uid: string; kinds: string[] }[])
-							.filter((u) => u.kinds.includes("enter"))
-							.map((u) => u.uid),
-						msgTemplate: sub.overrides.templates?.specialUserEnter ?? "",
-					}
-				: { enable: false, msgTemplate: "" },
-			// per-UP filters / schedule(对齐 standalone `apps/server/src/runtime/engines.ts`
-			// buildLiveSubViewSingle:846-849)。LiveEngine 在 SC / 上舰 / restartPush /
-			// 复推 timer 调用点会优先用这些 per-UP 值,缺失时回退到 adapter 全局。
-			minScPrice: eff.filters.minScPrice,
-			minGuardLevel: eff.filters.minGuardLevel,
-			pushTime: eff.schedule.pushTime,
-			restartPush: eff.schedule.restartPush,
-			aiOverride: buildAiOverride(eff),
-		};
-		view[sub.uid] = liveView;
-	}
-	return view;
-}
-
 /** koishi 端 LiveContentBuilder：直接桥接到 koishi 的 h(...) 工厂。 */
 const koishiContentBuilder: LiveContentBuilder = {
 	text(t) {
@@ -321,24 +196,18 @@ export class BilibiliNotifyLive extends Service<BilibiliNotifyLiveConfig> {
 		this.config = config;
 	}
 
-	private toEngineConfig(
-		config: BilibiliNotifyLiveConfig,
-		defaults: GlobalDefaults,
-	): LiveEngineConfig {
+	private toEngineConfig(config: BilibiliNotifyLiveConfig): LiveEngineConfig {
 		return {
 			wordcloudStopWords: config.wordcloudStopWords,
 			pushTime: config.pushTime,
-			restartPush: config.restartPush,
-			minScPrice: config.minScPrice,
-			minGuardLevel: config.minGuardLevel,
 			liveSummaryDefault: config.liveSummary.join("\n"),
 			customGuardBuy: config.customGuardBuy,
 			customLiveMsg: config.customLiveMsg,
-			// KL1:此前漏映射 → 引擎缺省视 imageEnabled/aiEnabled 为 true,koishi
-			// 用户全局关卡片/AI 后开播卡 / 词云 / AI 总结仍生成,与 standalone
-			// (engines.ts 用 defaults 填这两字段)行为分歧,违背双端功能等价。
-			imageEnabled: defaults.cardStyle.enabled,
-			aiEnabled: defaults.ai.enabled,
+			// imageEnabled / aiEnabled = 对应插件服务在不在(koishi 端「装了即启用」),
+			// 与下方 imageRenderer / commentary 的注入同源。此前从 internals.defaults
+			// 读 —— defaults.ai.enabled 恒为 false,把 AI 直播总结门控关死了。
+			imageEnabled: !!this.ctx.get("bilibili-notify-image"),
+			aiEnabled: !!this.ctx.get("bilibili-notify-ai"),
 		};
 	}
 
@@ -349,6 +218,9 @@ export class BilibiliNotifyLive extends Service<BilibiliNotifyLiveConfig> {
 		const serviceCtx = makeKoishiServiceContext(this.ctx, SERVICE_NAME, this.config.logLevel);
 		const pushLike = adaptPush(internals.push);
 		const { store } = internals;
+		// koishi 不做运行时配置热更 —— 配置变更走插件 reload(重跑 start)。所以
+		// 这里把 config 一次性捕获,resolve「config + per-UP」即两层折叠。
+		const config = this.config;
 
 		this.engine = new LiveEngine({
 			serviceCtx,
@@ -357,7 +229,7 @@ export class BilibiliNotifyLive extends Service<BilibiliNotifyLiveConfig> {
 			contentBuilder: koishiContentBuilder,
 			imageRenderer: this.ctx.get("bilibili-notify-image")?.engine ?? null,
 			commentary: this.ctx.get("bilibili-notify-ai")?.engine ?? null,
-			config: this.toEngineConfig(this.config, internals.defaults),
+			config: this.toEngineConfig(config),
 			emitEngineError: (message) =>
 				this.ctx.emit("bilibili-notify/engine-error", SERVICE_NAME, message),
 			emitLiveState: (uid, status) =>
@@ -367,35 +239,34 @@ export class BilibiliNotifyLive extends Service<BilibiliNotifyLiveConfig> {
 		});
 
 		// Initialize with current subs
-		const initialView = storeToLiveView(store, internals.defaults);
+		const initialView = storeToLiveView(store, config);
 		if (Object.keys(initialView).length > 0) {
 			this.engine.start(initialView);
 		}
 
 		// Subscription changes → engine.applyOps
 		this.ctx.on("bilibili-notify/subscription-changed", (ops: SubscriptionOp[]) => {
-			const defaults = internals.defaults;
 			const liveOps: LiveSubscriptionOp[] = ops.map((op) => {
 				if (op.type === "add") {
-					return { type: "add" as const, sub: storeToSubItemView(op.sub, defaults) };
+					return { type: "add" as const, sub: storeToSubItemView(op.sub, config) };
 				}
 				if (op.type === "remove") {
 					return { type: "delete" as const, uid: op.uid };
 				}
-				// update
-				const eff = resolve(op.sub, defaults);
+				// update —— 只增量推 feature 开关(features 静态默认 ?? per-UP)。
+				const features = resolveFeatures(op.sub);
 				return {
 					type: "update" as const,
 					uid: op.sub.uid,
 					changes: [
 						{
 							scope: "live" as const,
-							live: gate(eff, "live"),
-							liveEnd: gate(eff, "liveEnd"),
-							liveGuardBuy: gate(eff, "liveGuardBuy"),
-							superchat: gate(eff, "superchat"),
-							wordcloud: gate(eff, "wordcloud"),
-							liveSummary: gate(eff, "liveSummary"),
+							live: features.live,
+							liveEnd: features.liveEnd,
+							liveGuardBuy: features.liveGuardBuy,
+							superchat: features.superchat,
+							wordcloud: features.wordcloud,
+							liveSummary: features.liveSummary,
 						},
 					],
 				};
@@ -405,7 +276,7 @@ export class BilibiliNotifyLive extends Service<BilibiliNotifyLiveConfig> {
 				if (!fresh) return undefined;
 				const sub = fresh.store.findByUid(uid);
 				if (!sub) return undefined;
-				return storeToSubItemView(sub, fresh.defaults);
+				return storeToSubItemView(sub, config);
 			});
 		});
 
@@ -413,7 +284,7 @@ export class BilibiliNotifyLive extends Service<BilibiliNotifyLiveConfig> {
 		this.ctx.on("bilibili-notify/auth-lost", () => this.engine?.teardown());
 		this.ctx.on("bilibili-notify/auth-restored", () => {
 			const fresh = this.ctx["bilibili-notify"].getInternals(BILIBILI_NOTIFY_TOKEN);
-			if (fresh) this.engine?.rebuildFromSubs(storeToLiveView(fresh.store, fresh.defaults));
+			if (fresh) this.engine?.rebuildFromSubs(storeToLiveView(fresh.store, config));
 		});
 
 		liveCommands.call(this);
@@ -423,72 +294,4 @@ export class BilibiliNotifyLive extends Service<BilibiliNotifyLiveConfig> {
 		this.engine?.stop();
 		this.engine = undefined;
 	}
-}
-
-/** Convert a single Subscription to SubItemView. */
-function storeToSubItemView(sub: Subscription, defaults: GlobalDefaults): SubItemView {
-	const eff = resolve(sub, defaults);
-	return {
-		uid: sub.uid,
-		uname: sub.uid,
-		roomId: "",
-		dynamic: gate(eff, "dynamic"),
-		live: gate(eff, "live"),
-		liveEnd: gate(eff, "liveEnd"),
-		liveGuardBuy: gate(eff, "liveGuardBuy"),
-		superchat: gate(eff, "superchat"),
-		wordcloud: gate(eff, "wordcloud"),
-		liveSummary: gate(eff, "liveSummary"),
-		target: sub.routing,
-		customCardStyle: sub.overrides.cardStyle
-			? {
-					enable: true,
-					cardColorStart: sub.overrides.cardStyle.cardColorStart,
-					cardColorEnd: sub.overrides.cardStyle.cardColorEnd,
-				}
-			: { enable: false },
-		customLiveMsg: sub.overrides.templates?.liveStart
-			? {
-					enable: true,
-					customLiveStart: sub.overrides.templates.liveStart,
-					customLive: sub.overrides.templates.liveOngoing,
-					customLiveEnd: sub.overrides.templates.liveEnd,
-				}
-			: { enable: false },
-		customGuardBuy: sub.overrides.templates?.guardBuy
-			? {
-					enable: true,
-					captainImgUrl: sub.overrides.templates.guardBuy.captain.imageUrl,
-					supervisorImgUrl: sub.overrides.templates.guardBuy.commander.imageUrl,
-					governorImgUrl: sub.overrides.templates.guardBuy.governor.imageUrl,
-				}
-			: { enable: false },
-		customLiveSummary: sub.overrides.templates?.liveSummary
-			? { enable: true, liveSummary: sub.overrides.templates.liveSummary }
-			: { enable: false },
-		customSpecialDanmakuUsers: sub.specialUsers.some((u) => u.kinds.includes("danmaku"))
-			? {
-					enable: true,
-					specialDanmakuUsers: sub.specialUsers
-						.filter((u) => u.kinds.includes("danmaku"))
-						.map((u) => u.uid),
-					msgTemplate: sub.overrides.templates?.specialDanmaku ?? "",
-				}
-			: { enable: false, msgTemplate: "" },
-		customSpecialUsersEnterTheRoom: sub.specialUsers.some((u) => u.kinds.includes("enter"))
-			? {
-					enable: true,
-					specialUsersEnterTheRoom: sub.specialUsers
-						.filter((u) => u.kinds.includes("enter"))
-						.map((u) => u.uid),
-					msgTemplate: sub.overrides.templates?.specialUserEnter ?? "",
-				}
-			: { enable: false, msgTemplate: "" },
-		// per-UP filters / schedule(对齐 standalone)
-		minScPrice: eff.filters.minScPrice,
-		minGuardLevel: eff.filters.minGuardLevel,
-		pushTime: eff.schedule.pushTime,
-		restartPush: eff.schedule.restartPush,
-		aiOverride: buildAiOverride(eff),
-	};
 }

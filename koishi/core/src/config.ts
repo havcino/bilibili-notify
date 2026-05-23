@@ -1,3 +1,4 @@
+import { DEFAULT_HEALTH_CHECK_MINUTES } from "@bilibili-notify/internal";
 import type { FlatSubConfigItem } from "@bilibili-notify/subscription";
 import { Schema } from "koishi";
 
@@ -79,7 +80,7 @@ export const BilibiliNotifyConfigSchema: Schema<BilibiliNotifyConfig> = Schema.o
 		.min(5)
 		.max(180)
 		.step(1)
-		.default(30)
+		.default(DEFAULT_HEALTH_CHECK_MINUTES)
 		.description(
 			"登录状态周期检测的间隔（分钟）。女仆会按这个频率悄悄帮主人确认账号还在线哦～如果发现失效会立刻汇报呢 (๑•̀ㅂ•́)و✧",
 		),

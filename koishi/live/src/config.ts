@@ -1,3 +1,8 @@
+import {
+	DEFAULT_CONTENT_FILTERS,
+	DEFAULT_SCHEDULE,
+	DEFAULT_TEMPLATES,
+} from "@bilibili-notify/internal";
 import { Schema } from "koishi";
 
 export interface BilibiliNotifyLiveConfig {
@@ -36,19 +41,19 @@ export const BilibiliNotifyLiveConfig: Schema<BilibiliNotifyLiveConfig> = Schema
 		"这里可以填写词云生成时要忽略的词～用英文逗号分隔哦！女仆会乖乖把这些词过滤掉的 (๑•̀ㅂ•́)و✧",
 	),
 	pushTime: Schema.number()
-		.default(0)
+		.default(DEFAULT_SCHEDULE.pushTime)
 		.description(
 			"主人想多长时间推送一次直播状态呢？单位是小时，0 表示不推送。女仆会按主人的节奏努力工作的 (๑•̀ㅂ•́)و✧",
 		),
 	restartPush: Schema.boolean()
-		.default(false)
+		.default(DEFAULT_SCHEDULE.restartPush)
 		.description(
 			"插件重启后，如果 UP 正在直播，要不要马上推送一次呢？女仆会第一时间报告给主人的！",
 		),
 
 	minScPrice: Schema.number()
 		.min(0)
-		.default(0)
+		.default(DEFAULT_CONTENT_FILTERS.minScPrice)
 		.description("SC（醒目留言）最低推送金额，低于此金额的 SC 不会推送。设为 0 表示全部推送。"),
 
 	minGuardLevel: Schema.union([
@@ -56,22 +61,11 @@ export const BilibiliNotifyLiveConfig: Schema<BilibiliNotifyLiveConfig> = Schema
 		Schema.const(2).description("仅推送提督及以上"),
 		Schema.const(1).description("仅推送总督"),
 	])
-		.default(3)
+		.default(DEFAULT_CONTENT_FILTERS.minGuardLevel)
 		.description("上舰消息最低推送等级，低于此等级的上舰不会推送。"),
 
 	liveSummary: Schema.array(String)
-		.default([
-			"🔍【弹幕情报站】本场直播数据如下：",
-			"🧍‍♂️ 总共 -dmc 位-mdn上线",
-			"💬 共计 -dca 条弹幕飞驰而过",
-			"📊 热词云图已生成，快来看看你有没有上榜！",
-			"👑 本场顶级输出选手：",
-			"🥇 -un1 - 弹幕输出 -dc1 条",
-			"🥈 -un2 - 弹幕 -dc2 条，萌力惊人",
-			"🥉 -un3 - -dc3 条精准狙击",
-			"🎖️ 特别嘉奖：-un4 & -un5",
-			"你们的弹幕，我们都记录在案！🕵️‍♀️",
-		])
+		.default(DEFAULT_TEMPLATES.liveSummary.split("\n"))
 		.role("table")
 		.description(
 			"这里可以自定义直播总结的模版～每一行就是一段内容，女仆会按主人写的格式发送哦 (〃´-`〃)♡变量解释：-dmc代表总弹幕发送人数，-mdn代表主播粉丝牌子名，-dca代表总弹幕数，-un1到-un5代表弹幕发送条数前五名用户的用户名，-dc1到-dc5代表弹幕发送条数前五名的弹幕发送数量，数组每一行代表换行",

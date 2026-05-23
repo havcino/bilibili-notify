@@ -396,9 +396,6 @@ export function createEngines(opts: CreateEnginesOptions): EnginesRuntime {
 		const g = globals();
 		return {
 			pushTime: g.defaults.schedule.pushTime,
-			restartPush: g.defaults.schedule.restartPush,
-			minScPrice: g.defaults.filters.minScPrice,
-			minGuardLevel: g.defaults.filters.minGuardLevel,
 			liveSummaryDefault: g.defaults.templates.liveSummary,
 			imageEnabled: g.defaults.cardStyle.enabled,
 			aiEnabled: g.defaults.ai.enabled,

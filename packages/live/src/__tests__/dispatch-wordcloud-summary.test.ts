@@ -56,6 +56,10 @@ function makeSub(): SubItemView {
 		customLiveSummary: { enable: false },
 		customSpecialDanmakuUsers: { enable: false, msgTemplate: "" },
 		customSpecialUsersEnterTheRoom: { enable: false, msgTemplate: "" },
+		minScPrice: 0,
+		minGuardLevel: 3,
+		pushTime: 0,
+		restartPush: false,
 	};
 }
 
