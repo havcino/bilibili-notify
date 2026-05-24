@@ -20,6 +20,25 @@ set -euo pipefail
 : "${GH_TOKEN:?GH_TOKEN env 必填(走 RELEASE_PAT)}"
 : "${REPO:?REPO env 必填(github.repository)}"
 
+# PRERELEASE 严格 true|false。非两者一律拒,防 caller bug / 截断把 alpha 当
+# stable 发(--latest 误打)。同时校验 VERSION 含 '-' 标识与 PRERELEASE=true
+# 一致,避免两个独立 step 之间状态漂移。
+case "$PRERELEASE" in
+true | false) ;;
+*)
+	echo "::error::PRERELEASE 必须是 'true' 或 'false',got '$PRERELEASE'"
+	exit 1
+	;;
+esac
+if [[ "$VERSION" == *-* && "$PRERELEASE" != "true" ]]; then
+	echo "::error::VERSION '$VERSION' 含 prerelease 标识但 PRERELEASE='$PRERELEASE'"
+	exit 1
+fi
+if [[ "$VERSION" != *-* && "$PRERELEASE" != "false" ]]; then
+	echo "::error::VERSION '$VERSION' 是稳定版但 PRERELEASE='$PRERELEASE'"
+	exit 1
+fi
+
 tag="v$VERSION"
 
 if gh release view "$tag" >/dev/null 2>&1; then

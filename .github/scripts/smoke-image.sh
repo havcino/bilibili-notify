@@ -22,8 +22,11 @@ set -euo pipefail
 
 : "${IMAGE_REF:?IMAGE_REF env 必填,例如 docker.io/akokk0/bilibili-notify@sha256:...}"
 
-readonly CONTAINER=bn-smoke
-readonly PORT=8787
+# 容器名加 PID + 时间戳防本地 / 自托管 runner 撞已有 bn-smoke 容器(GHA hosted
+# runner 是临时的不会撞,但本地手动跑可能跟其它进程冲突)。
+readonly CONTAINER="bn-smoke-$$-$(date +%s)"
+# 主机端口允许 env override,默认 8787(GHA hosted runner 干净环境直接用)。
+readonly PORT="${SMOKE_PORT:-8787}"
 readonly HEALTH_TRIES=30
 readonly HEALTH_INTERVAL=2
 
@@ -33,7 +36,7 @@ cleanup() {
 trap cleanup EXIT
 
 docker pull "$IMAGE_REF"
-docker run -d --name "$CONTAINER" -p "${PORT}:${PORT}" \
+docker run -d --name "$CONTAINER" -p "${PORT}:8787" \
 	-e BN_DATA_DIR=/tmp/bn -e BN_ALLOW_NO_AUTH=1 \
 	"$IMAGE_REF"
 
