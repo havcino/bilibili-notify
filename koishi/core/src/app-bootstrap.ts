@@ -8,7 +8,6 @@ import {} from "@koishijs/plugin-help";
 import { type Awaitable, type Context, type Logger, Service } from "koishi";
 import { biliCommands, statusCommands, sysCommands } from "./commands";
 import type { BilibiliNotifyConfig } from "./config";
-import { HealthCheck } from "./health-check";
 import {
 	bringUp,
 	buildInternals,
@@ -43,7 +42,6 @@ class BilibiliNotifyServerManager extends Service<BilibiliNotifyConfig> {
 	};
 	private running = false;
 	storageMgr!: StorageManager;
-	private healthCheck!: HealthCheck;
 	private masterNotifier!: MasterNotifier;
 
 	constructor(ctx: Context, config: BilibiliNotifyConfig) {
@@ -102,6 +100,7 @@ class BilibiliNotifyServerManager extends Service<BilibiliNotifyConfig> {
 
 	protected stop(): Awaitable<void> {
 		this.disposePlugin();
+		this.masterNotifier?.dispose();
 	}
 
 	/**
@@ -176,13 +175,11 @@ class BilibiliNotifyServerManager extends Service<BilibiliNotifyConfig> {
 	}
 
 	private initControllers(): void {
-		this.healthCheck = new HealthCheck({
+		this.masterNotifier = new MasterNotifier({
 			ctx: this.selfCtx,
 			logger: this.serverLogger,
 			getPush: () => this.push,
 		});
-		this.healthCheck.install();
-		this.masterNotifier = new MasterNotifier({ ctx: this.selfCtx, logger: this.serverLogger });
 		this.masterNotifier.install();
 	}
 

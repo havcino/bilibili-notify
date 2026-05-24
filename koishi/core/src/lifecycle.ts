@@ -1,6 +1,7 @@
 import { BilibiliAPI, BiliLoginStatus } from "@bilibili-notify/api";
 import {
 	BILIBILI_NOTIFY_TOKEN,
+	DEFAULT_SCHEDULE,
 	type GlobalDefaults,
 	type LoginSnapshot,
 	makeDefaultGlobalConfig,
@@ -51,7 +52,6 @@ export interface LifecycleDeps {
  */
 export async function bringUp(deps: LifecycleDeps): Promise<boolean> {
 	const config = deps.getConfig();
-	applyConfigToDefaults(config);
 	const apiServiceCtx = makeKoishiServiceContext(deps.ctx, "bilibili-notify-api", config.logLevel);
 	const bus = makeKoishiMessageBus(deps.ctx);
 
@@ -107,15 +107,26 @@ export async function bringUp(deps: LifecycleDeps): Promise<boolean> {
 		"bilibili-notify-push",
 		config.logLevel,
 	);
+	// koishi 端只把 core.config.quietHours 注入 schedule;其余字段(features /
+	// filters / templates / ai / cardStyle)由 makeDefaultGlobalConfig 兜底,sub
+	// 折叠在各子插件 sub-view 里就地完成(per-UP override ?? plugin config)。
+	// koishi 不做运行时配置热更,bringUp 一次性算好 defaults 出热路径(否则
+	// 每次 broadcastToFeature 都跑一次 GlobalConfigSchema.parse)。reload 触发新
+	// 一轮 bringUp,常量自动重建。
+	const pushDefaults: GlobalDefaults = {
+		...makeDefaultGlobalConfig().defaults,
+		schedule: {
+			...DEFAULT_SCHEDULE,
+			quietHours: config.quietHours ?? [],
+		},
+	};
 	const push = new BilibiliPush({
 		sink,
 		store,
 		master: masterTarget,
 		logger: pushServiceCtx.logger,
 		serviceCtx: pushServiceCtx,
-		// 读 mutable holder——koishi reload 触发 bringUp,applyConfigToDefaults 会先于
-		// BilibiliPush 重建,所以 holder 总是最新值。
-		defaults: () => koishiDefaults,
+		defaults: () => pushDefaults,
 	});
 
 	await api.start();
@@ -230,36 +241,6 @@ export function tearDown(deps: { logger: Logger; slots: ManagerSlots }): void {
 	deps.logger.debug("[stop] 插件资源清理完成");
 }
 
-/**
- * GlobalDefaults snapshot for the Koishi side. Mutable—bringUp() reads
- * `BilibiliNotifyConfig.defaults` and merges into this holder. BilibiliPush /
- * sub-plugins capture `() => koishiDefaults` so they always see the latest
- * value after a config reload triggers another bringUp().
- *
- * 当前从 koishi config 读 features + quietHours;其他子段(filters/templates/ai/
- * cardStyle)沿用 schema 默认值,后续按需暴露。
- */
-let koishiDefaults: GlobalDefaults = makeDefaultGlobalConfig().defaults;
-
-export function getKoishiDefaults(): GlobalDefaults {
-	return koishiDefaults;
-}
-
-function applyConfigToDefaults(config: BilibiliNotifyConfig): void {
-	const fresh = makeDefaultGlobalConfig().defaults;
-	// features 不在 koishi config 全局暴露——koishi 端通过 advanced-subscription / subs[]
-	// 的 Schema.boolean().default(true) 直接给 per-UP 默认值,「全局 features 默认值」
-	// 在 koishi 端是冗余概念。features 永远走 schema 默认全 true,per-UP 通过
-	// overrides.features 个别覆盖(advanced-subscription/convert.ts 负责接通)。
-	koishiDefaults = {
-		...fresh,
-		schedule: {
-			...fresh.schedule,
-			quietHours: config.quietHours ?? fresh.schedule.quietHours,
-		},
-	};
-}
-
 /** Shape returned by `BilibiliNotifyServerManager.getInternals(BILIBILI_NOTIFY_TOKEN)`. */
 export interface InternalsShape {
 	api: BilibiliAPI;
@@ -272,11 +253,6 @@ export interface InternalsShape {
 	 * random UUID that points at no target.
 	 */
 	registry: TargetRegistry;
-	/**
-	 * GlobalDefaults snapshot — sub-plugins (dynamic / live) use this with
-	 * `resolve(sub, defaults)` to get features-aware derived views.
-	 */
-	defaults: GlobalDefaults;
 }
 
 /** Build the internals object exposed to friendly plugins; null-guarded for the 4 prereqs. */
@@ -295,18 +271,10 @@ export function buildInternals(args: {
 		!args.registry
 	)
 		return null;
-	// defaults 用 getter 而非快照:friendly plugin 把 internals stash 起来后,
-	// koishi reload → applyConfigToDefaults 改写模块级 koishiDefaults。如果这里
-	// 是 `defaults: koishiDefaults` 直接 capture,stash 的 internals 会一直拿到
-	// 旧 quietHours。consumer 写法不变(`internals.defaults.schedule.quietHours`),
-	// 但每次访问都 deref 到最新值。
 	return {
 		api: args.api,
 		push: args.push,
 		store: args.store,
 		registry: args.registry,
-		get defaults(): GlobalDefaults {
-			return koishiDefaults;
-		},
 	};
 }

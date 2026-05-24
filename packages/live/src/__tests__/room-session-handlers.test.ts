@@ -46,6 +46,10 @@ function makeSub(over: Partial<SubItemView> = {}): SubItemView {
 		customLiveSummary: { enable: false },
 		customSpecialDanmakuUsers: { enable: false, msgTemplate: "" },
 		customSpecialUsersEnterTheRoom: { enable: false, msgTemplate: "" },
+		minScPrice: 0,
+		minGuardLevel: 3,
+		pushTime: 0,
+		restartPush: false,
 		...over,
 	} as SubItemView;
 }
@@ -65,11 +69,7 @@ interface CtxMocks {
 	isSubscribed: ReturnType<typeof vi.fn>;
 }
 
-function makeCtx(opts?: {
-	minScPrice?: number;
-	minGuardLevel?: GuardLevel;
-	customGuardBuyEnabled?: boolean;
-}): { ctx: RoomContext; m: CtxMocks } {
+function makeCtx(opts?: { customGuardBuyEnabled?: boolean }): { ctx: RoomContext; m: CtxMocks } {
 	const fakeServiceCtx: ServiceContext = {
 		logger: { debug() {}, info() {}, warn() {}, error() {} },
 		setInterval: () => ({ dispose() {} }),
@@ -95,8 +95,6 @@ function makeCtx(opts?: {
 		logger: fakeServiceCtx.logger,
 		isDisposed: () => false,
 		config: {
-			minScPrice: opts?.minScPrice ?? 30,
-			minGuardLevel: opts?.minGuardLevel ?? GuardLevel.Jianzhang,
 			customGuardBuy: { enable: opts?.customGuardBuyEnabled ?? false },
 			customLiveMsg: { enable: false },
 		},
@@ -159,17 +157,17 @@ describe("RoomSession.onIncomeSuperChat", () => {
 	});
 
 	it("订阅 SC 但 price < minScPrice → 不广播", async () => {
-		const { ctx, m } = makeCtx({ minScPrice: 30 });
+		const { ctx, m } = makeCtx();
 		m.isSubscribed.mockImplementation((_s: unknown, feat: string) => feat === "superchat");
-		const s = new RoomSession(ctx, makeSub({ superchat: true })) as AnySession;
+		const s = new RoomSession(ctx, makeSub({ superchat: true, minScPrice: 30 })) as AnySession;
 		await s.onIncomeSuperChat({ ...scBody, price: 10 });
 		expect(m.broadcastToTargets).not.toHaveBeenCalled();
 	});
 
 	it("订阅 SC + 图片生成成功 → broadcastToTargets(Superchat)", async () => {
-		const { ctx, m } = makeCtx({ minScPrice: 30 });
+		const { ctx, m } = makeCtx();
 		m.isSubscribed.mockImplementation((_s: unknown, feat: string) => feat === "superchat");
-		const s = new RoomSession(ctx, makeSub({ superchat: true })) as AnySession;
+		const s = new RoomSession(ctx, makeSub({ superchat: true, minScPrice: 30 })) as AnySession;
 		await s.onIncomeSuperChat(scBody);
 		expect(m.generateSCCard).toHaveBeenCalledTimes(1);
 		expect(m.broadcastToTargets).toHaveBeenCalledTimes(1);
@@ -177,10 +175,10 @@ describe("RoomSession.onIncomeSuperChat", () => {
 	});
 
 	it("订阅 SC + getUserInfoInLive code!=0 → 文字 fallback 广播(Superchat)", async () => {
-		const { ctx, m } = makeCtx({ minScPrice: 30 });
+		const { ctx, m } = makeCtx();
 		m.isSubscribed.mockImplementation((_s: unknown, feat: string) => feat === "superchat");
 		m.getUserInfoInLive.mockResolvedValueOnce({ code: -1, data: {} });
-		const s = new RoomSession(ctx, makeSub({ superchat: true })) as AnySession;
+		const s = new RoomSession(ctx, makeSub({ superchat: true, minScPrice: 30 })) as AnySession;
 		await s.onIncomeSuperChat(scBody);
 		expect(m.generateSCCard).not.toHaveBeenCalled();
 		expect(m.broadcastToTargets).toHaveBeenCalledTimes(1);
@@ -208,10 +206,10 @@ describe("RoomSession.onGuardBuy", () => {
 	});
 
 	it("guard_level 高于阈值(等级不够)→ 不推", async () => {
-		// config.minGuardLevel=Zongdu(1);Jianzhang(3) > 1 → return
-		const { ctx, m } = makeCtx({ minGuardLevel: GuardLevel.Zongdu });
+		// sub.minGuardLevel=1(总督);Jianzhang(3) > 1 → return
+		const { ctx, m } = makeCtx();
 		m.isSubscribed.mockImplementation((_s: unknown, feat: string) => feat === "liveGuardBuy");
-		const s = new RoomSession(ctx, makeSub({ liveGuardBuy: true })) as AnySession;
+		const s = new RoomSession(ctx, makeSub({ liveGuardBuy: true, minGuardLevel: 1 })) as AnySession;
 		await s.onGuardBuy(guardBody);
 		expect(m.broadcastToTargets).not.toHaveBeenCalled();
 	});
@@ -420,10 +418,6 @@ describe("RoomContext.sendLiveNotifyCard — LiveType → LivePushType 映射", 
 			// push.broadcastToTargets(uid, msg, pushType),pushType 即被测的映射结果。
 			imageRenderer: null,
 			config: {
-				pushTime: 0,
-				restartPush: false,
-				minScPrice: 30,
-				minGuardLevel: 1,
 				customGuardBuy: { enable: false },
 				customLiveMsg: { enable: false },
 				liveSummaryDefault: "",

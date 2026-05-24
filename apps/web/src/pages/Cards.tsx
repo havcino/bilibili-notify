@@ -13,7 +13,7 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
-import { Btn, Pill } from "../components/atoms";
+import { Btn, Pill, Toggle } from "../components/atoms";
 import {
 	Field,
 	LogLevelPicker,
@@ -430,6 +430,24 @@ export default function Cards() {
 						</Field>
 						<Field label="渐变结束" code="cardColorEnd">
 							<TColor value={draft.cardColorEnd} onChange={(v) => set("cardColorEnd", v)} />
+						</Field>
+						<Field
+							label="字体"
+							code="font"
+							hint="CSS font-family。容器/浏览器没装时自动回退到内置兜底链(Microsoft YaHei / Noto Sans CJK / sans-serif)。"
+							full
+						>
+							<TInput value={draft.font} onChange={(v) => set("font", v)} />
+						</Field>
+						<Field label="隐藏直播简介" code="hideDesc">
+							<div className="flex h-7.5 items-center">
+								<Toggle value={draft.hideDesc} onChange={(v) => set("hideDesc", v)} />
+							</div>
+						</Field>
+						<Field label="隐藏粉丝数据" code="hideFollower">
+							<div className="flex h-7.5 items-center">
+								<Toggle value={draft.hideFollower} onChange={(v) => set("hideFollower", v)} />
+							</div>
 						</Field>
 						<Field
 							label="日志等级"

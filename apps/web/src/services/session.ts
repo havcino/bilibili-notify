@@ -13,6 +13,13 @@ export type LoginResult =
 	| { ok: true }
 	| { ok: false; kind: "invalid"; message: string }
 	| { ok: false; kind: "rate_limited"; retryAfterSec: number; message: string }
+	/**
+	 * 后端权威告知「未启用鉴权」(`POST /api/session/login` → 400)。AuthGate 的
+	 * `fetchSessionStatus` 在初始探测失败(503/瞬时网络错)时会兜底成 authRequired:true
+	 * 弹 dialog —— 用户随后真去提交登录就会撞到这条。此时 LoginDialog 应据此把 store
+	 * 同步回 authRequired:false 让壳关闭,而不是只显示一条用户无法处理的报错。
+	 */
+	| { ok: false; kind: "auth_disabled" }
 	| { ok: false; kind: "error"; message: string };
 
 /** `GET /api/session` — always 200 in practice; treats failure as "unknown → not authed". */
@@ -43,7 +50,7 @@ export async function classifyLoginResponse(res: Response): Promise<LoginResult>
 		return { ok: false, kind: "invalid", message: "账号或密码错误" };
 	}
 	if (res.status === 400) {
-		return { ok: false, kind: "error", message: "当前未启用登录鉴权" };
+		return { ok: false, kind: "auth_disabled" };
 	}
 	return { ok: false, kind: "error", message: `登录失败 (HTTP ${res.status})` };
 }

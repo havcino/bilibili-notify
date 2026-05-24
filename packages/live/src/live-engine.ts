@@ -28,17 +28,12 @@ export interface LiveEngineConfig {
 	 * Chinese-stop-word list before tokenisation.
 	 */
 	wordcloudStopWords?: string;
-	/** Hours between periodic "正在直播" pushes; `0` disables. */
-	pushTime: number;
-	/** Whether to push a "正在直播" card immediately on engine start when a sub is live. */
-	restartPush: boolean;
-	/** SC minimum-price gate (yuan); SC under this value is dropped. */
-	minScPrice: number;
 	/**
-	 * Lowest allowed guard tier to push (1 = governor, 2 = supervisor,
-	 * 3 = captain — preserves Bilibili semantics).
+	 * 引擎级全局 `pushTime`(小时;`0` 关闭)。仅用于 `updateConfig` 检测全局
+	 * pushTime 变更后重排所有定时器;每个 UP 的实际复推间隔在
+	 * `SubItemView.pushTime` 上(adapter 已折算 `per-UP ?? 全局`)。
 	 */
-	minGuardLevel: 1 | 2 | 3;
+	pushTime: number;
 	/** Default global "弹幕总结" template (single string; adapter joins lines if needed). */
 	liveSummaryDefault: string;
 	customGuardBuy: ListenerManagerConfig["customGuardBuy"];
@@ -201,7 +196,7 @@ export class LiveEngine {
 						let nextPushTime = prevPushTime;
 						for (const change of liveChanges) {
 							const { scope: _scope, ...fields } = change;
-							if ("pushTime" in fields) nextPushTime = fields.pushTime;
+							if (fields.pushTime !== undefined) nextPushTime = fields.pushTime;
 							Object.assign(existing, fields);
 						}
 						for (const change of targetChanges) {
@@ -271,10 +266,6 @@ export class LiveEngine {
 
 function toListenerConfig(c: LiveEngineConfig): ListenerManagerConfig {
 	return {
-		pushTime: c.pushTime,
-		restartPush: c.restartPush,
-		minScPrice: c.minScPrice,
-		minGuardLevel: c.minGuardLevel,
 		customGuardBuy: c.customGuardBuy,
 		customLiveMsg: c.customLiveMsg,
 		liveSummaryDefault: c.liveSummaryDefault,

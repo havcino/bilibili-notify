@@ -4,7 +4,7 @@ import type { BilibiliPush } from "@bilibili-notify/push";
 /**
  * 60s 节流窗口。同一 sourceKey 上次告警之后 60s 内的后续告警吞掉，避免连串错误
  * (cron 每 2 分钟一轮、风控/网络抖动连续触发) 时刷屏 OneBot 私信。
- * 与 koishi 端 `HealthCheck.AUTH_LOST_NOTIFY_DEBOUNCE_MS` 同值便于心智对称。
+ * 与 koishi 端 `MasterNotifier.NOTIFY_DEBOUNCE_MS` 同值便于心智对称。
  */
 const NOTIFY_DEBOUNCE_MS = 60_000;
 
@@ -41,6 +41,10 @@ export class MasterNotifier {
 	install(): void {
 		this.handles.push(
 			this.opts.bus.on("engine-error", (source, message) => {
+				// 每条 engine-error 都先落 warn(不节流) —— 主人 push 未配置 / send
+				// PrivateMsg no-op 时,日志是唯一可观测通道,丢日志=运行时错误对运维
+				// 彻底静默。DM 仍走 notify() 的 per-source 60s 节流避免刷屏。两端对称。
+				this.opts.logger.warn(`[${source}] ${message}`);
 				void this.notify(source, `[${source}] ${message}`);
 			}),
 		);

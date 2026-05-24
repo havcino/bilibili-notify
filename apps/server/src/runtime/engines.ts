@@ -318,9 +318,9 @@ export function createEngines(opts: CreateEnginesOptions): EnginesRuntime {
 			config: {
 				cardColorStart: cs.cardColorStart,
 				cardColorEnd: cs.cardColorEnd,
-				font: "PingFang SC, sans-serif",
-				hideDesc: false,
-				followerDisplay: true,
+				font: cs.font,
+				hideDesc: cs.hideDesc,
+				hideFollower: cs.hideFollower,
 			},
 		});
 		imageRenderer.start();
@@ -348,7 +348,7 @@ export function createEngines(opts: CreateEnginesOptions): EnginesRuntime {
 			dynamicUrl: true,
 			dynamicCron: globals().app.dynamicCron,
 			dynamicVideoUrlToBV: false,
-			pushImgsInDynamic: true,
+			imageGroup: globals().defaults.imageGroup,
 			imageEnabled: globals().defaults.cardStyle.enabled,
 			aiEnabled: globals().defaults.ai.enabled,
 			filter: {
@@ -396,9 +396,6 @@ export function createEngines(opts: CreateEnginesOptions): EnginesRuntime {
 		const g = globals();
 		return {
 			pushTime: g.defaults.schedule.pushTime,
-			restartPush: g.defaults.schedule.restartPush,
-			minScPrice: g.defaults.filters.minScPrice,
-			minGuardLevel: g.defaults.filters.minGuardLevel,
 			liveSummaryDefault: g.defaults.templates.liveSummary,
 			imageEnabled: g.defaults.cardStyle.enabled,
 			aiEnabled: g.defaults.ai.enabled,
@@ -578,15 +575,15 @@ export function createEngines(opts: CreateEnginesOptions): EnginesRuntime {
 					// healthCheckMinutes → LoginFlow:dispose 旧 setInterval + 按新间隔重 arm。
 					opts.loginFlow.setHealthCheckMs(g.app.healthCheckMinutes * 60_000);
 				}
-				// ImageRenderer 配色热更(仅在已构造时有意义)。
+				// ImageRenderer 配色 / 字体 / 显示项热更(仅在已构造时有意义)。
 				if (cardStyleChanged && imageRenderer) {
 					const cs = g.defaults.cardStyle;
 					imageRenderer.updateConfig({
 						cardColorStart: cs.cardColorStart,
 						cardColorEnd: cs.cardColorEnd,
-						font: "PingFang SC, sans-serif",
-						hideDesc: false,
-						followerDisplay: true,
+						font: cs.font,
+						hideDesc: cs.hideDesc,
+						hideFollower: cs.hideFollower,
 					});
 				}
 				// dynamicConfig() 读 app.dynamicCron + defaults.{filters,cardStyle.enabled,ai.enabled}。
@@ -801,8 +798,15 @@ function pushSegmentsToPayload(segments: PushSegment[]): NotificationPayload {
 			image: { buffer: segments[0].buffer, mime: segments[0].mime },
 		};
 	}
-	if (segments.length === 1 && segments[0]?.type === "image-group" && segments[0].forward) {
-		return { kind: "forward-images", urls: segments[0].urls };
+	if (segments.length === 1 && segments[0]?.type === "image-group") {
+		// segment.forward 由 dynamic engine config 的 imageGroupForward 决定:
+		//   true  → adapter 走 send_group_forward_msg / koishi forward 容器
+		//   false → adapter 走多 image segment 合并到一条普通 send_group_msg
+		return {
+			kind: "forward-images",
+			urls: segments[0].urls,
+			forward: segments[0].forward,
+		};
 	}
 	const mapped: PayloadSegment[] = [];
 	for (const s of segments) {
@@ -938,6 +942,10 @@ function buildDynamicSubsView(
 			// 下一个轮询周期自动生效,不需要单独 hot-reload 路径。
 			filter: buildDynamicFilter(eff),
 			aiOverride: buildAiOverride(eff),
+			// per-UP imageGroup override(enable / forward)直接透传 raw 值;engine
+			// 内部用 `?? engine.config.imageGroup` 与全局 default 兜底。
+			imageGroupEnable: sub.overrides.imageGroup?.enable,
+			imageGroupForward: sub.overrides.imageGroup?.forward,
 		};
 	}
 	return view;

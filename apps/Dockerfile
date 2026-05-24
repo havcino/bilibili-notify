@@ -63,9 +63,22 @@ RUN git init -q . && pnpm install --frozen-lockfile
 # x.y.z-alpha.N),所有 mutation 只活在被丢弃的 builder layer,真实仓库不受影响。
 # /api/health 的「各模块版本」据此显示。无 pending changeset 时为 no-op;
 # .changeset/ 状态损坏时 fail-fast,不产出版本号错误的镜像。
+#
+# changeset version 改了大量 packages/* package.json#version,workspace deps
+# (workspace:^ 协议)随之"看上去版本不匹配"。后续 `pnpm -r run build` 启动时
+# pnpm 会**隐式**触发一次 install + 重 link;这个隐式 install 在 17+ 包多变
+# 状态下能弄坏 `node_modules/.bin/` 的二进制 symlink(尤其 vp shim),后续 vp
+# pack 命令调起即 hang。这里显式跑一次 `pnpm install --no-frozen-lockfile` 把
+# install 锁定在 build 之前,行为可见可控;build 内部就无需再隐式 sync。
 RUN pnpm exec changeset version
+RUN pnpm install --no-frozen-lockfile
 
-RUN pnpm -r run build
+# 拆两阶段 + --stream:GHA buildx 默认 batched 输出,17+ 包 build 静默累积时
+# 卡死一个包就整体看不出在哪。--stream 让各包输出实时刷出;先 packages/* 再
+# koishi/* + apps/* 是因为 koishi/* 与 apps/* 都依赖 packages/*(workspace:*
+# protocol),按拓扑序分两轮更利于定位"哪个包卡了"。
+RUN pnpm -r --filter './packages/*' --stream run build
+RUN pnpm -r --filter './koishi/*' --filter './apps/*' --stream run build
 
 # Drop devDependencies so the final image only ships runtime deps.
 # pnpm 11 的 prune 不支持 -r;workspace 模式下逐包 prune 反而容易破坏

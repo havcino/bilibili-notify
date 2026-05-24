@@ -36,9 +36,9 @@ describe("classifyLoginResponse", () => {
 		});
 	});
 
-	it("400 → error (auth not required)", async () => {
+	it("400 → auth_disabled (后端权威告知未启用鉴权,触发 LoginDialog 关壳)", async () => {
 		const r = await classifyLoginResponse(res(400));
-		expect(r).toMatchObject({ ok: false, kind: "error" });
+		expect(r).toEqual({ ok: false, kind: "auth_disabled" });
 	});
 
 	it("500 → error", async () => {

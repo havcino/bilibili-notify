@@ -3,21 +3,16 @@ import {
 	type DynamicEngineConfig,
 	type PushKind,
 	type PushLike,
-	type SubscriptionsView,
 } from "@bilibili-notify/dynamic";
-import type {
-	EffectiveSubscription,
-	GlobalDefaults,
-	Subscription,
-	SubscriptionOp,
-} from "@bilibili-notify/internal";
-import { BILIBILI_NOTIFY_TOKEN, resolve } from "@bilibili-notify/internal";
+import type { SubscriptionOp } from "@bilibili-notify/internal";
+import { BILIBILI_NOTIFY_TOKEN } from "@bilibili-notify/internal";
 import { makeKoishiMessageBus, makeKoishiServiceContext } from "@bilibili-notify/koishi-runtime";
 import type { BilibiliPush } from "@bilibili-notify/push";
 import { type Awaitable, type Context, Service } from "koishi";
 import type {} from "koishi-plugin-bilibili-notify";
 import { dynamicCommands } from "./commands";
 import type { BilibiliNotifyDynamicConfig } from "./config";
+import { resolveDynamicFeature, storeToDynamicView, subToDynamicView } from "./sub-view";
 
 declare module "koishi" {
 	interface Context {
@@ -32,13 +27,6 @@ declare module "koishi" {
 }
 
 const SERVICE_NAME = "bilibili-notify-dynamic";
-
-function hasDynamicGate(eff: EffectiveSubscription): boolean {
-	// features.dynamic = source-side 订阅开关。routing 由推送层 BilibiliPush 在
-	// broadcast 时按 routing 空 = 无 sink 兜底,这里不 AND routing——features=true /
-	// routing.dynamic=[] 的 UP 仍纳入 cron,加 routing 后下个轮询周期立即生效。
-	return eff.features.dynamic;
-}
 
 /**
  * Adapt the new BilibiliPush (platform-neutral) to the PushLike interface
@@ -60,10 +48,14 @@ function adaptPush(push: BilibiliPush): PushLike {
 					image: { buffer: segments[0].buffer, mime: segments[0].mime },
 				};
 			} else if (segments.length === 1 && segments[0].type === "image-group") {
-				// image-group: format as text with URLs (fallback)
+				// 走 NotificationSink 的 forward-images 路径 —— sink 内部按 payload.forward
+				// 决定走 koishi 合并转发(h("message", {forward:true}, nodes))还是普通
+				// 多图(h("message", urls.map(h.image)))。forward 由 dynamic engine config
+				// imageGroup.forward 控制(可 per-UP override sub.overrides.imageGroup.forward)。
 				payload = {
-					kind: "text",
-					text: segments[0].urls.join("\n"),
+					kind: "forward-images",
+					urls: segments[0].urls,
+					forward: segments[0].forward,
 				};
 			} else {
 				// composite: map all segments
@@ -94,29 +86,6 @@ function adaptPush(push: BilibiliPush): PushLike {
 	};
 }
 
-/** Build a SubscriptionsView from the store for the engine's getSubs callback. */
-// biome-ignore lint/suspicious/noExplicitAny: store type from InternalsShape
-function storeToSubscriptionsView(store: any, defaults: GlobalDefaults): SubscriptionsView {
-	const view: SubscriptionsView = {};
-	for (const sub of store.list() as Subscription[]) {
-		if (!sub.enabled) continue;
-		const eff = resolve(sub, defaults);
-		view[sub.uid] = {
-			uid: sub.uid,
-			uname: sub.uid,
-			dynamic: hasDynamicGate(eff),
-			customCardStyle: sub.overrides.cardStyle
-				? {
-						enable: true,
-						cardColorStart: sub.overrides.cardStyle.cardColorStart,
-						cardColorEnd: sub.overrides.cardStyle.cardColorEnd,
-					}
-				: { enable: false },
-		};
-	}
-	return view;
-}
-
 export class BilibiliNotifyDynamic extends Service<BilibiliNotifyDynamicConfig> {
 	static readonly [Service.provide] = SERVICE_NAME;
 	static readonly inject = ["bilibili-notify"];
@@ -133,7 +102,7 @@ export class BilibiliNotifyDynamic extends Service<BilibiliNotifyDynamicConfig> 
 			dynamicUrl: config.dynamicUrl,
 			dynamicCron: config.dynamicCron,
 			dynamicVideoUrlToBV: config.dynamicVideoUrlToBV,
-			pushImgsInDynamic: config.pushImgsInDynamic,
+			imageGroup: config.imageGroup,
 			filter: config.filter,
 		};
 	}
@@ -157,7 +126,7 @@ export class BilibiliNotifyDynamic extends Service<BilibiliNotifyDynamicConfig> 
 			getSubs: () => {
 				const fresh = this.ctx["bilibili-notify"].getInternals(BILIBILI_NOTIFY_TOKEN);
 				if (!fresh) return null;
-				return storeToSubscriptionsView(fresh.store, fresh.defaults);
+				return storeToDynamicView(fresh.store);
 			},
 		});
 
@@ -165,35 +134,19 @@ export class BilibiliNotifyDynamic extends Service<BilibiliNotifyDynamicConfig> 
 
 		// koishi 端订阅事件 → engine.applyOps
 		this.ctx.on("bilibili-notify/subscription-changed", (ops: SubscriptionOp[]) => {
-			const defaults = internals.defaults;
 			// Translate new SubscriptionOp[] to the SubscriptionOpView format DynamicEngine expects
 			const opViews = ops.map((op) => {
 				if (op.type === "add") {
-					const eff = resolve(op.sub, defaults);
-					return {
-						type: "add" as const,
-						sub: {
-							uid: op.sub.uid,
-							uname: op.sub.uid,
-							dynamic: hasDynamicGate(eff),
-							customCardStyle: op.sub.overrides.cardStyle
-								? {
-										enable: true,
-										...op.sub.overrides.cardStyle,
-									}
-								: { enable: false },
-						},
-					};
+					return { type: "add" as const, sub: subToDynamicView(op.sub) };
 				}
 				if (op.type === "remove") {
 					return { type: "delete" as const, uid: op.uid };
 				}
-				// update
-				const eff = resolve(op.sub, defaults);
+				// update —— 仅推 features.dynamic 一字段(per-UP override ?? 静态默认)
 				return {
 					type: "update" as const,
 					uid: op.sub.uid,
-					changes: [{ scope: "dynamic", dynamic: hasDynamicGate(eff) }],
+					changes: [{ scope: "dynamic" as const, dynamic: resolveDynamicFeature(op.sub) }],
 				};
 			});
 			this.engine?.applyOps(opViews);

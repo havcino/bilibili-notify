@@ -165,6 +165,16 @@ export const CardStyleSchema = z.object({
 	enabled: z.boolean().default(true),
 	cardColorStart: z.string(),
 	cardColorEnd: z.string(),
+	/**
+	 * CSS font-family。`packages/image/styles.cssReset` 在用户值后面追加
+	 * `"Microsoft YaHei","Source Han Sans","Noto Sans CJK",sans-serif` 兜底链,
+	 * 缺字体不会渲染崩。`.default(...)` 让缺该字段的老 globals.json 加载时自动补全。
+	 */
+	font: z.string().default("PingFang SC, sans-serif"),
+	/** 隐藏直播卡片简介。 */
+	hideDesc: z.boolean().default(false),
+	/** 隐藏卡片粉丝变化 / 累计观看数(对齐 `hideDesc` 命名风格,「隐藏=true」)。 */
+	hideFollower: z.boolean().default(false),
 });
 export type CardStyle = z.infer<typeof CardStyleSchema>;
 
@@ -199,4 +209,24 @@ export const DEFAULT_SCHEDULE: ScheduleConfig = {
 	pushTime: 0,
 	restartPush: false,
 	quietHours: [],
+};
+
+/**
+ * DYNAMIC_TYPE_DRAW 图集图片推送行为。`enable` 决定是否在文本/卡片之后附加一组
+ * 原图;`forward` 在 `enable=true` 时决定走「合并转发卡片」还是「普通多图」(单图
+ * 永远不走合并转发)。两个字段都可 per-UP 覆盖。`forward=true` 在 NapCat 等 OneBot
+ * 实现走长消息通道(SsoSendLongMsg),部分部署不稳。
+ */
+export const ImageGroupSettingsSchema = z.object({
+	enable: z.boolean(),
+	forward: z.boolean(),
+});
+export type ImageGroupSettings = z.infer<typeof ImageGroupSettingsSchema>;
+
+export const ImageGroupSettingsPartialSchema = ImageGroupSettingsSchema.partial();
+export type ImageGroupSettingsPartial = z.infer<typeof ImageGroupSettingsPartialSchema>;
+
+export const DEFAULT_IMAGE_GROUP: ImageGroupSettings = {
+	enable: true,
+	forward: false,
 };

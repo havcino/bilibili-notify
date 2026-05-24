@@ -132,18 +132,16 @@ export interface SubItemView {
 	customSpecialDanmakuUsers: CustomSpecialDanmakuUsersLike;
 	customSpecialUsersEnterTheRoom: CustomSpecialUsersEnterTheRoomLike;
 	/**
-	 * Per-UP 覆盖项。adapter 已通过 `resolve(sub, defaults)` 折叠 globals + overrides,
-	 * 这里只保留实际跟全局可能不同的字段;undefined 表示「按全局走」。room-session /
-	 * room-session-base / live-summary-requester 在用值前一律 `?? ctx.config.X` 回退。
-	 *
-	 * 这些字段也会随 LiveScopedChange 增量推送给 LiveEngine.applyOps,Object.assign
-	 * 合进活跃 sub 后,SC / 上舰 / restartPush / liveSummary 调用点会读到新值;pushTime
-	 * 因 setInterval 句柄 ms 不可变,engine 在 update 时检测变化后会单独 rearm。
+	 * Per-UP 阈值 / 调度。adapter build SubItemView 时已一次性折算好
+	 * (`sub.overrides.X ?? 全局 config.X`),引擎 / 监听层直接消费,无二次回退。
+	 * 随 LiveScopedChange 增量推送给 LiveEngine.applyOps;pushTime 变更时
+	 * engine 额外 rearm 定时器(setInterval 句柄 ms 不可变)。
 	 */
-	minScPrice?: number;
-	minGuardLevel?: 1 | 2 | 3;
-	pushTime?: number;
-	restartPush?: boolean;
+	minScPrice: number;
+	minGuardLevel: 1 | 2 | 3;
+	pushTime: number;
+	restartPush: boolean;
+	/** undefined = 该 UP 无 per-UP AI 覆盖,直播总结走 AI 引擎自身配置。 */
 	aiOverride?: CommentaryCallOverride;
 }
 

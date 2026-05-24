@@ -138,9 +138,8 @@ export abstract class RoomSessionBase {
 				roomLink,
 			});
 
-			// Per-UP restartPush 优先;adapter 未填时回退到全局。
-			const effRestartPush = this.sub.restartPush ?? this.ctx.config.restartPush;
-			if (effRestartPush) {
+			// restartPush 已由 adapter 折算好(per-UP ?? 全局)。
+			if (this.sub.restartPush) {
 				await this.ctx.sendLiveNotifyCard({
 					liveType: LiveType.LiveBroadcast,
 					liveData: this.liveData,
@@ -202,12 +201,12 @@ export abstract class RoomSessionBase {
 	}
 
 	protected armPeriodicTimer(): void {
-		// Per-UP pushTime 优先;adapter 未填时回退到全局。0 = 关闭该 UP 的 "正在直播" 复推。
-		const effPushTime = this.sub.pushTime ?? this.ctx.config.pushTime;
-		if (effPushTime === 0 || this.pushAtTimeTimer) return;
+		// pushTime 已由 adapter 折算好(per-UP ?? 全局)。0 = 关闭该 UP 的「正在直播」复推。
+		const pushTime = this.sub.pushTime;
+		if (pushTime === 0 || this.pushAtTimeTimer) return;
 		this.pushAtTimeTimer = this.ctx.serviceCtx.setInterval(
 			() => this.tickPushAtTime(),
-			effPushTime * 1000 * 60 * 60,
+			pushTime * 1000 * 60 * 60,
 		);
 		this.ctx.livePushTimerManager.set(this.sub.roomId, () => this.pushAtTimeTimer?.dispose());
 		this.ctx.logSideEffectState(`timer:created room=${this.sub.roomId}`);

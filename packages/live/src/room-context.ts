@@ -28,15 +28,12 @@ export const GUARD_LEVEL_IMG: Record<GuardLevel, string> = {
 };
 
 /**
- * Configuration that listener-manager + room-session both consume.
- * Mirrors the koishi `BilibiliNotifyLiveConfig` minus the `logLevel` /
- * `wordcloudStopWords` fields (those are owned at the LiveEngine level).
+ * 模板 / 渲染层全局配置,listener-manager + room-session 共用。
+ *
+ * 不含 `pushTime` / `restartPush` / `minScPrice` / `minGuardLevel` —— 那些是
+ * per-UP 字段,adapter build SubItemView 时已折算好,引擎直接读 `SubItemView.X`。
  */
 export interface ListenerManagerConfig {
-	pushTime: number;
-	restartPush: boolean;
-	minScPrice: number;
-	minGuardLevel: 1 | 2 | 3;
 	customGuardBuy: {
 		enable: boolean;
 		guardBuyMsg?: string;

@@ -100,30 +100,60 @@ function buildSegments(payload: NotificationPayload): OneBotMessageSegment[] {
 		case "composite":
 			return payload.segments.map(segmentToOnebot);
 		case "forward-images":
-			return [];
+			// payload.forward === true 时 buildSendAction 会单独走 send_group_forward_msg
+			// 路径,这里返回 []。forward === false 时把多个 URL 转为多 image segment 合并
+			// 到一条普通 send_group_msg(对齐 koishi onebot adapter 多图默认行为,避开
+			// NapCat 长消息 SsoSendLongMsg 通道的潜在超时)。
+			if (payload.forward) return [];
+			return payload.urls.map((url) => ({ type: "image", data: { file: url } }));
 	}
 }
+
+/** OneBot bot 自身身份(由 get_login_info 拉取),决定 forward node 上展示的头像/昵称。 */
+interface BotIdentity {
+	/** 机器人 QQ 号 → forward node 的 `uin`,客户端按 uin 反查头像。 */
+	uin: string;
+	/** 机器人昵称 → forward node 的 `name`,客户端按此渲染发送人名。 */
+	name: string;
+}
+
+/**
+ * forward node 在 bot 身份未知时的兜底身份。仅在 get_login_info 失败 / 未实现的
+ * OneBot 实现上落到这里 —— uin=10000 是 QQ 官方占位号,头像为默认头像。比"整条
+ * forward 推送崩"安全,但显示效果不佳;正常路径都拉得到真实身份。
+ */
+const FALLBACK_BOT_IDENTITY: BotIdentity = { uin: "10000", name: "bilibili-notify" };
 
 /**
  * 把一次推送翻成 OneBot action(`send_group_msg` / `send_private_msg`)+ params。
  * HTTP 把 action 当 endpoint(加前导 `/`),WS 直接作 action 帧字段。
+ *
+ * `botInfo` 仅 forward 分支用,缺省走 {@link FALLBACK_BOT_IDENTITY}。caller 应在
+ * 走 forward 前先 await `getBotIdentity(adapter)`,拿到真实身份后传进来。
  */
 function buildSendAction(
 	target: PushTarget,
 	payload: NotificationPayload,
 	opts: { private?: boolean },
+	botInfo: BotIdentity = FALLBACK_BOT_IDENTITY,
 ): { action: string; params: Record<string, unknown> } | { err: string } {
-	if (payload.kind === "forward-images") {
+	// 图集合并转发分支:payload.forward 由 dynamic engine config 的 `imageGroupForward`
+	// 决定。走 send_group_forward_msg / send_private_forward_msg 长消息通道(NapCat
+	// 的 SsoSendLongMsg trpc 在某些部署不稳,故默认 false)。
+	if (payload.kind === "forward-images" && payload.forward) {
+		// node.name + node.uin 决定客户端展示的发送人头像 / 昵称。用机器人真身
+		// (botInfo)→ 收件人看到的是"机器人发的",对齐 koishi onebot adapter
+		// (它在 src/bot/message.ts 用 `bot.user.name` / `bot.userId` 当 fallback)。
 		const nodes = payload.urls.map((url) => ({
 			type: "node",
 			data: {
-				name: "bilibili-notify",
-				uin: "10000",
+				name: botInfo.name,
+				uin: botInfo.uin,
 				content: [{ type: "image", data: { file: url } }],
 			},
 		}));
 		const session = target.session as OnebotSession;
-		const isPrivate = opts.private ?? target.scope === "private";
+		const isPrivate = opts.private === true || target.scope === "private";
 		if (isPrivate) {
 			if (!session.userId) return { err: "private: userId missing" };
 			const uid = Number(session.userId);
@@ -138,7 +168,11 @@ function buildSendAction(
 	const segments = buildSegments(payload);
 	if (segments.length === 0) return { err: "empty payload" };
 	const session = target.session as OnebotSession;
-	const isPrivate = opts.private ?? target.scope === "private";
+	// `opts.private` 是「强制私聊」覆盖标志,仅 `=== true` 时覆盖 target.scope。
+	// 旧写法 `opts.private ?? scope==="private"` 的坑:caller(MultiplexSink.send)
+	// 恒传 `{ private: false }`,??（nullish coalescing）不替换 false,导致
+	// scope==="private" 的 target 永远走 group 分支并返回 "group: groupId missing"。
+	const isPrivate = opts.private === true || target.scope === "private";
 	const params: Record<string, unknown> = { message: segments };
 	if (isPrivate) {
 		if (!session.userId) return { err: "private: userId missing" };
@@ -155,10 +189,32 @@ function buildSendAction(
 	return { action: "send_group_msg", params };
 }
 
+/**
+ * 识别 NapCat 内部因为 QQ 掉线 / 未登录 / NT 框架卡死产生的错误模式,这些是
+ * NapCat ↔ QQNT 通信问题(不是我们 payload 的事),靠 retry / 改 payload 都
+ * 解决不了 —— 用户需要重启 / 重登 NapCat。把它们用人话标出来,避免一眼看不出
+ * 是 NapCat 端问题。
+ */
+const NAPCAT_DISCONNECT_HINTS = [
+	"NTEvent",
+	"NodeIKernelMsgService",
+	"onMsgInfoListUpdate",
+	"SsoSendLongMsg",
+	"PacketClient",
+	"not logged in",
+	"bot offline",
+];
+function isLikelyNapcatDisconnected(err: string): boolean {
+	const lower = err.toLowerCase();
+	return NAPCAT_DISCONNECT_HINTS.some((h) => lower.includes(h.toLowerCase()));
+}
+const NAPCAT_DISCONNECT_SUFFIX = "(NapCat 可能掉线 / QQ 未登录,请检查 NapCat 状态)";
+
 /** OneBot 响应判定:`status:"ok"` + `retcode:0` 为成功。 */
 function interpretResponse(r: OneBotResponse): { ok: true } | { ok: false; err: string } {
 	if (r.status === "ok" && (r.retcode ?? 0) === 0) return { ok: true };
-	const err = r.wording ?? r.message ?? r.msg ?? `retcode=${r.retcode}`;
+	const raw = r.wording ?? r.message ?? r.msg ?? `retcode=${r.retcode}`;
+	const err = isLikelyNapcatDisconnected(raw) ? `${raw} ${NAPCAT_DISCONNECT_SUFFIX}` : raw;
 	return { ok: false, err };
 }
 
@@ -532,6 +588,15 @@ export function createOnebotAdapter(opts: OnebotPlatformAdapterOptions): Platfor
 
 	const forwardConns = new Map<string, ForwardConn>();
 	const reverseListeners = new Map<string, ReverseListener>();
+	/**
+	 * Per-adapter bot 身份 lazy 缓存。key = adapter.id,value = 调 get_login_info
+	 * 的 Promise(返回真实身份,失败时返回 null)。命中走缓存避免每次 forward 都
+	 * 调一次 API;首次未命中由 forward 分支按 transport 路由发起请求。
+	 *
+	 * 失效场景:reconcile 删 adapter 时同步删 entry。WS 重连不清缓存(self_id
+	 * 与 nickname 极少变;若 bot 换号了得显式改 adapter 配置触发 reconcile)。
+	 */
+	const botIdentityCache = new Map<string, Promise<BotIdentity | null>>();
 	let disposed = false;
 
 	function disposeAll(): void {
@@ -541,9 +606,87 @@ export function createOnebotAdapter(opts: OnebotPlatformAdapterOptions): Platfor
 		forwardConns.clear();
 		for (const l of reverseListeners.values()) l.close();
 		reverseListeners.clear();
+		botIdentityCache.clear();
 	}
 	// 兜底:即便 engines.dispose 没显式调到,serviceCtx 结束时也关干净。
 	serviceCtx.onDispose(disposeAll);
+
+	/**
+	 * OneBot v11 `get_login_info` 返回 `{ user_id: number, nickname: string }`,
+	 * 翻译成 forward node 用的 `{ uin, name }`。无效响应返回 null,由 caller 决
+	 * 定 fallback 策略(目前都 fallback 到 {@link FALLBACK_BOT_IDENTITY})。
+	 */
+	function parseLoginInfo(raw: unknown): BotIdentity | null {
+		if (!raw || typeof raw !== "object") return null;
+		const d = raw as { user_id?: unknown; nickname?: unknown };
+		// OneBot v11 协议 user_id 通常是 number,但部分实现(NapCat 老版本 / JS 数字
+		// 精度兜底)序列化为 string。两种都收;数字串(纯 \d+)以外的 string 视无效。
+		let uin: string | null = null;
+		if (typeof d.user_id === "number" && Number.isFinite(d.user_id)) {
+			uin = String(d.user_id);
+		} else if (typeof d.user_id === "string" && /^\d+$/.test(d.user_id)) {
+			uin = d.user_id;
+		}
+		const name = typeof d.nickname === "string" && d.nickname.length > 0 ? d.nickname : null;
+		if (!uin || !name) return null;
+		return { uin, name };
+	}
+
+	/**
+	 * 调 OneBot `get_login_info` 拿 bot 身份。三种 transport 各自分发:
+	 *   - http:走 `postOnebot`
+	 *   - ws / ws-reverse:从 channel 调 `call("get_login_info", ...)`
+	 *
+	 * 失败统一返回 null,buildSendAction 兜到 FALLBACK_BOT_IDENTITY,保推送可达。
+	 */
+	async function fetchBotIdentity(adapter: PushAdapter): Promise<BotIdentity | null> {
+		const cfg = adapter.config as OnebotAdapterConfig;
+		try {
+			if (cfg.transport === "http") {
+				const res = await postOnebot(cfg, "/get_login_info", {}, fallbackTimeoutMs);
+				const verdict = interpretResponse(res);
+				if (!verdict.ok) return null;
+				return parseLoginInfo(res.data);
+			}
+			const channel =
+				cfg.transport === "ws"
+					? (forwardConns.get(adapter.id)?.getChannel() ?? null)
+					: (reverseListeners.get(adapter.id)?.getChannel() ?? null);
+			if (!channel) return null;
+			const res = await channel.call("get_login_info", {}, cfg.timeoutMs ?? fallbackTimeoutMs);
+			const verdict = interpretResponse(res);
+			if (!verdict.ok) return null;
+			return parseLoginInfo(res.data);
+		} catch (e) {
+			log.warn(`[onebot] adapter=${adapter.id} get_login_info 失败: ${String(e)}`);
+			return null;
+		}
+	}
+
+	/**
+	 * 取 bot 身份:命中缓存返回缓存 Promise,未命中发起请求并缓存。
+	 *
+	 * **只缓存成功结果**:若 fetch 失败(返回 null),立即把 entry 移除 —— 下一次
+	 * send 会重试。否则 OneBot 实现"暂时挂掉再起"的场景下,本进程会永远 fallback
+	 * 到 FALLBACK_BOT_IDENTITY,直到 reconcile 才清缓存,体验不好。
+	 *
+	 * 并发安全:同一 adapter 多个 send 并发触发首次 fetch,共享同一个 Promise —— 后
+	 * 续 send 命中缓存(此时 Promise 还未 resolve),不会重复发请求;Promise resolve
+	 * 后若是 null,后续来的 send 会重新发起 fetch。
+	 */
+	function getBotIdentity(adapter: PushAdapter): Promise<BotIdentity | null> {
+		const cached = botIdentityCache.get(adapter.id);
+		if (cached) return cached;
+		const p = fetchBotIdentity(adapter);
+		botIdentityCache.set(adapter.id, p);
+		p.then((result) => {
+			// 失败结果不留缓存,允许下次 send 重新探测。已被新 fetch 覆盖时不动。
+			if (result === null && botIdentityCache.get(adapter.id) === p) {
+				botIdentityCache.delete(adapter.id);
+			}
+		});
+		return p;
+	}
 
 	/** WS / WS-reverse 共用的发送(echo 帧 + 重试)。 */
 	async function sendOverWs(
@@ -597,6 +740,13 @@ export function createOnebotAdapter(opts: OnebotPlatformAdapterOptions): Platfor
 		reconcile(adapters: readonly PushAdapter[]): void {
 			if (disposed) return;
 			const onebots = adapters.filter((a) => a.platform === "onebot" && a.enabled);
+
+			// --- bot 身份缓存清理 ---
+			// reconcile 触发频率低(dashboard 改 adapter / target 配置才触发),
+			// 直接全清是最简单的"cfg 变更 stale 兜底" —— 用户改了 cfg.url /
+			// cfg.baseUrl 指向另一个 bot 实例时,旧 bot 身份不会被错用。代价是
+			// 每次 reconcile 后第一次 forward 多一次 get_login_info(15s 超时)。
+			botIdentityCache.clear();
 
 			// --- 正向 ws ---
 			const desiredFwd = new Map<string, OnebotWsConfig>();
@@ -744,9 +894,28 @@ export function createOnebotAdapter(opts: OnebotPlatformAdapterOptions): Platfor
 				};
 			}
 			const cfg = adapter.config as OnebotAdapterConfig;
-			const built = buildSendAction(target, payload, opts);
+			// 先用 fallback botInfo 跑一遍 buildSendAction 做 target 校验 ——
+			// session.groupId / userId 缺失等"配错"立即 err 返回,不浪费 get_login_info
+			// 往返(可能 15s 超时)在一条注定发不出去的消息上。非 forward 路径直接复用
+			// 这次结果。
+			let built = buildSendAction(target, payload, opts);
 			if ("err" in built) return { ok: false, latencyMs: 0, err: built.err };
 			const t0 = Date.now();
+
+			// forward 分支需要 bot 真身的 uin/name 才能显示成"机器人发的"。get_login_info
+			// 往返计入 latencyMs(t0 已起表),让 history / UI 看到的延迟反映本条消息的
+			// 完整端到端开销 —— 用户视角 latency = 这条消息真发出来花了多久,bot 身份
+			// 探测是发它必经的一步。getBotIdentity 内部 lazy 缓存,大多数情况下命中走 O(1)。
+			if (payload.kind === "forward-images" && payload.forward) {
+				const botInfo = (await getBotIdentity(adapter)) ?? undefined;
+				const rebuilt = buildSendAction(target, payload, opts, botInfo);
+				// rebuilt 与首次同 target/payload/opts;target 校验已过,此处 err 分支
+				// 理论不会触达。守一手保类型收敛。
+				if ("err" in rebuilt) {
+					return { ok: false, latencyMs: Date.now() - t0, err: rebuilt.err };
+				}
+				built = rebuilt;
+			}
 
 			if (cfg.transport === "http") {
 				try {

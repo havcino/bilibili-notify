@@ -43,7 +43,7 @@ class BilibiliNotifyImage extends Service<BilibiliNotifyImageConfig> {
 				cardColorEnd: config.cardColorEnd,
 				font: config.font,
 				hideDesc: config.hideDesc,
-				followerDisplay: config.followerDisplay,
+				hideFollower: config.hideFollower,
 			},
 		});
 	}

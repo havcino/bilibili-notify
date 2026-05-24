@@ -56,7 +56,7 @@ const StyleSchema = z.object({
 	cardColorEnd: z.string(),
 	font: z.string().optional(),
 	hideDesc: z.boolean().optional(),
-	followerDisplay: z.boolean().optional(),
+	hideFollower: z.boolean().optional(),
 });
 
 const ContentSchema = z
@@ -128,7 +128,7 @@ export function createCardsRoute(opts: CardsRouteOptions): Hono {
 			cardColorEnd: style.cardColorEnd,
 			font: style.font ?? "PingFang SC, sans-serif",
 			hideDesc: style.hideDesc ?? false,
-			followerDisplay: style.followerDisplay ?? true,
+			hideFollower: style.hideFollower ?? false,
 		};
 		if (!imageRenderer) {
 			imageRenderer = new ImageRenderer({
@@ -449,7 +449,7 @@ const SVG_AVATAR_FAN =
 function buildLivePreviewProps(style: PreviewStyle): LiveCardProps {
 	return {
 		hideDesc: style.hideDesc ?? false,
-		followerDisplay: style.followerDisplay ?? true,
+		hideFollower: style.hideFollower ?? false,
 		cardColorStart: style.cardColorStart,
 		cardColorEnd: style.cardColorEnd,
 		data: {

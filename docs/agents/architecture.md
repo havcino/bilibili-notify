@@ -70,8 +70,7 @@ apps/       Hono 服务端 + React Dashboard(pnpm 子 workspace)
 | `lifecycle.ts` | bringUp / tearDown / waitForServices |
 | `login-flow-bridge.ts` | 包 `LoginFlow`;监听控制台 `start-login` / `reset-key`;经 `qrcode` 渲染二维码 PNG |
 | `subscription-loader.ts` | koishi config → `SubscriptionStore` 播种 + `addSub`/`removeSub`/`updateSub` |
-| `health-check.ts` | auth-lost 时限流通知 master |
-| `master-notifier.ts` | `engine-error` 消费者,转发到 master 私聊 |
+| `master-notifier.ts` | 同时消费 `auth-lost` / `engine-error`,per-source 60s 节流转发到 master 私聊(与独立端对称) |
 | `target-registry.ts` | 内存 `PushAdapter` + `PushTarget` 注册表 |
 | `target-synthesis.ts` | 从 koishi-config 输入合成 target |
 | `sink.ts` | `KoishiNotificationSink` 实现(按 target 路由) |

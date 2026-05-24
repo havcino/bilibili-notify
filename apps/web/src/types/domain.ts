@@ -243,8 +243,20 @@ export interface CardStyleFull {
 	enabled: boolean;
 	cardColorStart: string;
 	cardColorEnd: string;
+	font: string;
+	hideDesc: boolean;
+	hideFollower: boolean;
 }
 export type CardStyleOverride = Partial<CardStyleFull>;
+
+/**
+ * Per-UP 图集推送行为覆盖。空 / undefined 字段继承全局 `GlobalDefaults.imageGroup.{enable,forward}`。
+ * 镜像 `packages/internal` 的 `ImageGroupSettingsPartialSchema`。
+ */
+export interface ImageGroupOverride {
+	enable?: boolean;
+	forward?: boolean;
+}
 
 export interface OverridesShape {
 	features?: Partial<Record<FeatureKey, boolean>>;
@@ -253,6 +265,7 @@ export interface OverridesShape {
 	templates?: TemplateOverride;
 	ai?: AIOverride;
 	cardStyle?: CardStyleOverride;
+	imageGroup?: ImageGroupOverride;
 }
 export type SubscriptionOverrides = OverridesShape;
 
