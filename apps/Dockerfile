@@ -73,12 +73,6 @@ RUN git init -q . && pnpm install --frozen-lockfile
 RUN pnpm exec changeset version
 RUN pnpm install --no-frozen-lockfile
 
-# 临时诊断:vp 在 docker 里启动 hang 排查 —— 两次 build 都卡在 vp pack 无任
-# 何输出,先确认 vp 自身能否调起 + ~/.vite-plus/ 是否需要初始化。30s timeout
-# 兜底,跑不通就明确出错而不是悄悄 hang 死整个 build。修好就删。
-RUN ls -la node_modules/.bin/vp 2>&1 && timeout 30 pnpm exec vp --version 2>&1
-RUN timeout 60 pnpm exec vp env doctor 2>&1 || echo "vp env doctor exited non-zero"
-
 # 拆两阶段 + --stream:GHA buildx 默认 batched 输出,17+ 包 build 静默累积时
 # 卡死一个包就整体看不出在哪。--stream 让各包输出实时刷出;先 packages/* 再
 # koishi/* + apps/* 是因为 koishi/* 与 apps/* 都依赖 packages/*(workspace:*
