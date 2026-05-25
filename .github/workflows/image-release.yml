@@ -123,7 +123,7 @@ jobs:
 
       - name: Upload digest
         if: env.DRY_RUN == 'false'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: digest-${{ matrix.platform.arch }}
           path: /tmp/digests/${{ matrix.platform.arch }}
@@ -164,7 +164,7 @@ jobs:
           persist-credentials: false
 
       - name: Download digests
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           path: /tmp/digests
           pattern: digest-*
@@ -189,7 +189,7 @@ jobs:
 
       - name: Compute image metadata
         id: meta
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v6
         with:
           images: ${{ env.IMAGE }}
           # 渠道按版本串判定:prerelease → :alpha,纯 semver → :latest。另打不可变
