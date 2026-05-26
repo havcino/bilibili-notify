@@ -248,7 +248,7 @@ export default function Ai() {
 					icon={<Icon.link size={14} />}
 					badge="connection"
 				>
-					<Field label="API Key" code="ai.apiKey" required>
+					<Field code="ai.apiKey" required>
 						<TInput
 							value={draft.apiKey ?? ""}
 							onChange={(v) => setAi("apiKey", v || undefined)}
@@ -256,7 +256,7 @@ export default function Ai() {
 							mono
 						/>
 					</Field>
-					<Field label="Base URL" code="ai.baseUrl" full>
+					<Field code="ai.baseUrl" full>
 						<TInput
 							value={draft.baseUrl ?? ""}
 							onChange={(v) => setAi("baseUrl", v || undefined)}
@@ -264,15 +264,10 @@ export default function Ai() {
 							placeholder="https://api.openai.com/v1"
 						/>
 					</Field>
-					<Field label="模型 ID" code="ai.model">
+					<Field code="ai.model">
 						<TInput value={draft.model} onChange={(v) => setAi("model", v)} mono full={false} />
 					</Field>
-					<Field
-						label="日志等级"
-						code="app.logLevels.ai"
-						hint="只影响 ai 模块;选「跟随全局」时与 app.logLevel 同步。保存后立即生效,无需重启。"
-						full
-					>
+					<Field code="app.logLevels.ai" full>
 						<LogLevelPicker
 							value={toPickerValue(aiLogLevel)}
 							onChange={(v) => setAiLogLevel(fromPickerValue(v))}
@@ -288,7 +283,7 @@ export default function Ai() {
 					icon={<Icon.sparkle size={14} />}
 					badge="generation"
 				>
-					<Field label="temperature" code="ai.temperature" hint="0–2，越高越发散">
+					<Field code="ai.temperature">
 						<TNum
 							value={draft.temperature}
 							onChange={(v) => setAi("temperature", v)}
@@ -309,12 +304,11 @@ export default function Ai() {
 				badge="persona"
 			>
 				<Field
-					label="基础预设"
 					code="presets"
 					hint={
 						draft.presets.length === 0
 							? "未配置 ai.presets，可在「完全自定义」下手动填写人格"
-							: "选择预设可快速套用人格 / prompts"
+							: undefined
 					}
 					full
 				>
@@ -369,7 +363,7 @@ export default function Ai() {
 					/>
 				</Field>
 				<div className="grid grid-cols-1 gap-0 lg:grid-cols-2">
-					<Field label="名字" code="persona.name" hint="留空跟随预设">
+					<Field code="persona.name">
 						<TInput
 							value={draft.persona.name}
 							onChange={(v) => setPersona("name", v)}
@@ -377,7 +371,7 @@ export default function Ai() {
 							full={false}
 						/>
 					</Field>
-					<Field label="称呼用户" code="persona.addressUser">
+					<Field code="persona.addressUser">
 						<TInput
 							value={draft.persona.addressUser}
 							onChange={(v) => setPersona("addressUser", v)}
@@ -385,7 +379,7 @@ export default function Ai() {
 							full={false}
 						/>
 					</Field>
-					<Field label="自称" code="persona.addressSelf">
+					<Field code="persona.addressSelf">
 						<TInput
 							value={draft.persona.addressSelf}
 							onChange={(v) => setPersona("addressSelf", v)}
@@ -393,7 +387,7 @@ export default function Ai() {
 							full={false}
 						/>
 					</Field>
-					<Field label="口头禅" code="persona.catchphrase">
+					<Field code="persona.catchphrase">
 						<TInput
 							value={draft.persona.catchphrase}
 							onChange={(v) => setPersona("catchphrase", v)}
@@ -402,34 +396,24 @@ export default function Ai() {
 						/>
 					</Field>
 				</div>
-				<Field label="性格特点" code="persona.traits" hint="逗号分隔" full>
+				<Field code="persona.traits" full>
 					<TInput value={draft.persona.traits} onChange={(v) => setPersona("traits", v)} />
 				</Field>
-				<Field
-					label="基础角色描述"
-					code="persona.baseRole"
-					hint="system prompt 起手段,定义 AI 身份"
-					full
-				>
+				<Field code="persona.baseRole" full>
 					<TArea
 						value={draft.persona.baseRole}
 						onChange={(v) => setPersona("baseRole", v)}
 						rows={2}
 					/>
 				</Field>
-				<Field
-					label="追加 system prompt"
-					code="persona.extraSystemPrompt"
-					hint="附加到 system prompt 末尾,用于安全约束、避讳词、语气微调"
-					full
-				>
+				<Field code="persona.extraSystemPrompt" full>
 					<TArea
 						value={draft.persona.extraSystemPrompt}
 						onChange={(v) => setPersona("extraSystemPrompt", v)}
 						rows={2}
 					/>
 				</Field>
-				<Field label="动态点评 prompt" code="ai.dynamicPrompt" full>
+				<Field code="ai.dynamicPrompt" full>
 					<TArea
 						value={draft.dynamicPrompt}
 						onChange={(v) => setAi("dynamicPrompt", v)}
@@ -437,7 +421,7 @@ export default function Ai() {
 						mono
 					/>
 				</Field>
-				<Field label="直播总结 prompt" code="ai.liveSummaryPrompt" full>
+				<Field code="ai.liveSummaryPrompt" full>
 					<TArea
 						value={draft.liveSummaryPrompt}
 						onChange={(v) => setAi("liveSummaryPrompt", v)}

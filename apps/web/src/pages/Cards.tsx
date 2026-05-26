@@ -209,7 +209,7 @@ function TestPushCard({
 			icon={<Icon.bell size={14} />}
 			badge="test-push"
 		>
-			<Field label="推送目标" code="targetId" hint="仅列启用的外部投递目标" full>
+			<Field code="targetId" full>
 				<select
 					value={targetId}
 					onChange={(e) => setTargetId(e.target.value)}
@@ -425,36 +425,26 @@ export default function Cards() {
 						icon={<Icon.edit size={14} />}
 						badge="cardStyle"
 					>
-						<Field label="渐变起始" code="cardColorStart">
+						<Field code="cardColorStart">
 							<TColor value={draft.cardColorStart} onChange={(v) => set("cardColorStart", v)} />
 						</Field>
-						<Field label="渐变结束" code="cardColorEnd">
+						<Field code="cardColorEnd">
 							<TColor value={draft.cardColorEnd} onChange={(v) => set("cardColorEnd", v)} />
 						</Field>
-						<Field
-							label="字体"
-							code="font"
-							hint="CSS font-family。容器/浏览器没装时自动回退到内置兜底链(Microsoft YaHei / Noto Sans CJK / sans-serif)。"
-							full
-						>
+						<Field code="font" full>
 							<TInput value={draft.font} onChange={(v) => set("font", v)} />
 						</Field>
-						<Field label="隐藏直播简介" code="hideDesc">
+						<Field code="hideDesc">
 							<div className="flex h-7.5 items-center">
 								<Toggle value={draft.hideDesc} onChange={(v) => set("hideDesc", v)} />
 							</div>
 						</Field>
-						<Field label="隐藏粉丝数据" code="hideFollower">
+						<Field code="hideFollower">
 							<div className="flex h-7.5 items-center">
 								<Toggle value={draft.hideFollower} onChange={(v) => set("hideFollower", v)} />
 							</div>
 						</Field>
-						<Field
-							label="日志等级"
-							code="app.logLevels.image"
-							hint="只影响 image 模块;选「跟随全局」时与 app.logLevel 同步。保存后立即生效,无需重启。"
-							full
-						>
+						<Field code="app.logLevels.image" full>
 							<LogLevelPicker
 								value={toPickerValue(imageLogLevel)}
 								onChange={(v) => setImageLogLevel(fromPickerValue(v))}
@@ -503,7 +493,7 @@ export default function Cards() {
 						</div>
 						{kind === "live" ? (
 							<>
-								<Field label="直播间号" code="roomId" hint="纯数字，例如 5440">
+								<Field code="roomId">
 									<TInput
 										value={content.live.roomId}
 										onChange={(v) => setLive({ roomId: v })}
@@ -517,14 +507,14 @@ export default function Cards() {
 							</>
 						) : kind === "dyn" ? (
 							<>
-								<Field label="UP 主 UID" code="uid" hint="目标 UP 主的 UID">
+								<Field code="uid">
 									<TInput
 										value={content.dyn.uid}
 										onChange={(v) => setDyn({ uid: v })}
 										placeholder="留空则使用示例数据"
 									/>
 								</Field>
-								<Field label="第几条动态" code="offset" hint="按 B 站列表顺序取第 N 条(可能含置顶)">
+								<Field code="offset">
 									<TInput
 										value={String(content.dyn.offset)}
 										onChange={(v) => {
@@ -541,10 +531,10 @@ export default function Cards() {
 							</>
 						) : kind === "sc" ? (
 							<>
-								<Field label="SC 文案" code="text" hint="留言内容">
+								<Field code="text">
 									<TArea value={content.sc.text} onChange={(v) => setSc({ text: v })} rows={3} />
 								</Field>
-								<Field label="SC 价格" code="price" hint="决定背景色与时长 (30/50/100/500/1000)">
+								<Field code="price">
 									<TInput
 										value={String(content.sc.price)}
 										onChange={(v) => {
@@ -560,7 +550,7 @@ export default function Cards() {
 							</>
 						) : (
 							<>
-								<Field label="舰长等级" code="level" hint="决定徽章图与背景色">
+								<Field code="level">
 									<div className="flex flex-wrap gap-1.5">
 										{GUARD_LEVELS.map((g) => {
 											const active = content.guard.level === g.v;

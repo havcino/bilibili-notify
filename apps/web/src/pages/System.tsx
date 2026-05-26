@@ -156,27 +156,18 @@ function SystemSettingsSection({
 			icon={<Icon.sliders size={14} />}
 			badge="app + master"
 		>
-			<Field
-				label="动态检查频率"
-				code="app.dynamicCron"
-				hint="cron 表达式 · 默认 */2 * * * * (每 2 分钟)"
-			>
+			<Field code="app.dynamicCron">
 				<TInput value={app.dynamicCron} onChange={(v) => setApp("dynamicCron", v)} mono />
 			</Field>
 
-			<Field label="日志等级（全局）" code="app.logLevel" hint="未在下方按模块覆盖时的兜底">
+			<Field code="app.logLevel">
 				<LogLevelPicker
 					value={LOG_LEVEL_NUM[app.logLevel]}
 					onChange={(v) => v != null && setApp("logLevel", NUM_TO_LOG[v])}
 				/>
 			</Field>
 
-			<Field
-				label="按模块覆盖"
-				code="app.logLevels"
-				hint="留「跟随全局」即用 app.logLevel；保存后会立即推到对应模块的 pino 实例,无需重启"
-				full
-			>
+			<Field code="app.logLevels" full>
 				<div className="grid w-full grid-cols-1 gap-1.5 sm:grid-cols-3">
 					{SYSTEM_MODULES.map((m) => {
 						const current = app.logLevels?.[m.id];
@@ -203,7 +194,7 @@ function SystemSettingsSection({
 				</div>
 			</Field>
 
-			<Field label="User-Agent" code="app.userAgent" hint="留空使用默认;遇 -352 风控可换" full>
+			<Field code="app.userAgent" full>
 				<TInput
 					value={app.userAgent ?? ""}
 					onChange={(v) => setApp("userAgent", v || undefined)}
@@ -212,11 +203,7 @@ function SystemSettingsSection({
 				/>
 			</Field>
 
-			<Field
-				label="登录心跳间隔"
-				code="app.healthCheckMinutes"
-				hint="每 N 分钟向 B 站 getMyselfInfo 探活；失效会触发 auth-lost + master 通知"
-			>
+			<Field code="app.healthCheckMinutes">
 				<TNum
 					value={app.healthCheckMinutes}
 					onChange={(v) => setApp("healthCheckMinutes", v)}
@@ -226,7 +213,7 @@ function SystemSettingsSection({
 				/>
 			</Field>
 
-			<Field label="历史保留天数" code="app.historyRetentionDays" hint="到期的 jsonl 日志会被清理">
+			<Field code="app.historyRetentionDays">
 				<TNum
 					value={app.historyRetentionDays}
 					onChange={(v) => setApp("historyRetentionDays", v)}
@@ -243,7 +230,7 @@ function SystemSettingsSection({
 						插件遇错误会私聊报告给这个目标
 					</span>
 				</div>
-				<Field label="Master 推送目标" code="master.targetId">
+				<Field code="master.targetId">
 					<TSelect
 						value={master.targetId ?? ""}
 						onChange={(v) => onPatch({ master: { targetId: v || undefined } })}

@@ -204,14 +204,14 @@ export function FilterSection({
 			icon={<Icon.filter size={14} />}
 			badge="filters"
 		>
-			<FieldRow label="屏蔽关键词" code="blockKeywords" hint="任一命中即屏蔽" full>
+			<FieldRow code="blockKeywords" full>
 				<ArrayEditor
 					value={value.blockKeywords}
 					onChange={(n) => set("blockKeywords", n)}
 					placeholder="关键词"
 				/>
 			</FieldRow>
-			<FieldRow label="屏蔽正则" code="blockRegex" hint="正则表达式 · 命中的动态被屏蔽" full>
+			<FieldRow code="blockRegex" full>
 				<ArrayEditor
 					value={value.blockRegex}
 					onChange={(n) => set("blockRegex", n)}
@@ -219,22 +219,22 @@ export function FilterSection({
 				/>
 			</FieldRow>
 			<div className="mt-1.5 grid grid-cols-1 gap-2 sm:grid-cols-2">
-				<FieldRow label="屏蔽转发动态" code="blockForward">
+				<FieldRow code="blockForward">
 					<div className="flex h-7.5 items-center">
 						<Toggle value={value.blockForward} onChange={(v) => set("blockForward", v)} size="sm" />
 					</div>
 				</FieldRow>
-				<FieldRow label="屏蔽专栏动态" code="blockArticle">
+				<FieldRow code="blockArticle">
 					<div className="flex h-7.5 items-center">
 						<Toggle value={value.blockArticle} onChange={(v) => set("blockArticle", v)} size="sm" />
 					</div>
 				</FieldRow>
-				<FieldRow label="屏蔽图文动态" code="blockDraw">
+				<FieldRow code="blockDraw">
 					<div className="flex h-7.5 items-center">
 						<Toggle value={value.blockDraw} onChange={(v) => set("blockDraw", v)} size="sm" />
 					</div>
 				</FieldRow>
-				<FieldRow label="屏蔽视频动态" code="blockAv">
+				<FieldRow code="blockAv">
 					<div className="flex h-7.5 items-center">
 						<Toggle value={value.blockAv} onChange={(v) => set("blockAv", v)} size="sm" />
 					</div>
@@ -246,13 +246,13 @@ export function FilterSection({
 				onToggle={toggleWhitelist}
 				accent="#FB7299"
 			>
-				<FieldRow label="白名单关键词" code="whitelistKeywords" hint="开启后仅推送命中的动态" full>
+				<FieldRow code="whitelistKeywords" full>
 					<ArrayEditor
 						value={value.whitelistKeywords}
 						onChange={(n) => set("whitelistKeywords", n)}
 					/>
 				</FieldRow>
-				<FieldRow label="白名单正则" code="whitelistRegex" full>
+				<FieldRow code="whitelistRegex" full>
 					<ArrayEditor value={value.whitelistRegex} onChange={(n) => set("whitelistRegex", n)} />
 				</FieldRow>
 			</CollapseBlock>
@@ -280,18 +280,10 @@ export function ImageGroupSection({
 			icon={<Icon.dyn size={14} />}
 			badge="imageGroup"
 		>
-			<FieldRow
-				label="推送动态图集"
-				code="enable"
-				hint="图集类动态在文本后再发一组图 · 关 = 只发卡片"
-			>
+			<FieldRow code="enable">
 				<Toggle value={value.enable} onChange={(v) => set("enable", v)} />
 			</FieldRow>
-			<FieldRow
-				label="图集走合并转发"
-				code="forward"
-				hint="开 = 聊天记录卡片 · 关 = 多图普通消息;单图不走合并转发"
-			>
+			<FieldRow code="forward">
 				<Toggle
 					value={value.forward}
 					onChange={(v) => set("forward", v)}
@@ -326,7 +318,7 @@ export function LiveThresholdsSection({
 			badge="live"
 		>
 			<div className="grid grid-cols-1 gap-0 sm:grid-cols-2">
-				<FieldRow label="SC 最低金额" code="minScPrice" hint="低于此金额不推送 · 0 = 全推">
+				<FieldRow code="minScPrice">
 					<TNum
 						value={filters.minScPrice}
 						onChange={(v) => setF("minScPrice", v)}
@@ -335,7 +327,7 @@ export function LiveThresholdsSection({
 						suffix="元"
 					/>
 				</FieldRow>
-				<FieldRow label="上舰最低等级" code="minGuardLevel" hint="3 = 全部 · 1 = 仅总督">
+				<FieldRow code="minGuardLevel">
 					<Picker<1 | 2 | 3>
 						value={filters.minGuardLevel}
 						onChange={(v) => setF("minGuardLevel", v)}
@@ -346,7 +338,7 @@ export function LiveThresholdsSection({
 						]}
 					/>
 				</FieldRow>
-				<FieldRow label="状态推送间隔" code="schedule.pushTime" hint="0 = 不推送">
+				<FieldRow code="schedule.pushTime">
 					<TNum
 						value={schedule.pushTime}
 						onChange={(v) => setS("pushTime", v)}
@@ -355,7 +347,7 @@ export function LiveThresholdsSection({
 						suffix="小时"
 					/>
 				</FieldRow>
-				<FieldRow label="启动后立即推送" code="restartPush" hint="重启时若 UP 在播则立即推送一次">
+				<FieldRow code="restartPush">
 					<div className="flex h-7.5 items-center">
 						<Toggle
 							value={schedule.restartPush}
@@ -364,12 +356,7 @@ export function LiveThresholdsSection({
 						/>
 					</div>
 				</FieldRow>
-				<FieldRow
-					label="免扰时段"
-					code="schedule.quietHours"
-					hint="落在区间内的推送直接丢弃,不补推;粒度按「时」,半开区间 [start, end)"
-					full
-				>
+				<FieldRow code="schedule.quietHours" full>
 					<QuietHoursEditor value={schedule.quietHours} onChange={(v) => setS("quietHours", v)} />
 				</FieldRow>
 			</div>
@@ -397,7 +384,7 @@ export function SummarySection({
 			badge="liveSummary"
 		>
 			<SummaryVariableHints />
-			<FieldRow label="总结正文" code="templates.liveSummary" full>
+			<FieldRow code="templates.liveSummary" full>
 				<TArea
 					value={templates.liveSummary}
 					onChange={(v) => setT("liveSummary", v)}
@@ -527,7 +514,7 @@ export function LiveMsgSection({
 			{enabled ? (
 				<>
 					<LiveMsgVariableHints />
-					<FieldRow label="开播" code="templates.liveStart" full>
+					<FieldRow code="templates.liveStart" full>
 						<TArea
 							value={templates.liveStart}
 							onChange={(v) => setT("liveStart", v)}
@@ -535,7 +522,7 @@ export function LiveMsgSection({
 							mono
 						/>
 					</FieldRow>
-					<FieldRow label="直播中" code="templates.liveOngoing" full>
+					<FieldRow code="templates.liveOngoing" full>
 						<TArea
 							value={templates.liveOngoing}
 							onChange={(v) => setT("liveOngoing", v)}
@@ -543,7 +530,7 @@ export function LiveMsgSection({
 							mono
 						/>
 					</FieldRow>
-					<FieldRow label="下播" code="templates.liveEnd" full>
+					<FieldRow code="templates.liveEnd" full>
 						<TArea value={templates.liveEnd} onChange={(v) => setT("liveEnd", v)} rows={2} mono />
 					</FieldRow>
 				</>
@@ -603,14 +590,14 @@ export function GuardSection({
 										{key}
 									</code>
 								</div>
-								<FieldRow label="文案" code="template" full>
+								<FieldRow code="template" full>
 									<TInput
 										value={entry.template}
 										onChange={(v) => setG(key, { ...entry, template: v })}
 										mono
 									/>
 								</FieldRow>
-								<FieldRow label="图片 URL" code="imageUrl" full>
+								<FieldRow code="imageUrl" full>
 									<TInput
 										value={entry.imageUrl}
 										onChange={(v) => setG(key, { ...entry, imageUrl: v })}
@@ -650,10 +637,10 @@ export function CardStyleSection({
 			icon={<Icon.sparkle size={14} />}
 			badge="cardStyle"
 		>
-			<FieldRow label="渐变起始" code="cardColorStart">
+			<FieldRow code="cardColorStart">
 				<TColor value={cardStyle.cardColorStart} onChange={(v) => set("cardColorStart", v)} />
 			</FieldRow>
-			<FieldRow label="渐变结束" code="cardColorEnd">
+			<FieldRow code="cardColorEnd">
 				<TColor value={cardStyle.cardColorEnd} onChange={(v) => set("cardColorEnd", v)} />
 			</FieldRow>
 			<div className="mt-2 rounded border border-dashed bg-[#a29bfe14] p-2 text-[11px] text-bn-text-secondary">
@@ -701,11 +688,7 @@ export function CoreAppSection({
 			icon={<Icon.sparkle size={14} />}
 			badge="app + master"
 		>
-			<FieldRow
-				label="动态检查频率"
-				code="app.dynamicCron"
-				hint="cron 表达式 · 默认 */2 * * * * (每 2 分钟)"
-			>
+			<FieldRow code="app.dynamicCron">
 				<TInput
 					value={app.dynamicCron}
 					onChange={(v) => setApp("dynamicCron", v)}
@@ -714,7 +697,7 @@ export function CoreAppSection({
 				/>
 			</FieldRow>
 
-			<FieldRow label="日志等级（全局）" code="app.logLevel" hint="未在下方按模块覆盖时的兜底">
+			<FieldRow code="app.logLevel">
 				<TSelect
 					value={app.logLevel}
 					onChange={(v) => setApp("logLevel", v as AppConfig["logLevel"])}
@@ -728,7 +711,7 @@ export function CoreAppSection({
 				onChange={(next) => setApp("logLevels", next)}
 			/>
 
-			<FieldRow label="User-Agent" code="app.userAgent" hint="留空使用默认;遇 -352 风控可换" full>
+			<FieldRow code="app.userAgent" full>
 				<TInput
 					value={app.userAgent ?? ""}
 					onChange={(v) => setApp("userAgent", v || undefined)}
@@ -737,11 +720,7 @@ export function CoreAppSection({
 				/>
 			</FieldRow>
 
-			<FieldRow
-				label="健康检查间隔"
-				code="app.healthCheckMinutes"
-				hint="rate-limited master 通知的节流窗口"
-			>
+			<FieldRow code="app.healthCheckMinutes">
 				<TNum
 					value={app.healthCheckMinutes}
 					onChange={(v) => setApp("healthCheckMinutes", v)}
@@ -751,11 +730,7 @@ export function CoreAppSection({
 				/>
 			</FieldRow>
 
-			<FieldRow
-				label="历史保留天数"
-				code="app.historyRetentionDays"
-				hint="到期的 jsonl 日志会被清理"
-			>
+			<FieldRow code="app.historyRetentionDays">
 				<TNum
 					value={app.historyRetentionDays}
 					onChange={(v) => setApp("historyRetentionDays", v)}
@@ -772,7 +747,7 @@ export function CoreAppSection({
 						插件遇错误会私聊报告给这个目标
 					</span>
 				</div>
-				<FieldRow label="Master 推送目标" code="master.targetId">
+				<FieldRow code="master.targetId">
 					<TSelect
 						value={master.targetId ?? ""}
 						onChange={(v) => onPatch({ master: { targetId: v || undefined } })}
@@ -822,12 +797,7 @@ function ModuleLogLevelsRow({
 		onChange(Object.keys(next).length === 0 ? undefined : next);
 	}
 	return (
-		<FieldRow
-			label="按模块覆盖"
-			code="app.logLevels"
-			hint="留「跟随全局」即用 app.logLevel；保存后会立即推到对应模块的 pino 实例,无需重启"
-			full
-		>
+		<FieldRow code="app.logLevels" full>
 			<div className="grid w-full grid-cols-1 gap-1.5 sm:grid-cols-2">
 				{MODULES.map((m) => {
 					const current = levels?.[m.id] ?? "";
