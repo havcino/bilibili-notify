@@ -1,5 +1,5 @@
-import { useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
+import { useAiBarStore } from "../store/aiBar";
 import { Icon } from "./icons";
 
 /**
@@ -101,8 +101,10 @@ const ROUTE_TO_KEY: Record<string, SuggestionKey> = {
 export function FloatingAiBar() {
 	const location = useLocation();
 	const navigate = useNavigate();
-	const [dismissed, setDismissed] = useState(false);
-	const [expanded, setExpanded] = useState(false);
+	const dismissed = useAiBarStore((s) => s.dismissed);
+	const expanded = useAiBarStore((s) => s.expanded);
+	const setDismissed = useAiBarStore((s) => s.setDismissed);
+	const setExpanded = useAiBarStore((s) => s.setExpanded);
 
 	if (dismissed) {
 		return (
