@@ -23,7 +23,6 @@ export type FieldSection =
 	| "ai"
 	| "persona"
 	| "cardStyle"
-	| "cardImage"
 	| "cardPreview"
 	| "filter"
 	| "templates"

@@ -88,6 +88,20 @@ body {
 	}
 }
 
+/* 灵动岛 diff 行 click 跳转后短暂高亮目标 Field —— 粉色 ring 闪 1s。 */
+@keyframes bn-highlight {
+	0%,
+	100% {
+		box-shadow: none;
+		background-color: transparent;
+	}
+	20%,
+	60% {
+		box-shadow: 0 0 0 2px var(--color-bn-pink);
+		background-color: rgba(251, 114, 153, 0.08);
+	}
+}
+
 .bn-anim-pulse {
 	animation: bn-pulse 1.6s ease-in-out infinite;
 }
@@ -96,6 +110,10 @@ body {
 }
 .bn-anim-fade-in {
 	animation: bn-fade-in 0.35s ease-out both;
+}
+.bn-anim-highlight {
+	animation: bn-highlight 1s ease-in-out;
+	border-radius: 8px;
 }
 
 /* 隐藏滚动条但保留滚动行为。Dashboard 「粉丝数变化」N 多时容器内滚动,

@@ -1,29 +1,35 @@
 /**
- * DraftIsland —— 灵动岛草稿机制(Phase D:5 态 chip 视觉)。
+ * DraftIsland —— 灵动岛草稿机制(Phase D 5 态 chip + Phase E expand panel)。
  *
  * 从 zustand draftStore 订阅 uiState / current / errorMessage,AnimatePresence
  * mode="wait" 切 5 个子组件:
  * - idle  → 不渲染(灵动岛消失)
- * - dirty → 粉紫 dot + 页名 + 字段数徽章(pop 动画)+ 「保存」主按钮
+ * - dirty → 粉紫 dot + 页名 + 字段数徽章(pop 动画)+ 「保存」主按钮 + expand panel
  * - saving → 旋转 refresh + "保存中…"
  * - saved → 绿色 ✓ + "已保存"(1.2s 后 runSaveFlow 自动转 idle)
  * - error → 摇晃 200ms + 红边 pulse + 错误文案 + dismiss x(不自动消失)
  *
+ * Expand panel(仅 dirty 态显示):
+ * - 双轨触发:hover preview(useState 本地)+ click 锁定(panelLocked store)
+ * - 移动端无 hover:tap chip 内容区 = click 锁定
+ * - panel 内字段级 diff list(按 section 分组),单行 click 跳转对应 Field
+ * - 左下「丢弃全部更改」按钮
+ *
  * 位置 / 层级:fixed 居中底部,bottom = 1rem + safe-area。z-100 故意低于
  * ToastShell(z-200)与 Dialog(z-300)— toast/dialog 弹出时不被遮挡。
- *
- * Phase E 加 expand panel(hover preview / click 锁定)+ 字段级 diff 列表 +
- * click 跳转字段。Phase G 接 ai-bar-store 实现「跟随 FloatingAiBar 状态垂直
- * 堆叠」。
  */
 
 import { AnimatePresence, motion } from "motion/react";
-import type { ReactNode } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import type { DraftRegistration, DraftUiState } from "../store/draft";
 import { useDraftStore } from "../store/draft";
+import { formatDiffValue } from "../utils/formatDiffValue";
+import { type DiffSection, groupDiffsBySection } from "../utils/groupDiffs";
+import type { FieldDiff } from "../utils/walkTreeDiff";
 import { Icon } from "./icons";
 
 const SHELL_SPRING = { type: "spring" as const, stiffness: 380, damping: 28 };
+const PANEL_SPRING = { type: "spring" as const, stiffness: 320, damping: 30 };
 
 /**
  * 灵动岛 chip 子组件选择:5 态 + (idle / 无 current) → "none"。抽成纯函数
@@ -43,28 +49,56 @@ export function DraftIsland(): ReactNode {
 	const uiState = useDraftStore((s) => s.uiState);
 	const current = useDraftStore((s) => s.current);
 	const errorMessage = useDraftStore((s) => s.errorMessage);
+	const panelLocked = useDraftStore((s) => s.panelLocked);
+	const togglePanelLocked = useDraftStore((s) => s.togglePanelLocked);
+
+	const [hovered, setHovered] = useState(false);
+	const containerRef = useRef<HTMLElement>(null);
+
+	// 外部 click → 关闭 locked panel。仅 panelLocked 为 true 时才挂监听,
+	// 减少全局事件流量。
+	useEffect(() => {
+		if (!panelLocked) return;
+		function handleOutsideClick(e: MouseEvent) {
+			const node = containerRef.current;
+			if (node !== null && e.target instanceof Node && !node.contains(e.target)) {
+				togglePanelLocked(false);
+			}
+		}
+		document.addEventListener("mousedown", handleOutsideClick);
+		return () => document.removeEventListener("mousedown", handleOutsideClick);
+	}, [panelLocked, togglePanelLocked]);
 
 	const kind = selectChipKind(uiState, current);
-	let content: ReactNode = null;
+	const showPanel = kind === "dirty" && current !== null && (hovered || panelLocked);
+
+	let chipContent: ReactNode = null;
 	if (kind === "dirty" && current !== null) {
-		content = <DirtyContent key="dirty" current={current} />;
+		chipContent = <DirtyContent key="dirty" current={current} />;
 	} else if (kind === "saving") {
-		content = <SavingContent key="saving" />;
+		chipContent = <SavingContent key="saving" />;
 	} else if (kind === "saved") {
-		content = <SavedContent key="saved" />;
+		chipContent = <SavedContent key="saved" />;
 	} else if (kind === "error") {
-		content = <ErrorContent key="error" message={errorMessage} />;
+		chipContent = <ErrorContent key="error" message={errorMessage} />;
 	}
 
 	return (
-		<div
+		<section
+			ref={containerRef}
+			aria-label="草稿状态"
 			aria-live="polite"
 			data-testid="draft-island"
-			className="pointer-events-none fixed left-1/2 z-100 -translate-x-1/2"
+			className="pointer-events-none fixed left-1/2 z-100 flex -translate-x-1/2 flex-col items-center"
 			style={{ bottom: "calc(1rem + env(safe-area-inset-bottom))" }}
+			onMouseEnter={() => setHovered(true)}
+			onMouseLeave={() => setHovered(false)}
 		>
-			<AnimatePresence mode="wait">{content}</AnimatePresence>
-		</div>
+			<AnimatePresence>
+				{showPanel && current !== null ? <ExpandPanel key="panel" current={current} /> : null}
+			</AnimatePresence>
+			<AnimatePresence mode="wait">{chipContent}</AnimatePresence>
+		</section>
 	);
 }
 
@@ -74,10 +108,12 @@ function ChipShell({
 	children,
 	extraAnimate,
 	className = "",
+	onClick,
 }: {
 	children: ReactNode;
 	extraAnimate?: Record<string, unknown>;
 	className?: string;
+	onClick?: (e: React.MouseEvent<HTMLDivElement>) => void;
 }) {
 	return (
 		<motion.div
@@ -86,6 +122,7 @@ function ChipShell({
 			animate={{ opacity: 1, y: 0, scale: 1, ...extraAnimate }}
 			exit={{ opacity: 0, y: 16, scale: 0.92 }}
 			transition={SHELL_SPRING}
+			onClick={onClick}
 			className={`pointer-events-auto flex items-center gap-2.5 rounded-full bg-black/85 px-4 py-2 text-white shadow-[0_8px_24px_rgba(0,0,0,0.3)] backdrop-blur-xl ${className}`}
 		>
 			{children}
@@ -96,8 +133,16 @@ function ChipShell({
 // ── DirtyContent ──────────────────────────────────────────────────────────
 
 function DirtyContent({ current }: { current: DraftRegistration }) {
+	const togglePanelLocked = useDraftStore((s) => s.togglePanelLocked);
+
+	function handleChipClick(e: React.MouseEvent<HTMLDivElement>) {
+		// chip 内容区 click 切 panel 锁定;保存按钮的 click 已经 stopPropagation。
+		if ((e.target as HTMLElement).closest("[data-stop-chip-click]") !== null) return;
+		togglePanelLocked();
+	}
+
 	return (
-		<ChipShell>
+		<ChipShell onClick={handleChipClick} className="cursor-pointer select-none">
 			<span className="block h-1.5 w-1.5 rounded-full bg-bn-pink" aria-hidden />
 			<span className="text-[12px] font-medium">{current.pageLabel}</span>
 			{/* 数字徽章:diff.length 变化时通过 key 强制重 mount,触发 initial→animate 的 pop。 */}
@@ -113,7 +158,11 @@ function DirtyContent({ current }: { current: DraftRegistration }) {
 			</motion.span>
 			<button
 				type="button"
-				onClick={current.onSave}
+				data-stop-chip-click
+				onClick={(e) => {
+					e.stopPropagation();
+					current.onSave();
+				}}
 				className="rounded-full bg-white px-3 py-1 text-[11.5px] font-bold text-black transition hover:bg-white/90 active:scale-95"
 			>
 				保存
@@ -203,5 +252,126 @@ function ErrorContent({ message }: { message: string | null }) {
 				<Icon.close size={12} />
 			</button>
 		</ChipShell>
+	);
+}
+
+// ── ExpandPanel:字段级 diff list + 丢弃按钮 ────────────────────────────────
+
+const HIGHLIGHT_CLASS = "bn-anim-highlight";
+const HIGHLIGHT_DURATION_MS = 1000;
+
+/**
+ * 滚动到目标 Field(`<Field code="X">` → `[data-code="X"]` 锚点)并加 1s 高亮
+ * ring。仅命中当前路由下的第一个匹配(每页 code 不重复)。
+ */
+export function scrollToFieldByCode(code: string): void {
+	if (typeof document === "undefined") return;
+	const escaped = code.replace(/"/g, '\\"');
+	const node = document.querySelector<HTMLElement>(`[data-code="${escaped}"]`);
+	if (node === null) return;
+	node.scrollIntoView({ behavior: "smooth", block: "center" });
+	node.classList.remove(HIGHLIGHT_CLASS); // 重置正在跑的动画(连续 click 同一行)
+	void node.offsetWidth; // 强制 reflow,确保 class 重加触发新一次 animation
+	node.classList.add(HIGHLIGHT_CLASS);
+	setTimeout(() => node.classList.remove(HIGHLIGHT_CLASS), HIGHLIGHT_DURATION_MS);
+}
+
+function ExpandPanel({ current }: { current: DraftRegistration }) {
+	const sections = groupDiffsBySection(current.diff);
+	return (
+		<motion.div
+			layout
+			initial={{ opacity: 0, y: 12, scale: 0.96 }}
+			animate={{ opacity: 1, y: 0, scale: 1 }}
+			exit={{ opacity: 0, y: 12, scale: 0.96 }}
+			transition={PANEL_SPRING}
+			className="pointer-events-auto mb-2 w-[420px] max-w-[calc(100vw-2rem)] overflow-hidden rounded-2xl border border-white/10 bg-black/85 text-white shadow-[0_12px_36px_rgba(0,0,0,0.4)] backdrop-blur-xl"
+		>
+			<div className="flex max-h-[60vh] flex-col">
+				<div className="border-b border-white/10 px-4 py-2.5 text-[11.5px] font-semibold tracking-wide text-white/70">
+					{current.pageLabel} · {current.diff.length} 项未保存
+				</div>
+				<div className="flex-1 overflow-y-auto px-2 py-2">
+					{sections.length === 0 ? (
+						<div className="px-2 py-4 text-center text-[12px] text-white/50">无字段变更</div>
+					) : (
+						sections.map((s) => <DiffSectionView key={s.section} section={s} />)
+					)}
+				</div>
+				<PanelFooter onDiscard={current.onDiscard} />
+			</div>
+		</motion.div>
+	);
+}
+
+function DiffSectionView({ section }: { section: DiffSection }) {
+	return (
+		<div className="mb-1.5 last:mb-0">
+			<div className="px-2 pb-1 pt-1.5 text-[10.5px] font-bold uppercase tracking-wider text-white/40">
+				{section.label}
+			</div>
+			<div className="flex flex-col gap-0.5">
+				{section.rows.map((row) => (
+					<DiffRow key={row.code} row={row} />
+				))}
+			</div>
+		</div>
+	);
+}
+
+function DiffRow({ row }: { row: FieldDiff }) {
+	const before = formatDiffValue(row.code, row.oldValue);
+	const after = formatDiffValue(row.code, row.newValue);
+	return (
+		<button
+			type="button"
+			onClick={() => scrollToFieldByCode(row.code)}
+			className="flex w-full flex-col gap-0.5 rounded-md px-2 py-1.5 text-left transition hover:bg-white/5"
+			title={`跳转到 ${row.code}`}
+		>
+			<code className="font-mono text-[10.5px] text-white/50">{row.code}</code>
+			<div className="flex items-center gap-1.5 text-[12px]">
+				<ValueChip value={before} muted />
+				<span className="text-white/40">→</span>
+				<ValueChip value={after} />
+			</div>
+		</button>
+	);
+}
+
+function ValueChip({
+	value,
+	muted = false,
+}: {
+	value: { display: string; swatch?: string };
+	muted?: boolean;
+}) {
+	const tone = muted ? "text-white/60" : "text-white";
+	return (
+		<span className={`inline-flex min-w-0 items-center gap-1 ${tone}`}>
+			{value.swatch ? (
+				<span
+					className="inline-block h-3 w-3 shrink-0 rounded-sm border border-white/30"
+					style={{ backgroundColor: value.swatch }}
+					aria-hidden
+				/>
+			) : null}
+			<span className="truncate font-mono text-[11.5px]">{value.display}</span>
+		</span>
+	);
+}
+
+function PanelFooter({ onDiscard }: { onDiscard: () => void }) {
+	return (
+		<div className="flex items-center justify-between border-t border-white/10 px-4 py-2">
+			<button
+				type="button"
+				onClick={onDiscard}
+				className="rounded-full px-2.5 py-1 text-[11px] text-white/60 transition hover:bg-white/10 hover:text-white"
+			>
+				丢弃全部更改
+			</button>
+			<span className="text-[10.5px] text-white/40">click 行跳转字段</span>
+		</div>
 	);
 }
