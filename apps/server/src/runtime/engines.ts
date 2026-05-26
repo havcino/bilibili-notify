@@ -930,7 +930,7 @@ function buildDynamicFilter(eff: ReturnType<typeof resolve>) {
 	};
 }
 
-function buildDynamicSubsView(
+export function buildDynamicSubsView(
 	store: SubscriptionStore,
 	subRuntimeStore: SubRuntimeStore,
 	globals: GlobalConfig,
@@ -943,19 +943,30 @@ function buildDynamicSubsView(
 		// 在 broadcast 时按 routing 空 = 无 sink 自然兜底——所以 features.dynamic=true /
 		// routing.dynamic=[] 的 UP 仍跑 cron,后续加 routing 时下一个轮询周期立即生效。
 		const hasDynamic = eff.features.dynamic;
+		// customCardStyle / aiOverride 只在**真有 per-UP override 时**才生成;无
+		// override 时这两个字段留 undefined / enable:false,engine 推送路径就传
+		// undefined 给 ImageRenderer / CommentaryGenerator —— 它们各自走 this.config
+		// 兜底 (`generateXxxCard` 解构 `= this.config.cardColorStart`,
+		// `getSystemPrompt` 用 `override?.persona ?? this.config.persona`),自动
+		// 跟全局 hot-reload。否则:eff = resolve(sub, globals) 会把全局值合进 eff,
+		// 再"伪装"成 per-UP override 写进 SubItemView,而 dynamicSubManager 是 add
+		// 时的快照不刷,全局改了 dynamic 端永远沿用 add 时的旧值。
 		view[sub.uid] = {
 			uid: sub.uid,
 			uname: subRuntimeStore.get(sub.id)?.cachedProfile?.name ?? sub.uid,
 			dynamic: hasDynamic,
-			customCardStyle: {
-				enable: true,
-				cardColorStart: eff.cardStyle.cardColorStart,
-				cardColorEnd: eff.cardStyle.cardColorEnd,
-			},
-			// 每次 cron tick getSubs() 都会重新跑这里,per-UP filter / aiOverride 改完
-			// 下一个轮询周期自动生效,不需要单独 hot-reload 路径。
-			filter: buildDynamicFilter(eff),
-			aiOverride: buildAiOverride(eff),
+			customCardStyle: sub.overrides.cardStyle
+				? {
+						enable: true,
+						cardColorStart: sub.overrides.cardStyle.cardColorStart,
+						cardColorEnd: sub.overrides.cardStyle.cardColorEnd,
+					}
+				: { enable: false },
+			// filter / aiOverride 仅在真有 per-UP override 时生成;无 override 时
+			// undefined,engine 推送路径 `subForFilter?.filter ?? this.config.filter`
+			// 自动走 engine.config(全局 filter 经 dynamic.updateConfig 已 hot-reload)。
+			filter: sub.overrides.filters ? buildDynamicFilter(eff) : undefined,
+			aiOverride: sub.overrides.ai ? buildAiOverride(eff) : undefined,
 			// per-UP imageGroup override(enable / forward)直接透传 raw 值;engine
 			// 内部用 `?? engine.config.imageGroup` 与全局 default 兜底。
 			imageGroupEnable: sub.overrides.imageGroup?.enable,
@@ -978,7 +989,7 @@ function buildLiveSubsView(
 	return view;
 }
 
-function buildLiveSubViewSingle(
+export function buildLiveSubViewSingle(
 	sub: Subscription,
 	subRuntimeStore: SubRuntimeStore,
 	globals: GlobalConfig,
@@ -1003,11 +1014,18 @@ function buildLiveSubViewSingle(
 		wordcloud: feat("wordcloud"),
 		liveSummary: feat("liveSummary"),
 		target: eff.routing,
-		customCardStyle: {
-			enable: true,
-			cardColorStart: eff.cardStyle.cardColorStart,
-			cardColorEnd: eff.cardStyle.cardColorEnd,
-		},
+		// customCardStyle / aiOverride 只在真有 per-UP override 时生成(对齐 dynamic
+		// 端 buildDynamicSubsView 同名字段)。无 override → enable:false / undefined →
+		// LiveEngine 推送时(room-helpers `cardStyle?.enable ? cardStyle : undefined`
+		// / live-summary-requester 透传 aiOverride)自动传 undefined → ImageRenderer
+		// / CommentaryGenerator 走 this.config 兜底,跟全局 hot-reload 同步。
+		customCardStyle: sub.overrides.cardStyle
+			? {
+					enable: true,
+					cardColorStart: sub.overrides.cardStyle.cardColorStart,
+					cardColorEnd: sub.overrides.cardStyle.cardColorEnd,
+				}
+			: { enable: false },
 		// Per-UP 阈值 / 调度 / AI;adapter 在 add 路径上灌入,room-session 在 SC /
 		// guard / restartPush / pushTime / liveSummary 调用点先取 sub 值,缺失时回退全局。
 		// 已活跃 listener 通过 LiveScopedChange 同步增量更新(`subscriptionOpsToLive`
@@ -1017,7 +1035,7 @@ function buildLiveSubViewSingle(
 		minGuardLevel: eff.filters.minGuardLevel,
 		pushTime: eff.schedule.pushTime,
 		restartPush: eff.schedule.restartPush,
-		aiOverride: buildAiOverride(eff),
+		aiOverride: sub.overrides.ai ? buildAiOverride(eff) : undefined,
 		customLiveMsg: eff.templates.liveMsgEnabled
 			? {
 					enable: true,
