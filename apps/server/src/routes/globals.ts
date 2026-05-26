@@ -139,10 +139,14 @@ async function runEnableCheck(args: EnableCheckArgs): Promise<EnableCheckResult>
 
 /**
  * AI 连接探活(checkAiEnable,会真打一次 chat/completions 请求)是否该跑。仅两种情况:
- *  1. 本次 patch 改了连接字段 apiKey / baseUrl / model;
+ *  1. 本次 patch 把连接字段 apiKey / baseUrl / model **改成跟 current 不同的新值**;
  *  2. 本次 patch 把 ai.enabled 从 false 翻成 true(启用动作本身要验)。
  * 改 persona / prompt / temperature 不触发探活;AI 最终为禁用态时一律不跑。
- * apiKey 经 stripRedactedSecrets 处理:用户没动它时已从 patch 剔除,pluck 自然取不到。
+ *
+ * 「值跟 current 相同也不触发」是为兼容前端整段 patch 风格 —— Ai.tsx save mutation
+ * 现在把整段 `defaults.ai` 原样送上,只改 persona 时 baseUrl/model 也跟着进 patch,
+ * 仅判断「字段在 patch 里」会误触探活。apiKey 经 stripRedactedSecrets 处理:用户没动
+ * 它时已从 patch 剔除,pluck 自然取不到。
  */
 export function shouldRunAiEnableCheck(
 	current: import("@bilibili-notify/internal").GlobalConfig,
@@ -153,10 +157,13 @@ export function shouldRunAiEnableCheck(
 		pluck(patch, ["defaults", "ai", "enabled"]),
 	);
 	if (!aiEnabled) return false;
+	const apiKeyInPatch = pluck(patch, ["defaults", "ai", "apiKey"]);
+	const baseUrlInPatch = pluck(patch, ["defaults", "ai", "baseUrl"]);
+	const modelInPatch = pluck(patch, ["defaults", "ai", "model"]);
 	const touchesConnection =
-		pluck(patch, ["defaults", "ai", "apiKey"]) !== undefined ||
-		pluck(patch, ["defaults", "ai", "baseUrl"]) !== undefined ||
-		pluck(patch, ["defaults", "ai", "model"]) !== undefined;
+		(apiKeyInPatch !== undefined && apiKeyInPatch !== current.defaults.ai.apiKey) ||
+		(baseUrlInPatch !== undefined && baseUrlInPatch !== current.defaults.ai.baseUrl) ||
+		(modelInPatch !== undefined && modelInPatch !== current.defaults.ai.model);
 	const enabling = !current.defaults.ai.enabled && aiEnabled;
 	return touchesConnection || enabling;
 }
