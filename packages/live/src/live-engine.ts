@@ -101,16 +101,25 @@ export class LiveEngine {
 	private readonly danmakuCollector: DanmakuCollector;
 	private readonly liveSummaryRequester: LiveSummaryRequester;
 	private config: LiveEngineConfig;
+	/**
+	 * Image 渲染器的当前引用 —— 单一可变 state,setImageRenderer 在此更新;
+	 * 所有子组件(wordcloud / listener / room-context)通过 provider 函数现取,
+	 * 无需逐组件 setter 推送。
+	 */
+	private currentImageRenderer: ImageRenderer | null;
 
 	constructor(opts: LiveEngineOptions) {
 		this.logger = opts.serviceCtx.logger;
 		this.config = opts.config;
+		this.currentImageRenderer = opts.imageRenderer ?? null;
+
+		const getImageRenderer = (): ImageRenderer | null => this.currentImageRenderer;
 
 		const stopwords = mergeStopWords(opts.config.wordcloudStopWords);
 		this.danmakuCollector = new DanmakuCollector(stopwords);
 		const templateRenderer = new LiveTemplateRenderer();
 		const wordcloudGenerator = new WordcloudGenerator({
-			imageRenderer: opts.imageRenderer ?? null,
+			getImageRenderer,
 			isImageEnabled: () => this.config.imageEnabled !== false,
 			logger: this.logger,
 		});
@@ -131,7 +140,7 @@ export class LiveEngine {
 			wordcloudGenerator,
 			liveSummaryRequester,
 			danmakuCollector: this.danmakuCollector,
-			imageRenderer: opts.imageRenderer ?? null,
+			getImageRenderer,
 			config: toListenerConfig(opts.config),
 			emitEngineError: opts.emitEngineError,
 			emitLiveState: opts.emitLiveState,
@@ -238,6 +247,18 @@ export class LiveEngine {
 	 */
 	setCommentary(commentary: CommentaryGenerator | null): void {
 		this.liveSummaryRequester.setCommentary(commentary);
+	}
+
+	/**
+	 * 热替换 ImageRenderer 实例。adapter 在 image 服务上下线时调用。子组件 (词云 /
+	 * room-context / 卡片渲染) 都通过共享 provider 现取,这里只需更新单一 state。
+	 *
+	 * 主要给 koishi adapter 用 —— sibling service (-image) 启停时通过 ctx.inject
+	 * 后置注入。独立端 imageRenderer 是 engine 同进程一次性 wire,不会动态消失,
+	 * 不需要调用本方法 (cardStyle 热更走 imageRenderer.updateConfig)。
+	 */
+	setImageRenderer(imageRenderer: ImageRenderer | null): void {
+		this.currentImageRenderer = imageRenderer;
 	}
 
 	/** Final dispose; the engine instance must not be reused after this. */

@@ -203,11 +203,12 @@ export class BilibiliNotifyLive extends Service<BilibiliNotifyLiveConfig> {
 			liveSummaryDefault: config.liveSummary.join("\n"),
 			customGuardBuy: config.customGuardBuy,
 			customLiveMsg: config.customLiveMsg,
-			// imageEnabled / aiEnabled = 对应插件服务在不在(koishi 端「装了即启用」),
-			// 与下方 imageRenderer / commentary 的注入同源。此前从 internals.defaults
-			// 读 —— defaults.ai.enabled 恒为 false,把 AI 直播总结门控关死了。
-			imageEnabled: !!this.ctx.get("bilibili-notify-image"),
-			aiEnabled: !!this.ctx.get("bilibili-notify-ai"),
+			// koishi 端没有独立的「用户开关 imageEnabled/aiEnabled」—— 是否启用完全
+			// 由 image / ai 子插件装没装决定,运行时上下线通过下方 ctx.inject 调用
+			// setImageRenderer / setCommentary 控制。这里固定 true(= 用户未禁用),
+			// 把启停决策权下沉给 ctx.inject。
+			imageEnabled: true,
+			aiEnabled: true,
 		};
 	}
 
@@ -222,13 +223,18 @@ export class BilibiliNotifyLive extends Service<BilibiliNotifyLiveConfig> {
 		// 这里把 config 一次性捕获,resolve「config + per-UP」即两层折叠。
 		const config = this.config;
 
+		// imageRenderer / commentary 不在 constructor 一次性塞 —— 由下方 ctx.inject
+		// 在依赖服务 ready 时通过 setImageRenderer / setCommentary 后置注入,避免
+		// koishi-plugin-bilibili-notify-ai / -image 晚于 -live 启动时 engine 内
+		// 引用永远空,推送 silent skip(类级 inject 只列必需的 "bilibili-notify",
+		// ai / image 是 optional 不等待)。
 		this.engine = new LiveEngine({
 			serviceCtx,
 			api: internals.api,
 			push: pushLike,
 			contentBuilder: koishiContentBuilder,
-			imageRenderer: this.ctx.get("bilibili-notify-image")?.engine ?? null,
-			commentary: this.ctx.get("bilibili-notify-ai")?.engine ?? null,
+			imageRenderer: null,
+			commentary: null,
 			config: this.toEngineConfig(config),
 			emitEngineError: (message) =>
 				this.ctx.emit("bilibili-notify/engine-error", SERVICE_NAME, message),
@@ -236,6 +242,18 @@ export class BilibiliNotifyLive extends Service<BilibiliNotifyLiveConfig> {
 				this.ctx.emit("bilibili-notify/live-state-changed", uid, status),
 			emitViewers: (uid, viewers) =>
 				this.ctx.emit("bilibili-notify/live-viewers-changed", uid, viewers),
+		});
+
+		// 后置注入:ctx.inject 在 ai / image 服务 ready 时跑 callback、脱离时 dispose
+		// fork、再次 ready 时再次执行;fork 跟随 this.ctx 销毁(service stop 时整体
+		// 回收),无需手动 dispose。
+		this.ctx.inject(["bilibili-notify-ai"], (subCtx) => {
+			this.engine?.setCommentary(subCtx.get("bilibili-notify-ai")?.engine ?? null);
+			subCtx.on("dispose", () => this.engine?.setCommentary(null));
+		});
+		this.ctx.inject(["bilibili-notify-image"], (subCtx) => {
+			this.engine?.setImageRenderer(subCtx.get("bilibili-notify-image")?.engine ?? null);
+			subCtx.on("dispose", () => this.engine?.setImageRenderer(null));
 		});
 
 		// Initialize with current subs

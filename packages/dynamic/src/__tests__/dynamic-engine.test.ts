@@ -943,3 +943,164 @@ describe("DynamicEngine — 生命周期 / cron 重启", () => {
 		).toHaveLength(2);
 	});
 });
+
+// ---------------------------------------------------------------------------
+// D. 后置注入:setAi / setImage(adapter 在 ai / image 服务上下线时调用)
+// ---------------------------------------------------------------------------
+
+describe("DynamicEngine — setAi / setImage 后置注入", () => {
+	const dyn = (): Dynamic =>
+		({
+			id_str: "d1",
+			type: "DYNAMIC_TYPE_WORD",
+			modules: {
+				module_author: { mid: 1, name: "UP", pub_ts: 1000 },
+				module_dynamic: {
+					desc: { text: "新动态内容" },
+					major: undefined,
+				},
+			},
+		}) as unknown as Dynamic;
+
+	it("启动时 ai 字段为 undefined → setAi 注入后 detectDynamics 调用 ai.comment", async () => {
+		const b = makeEngine({
+			withAi: false,
+			withImage: false,
+			config: { aiEnabled: true },
+		});
+		seed(b.engine, "1", 500);
+		b.getAllDynamic.mockResolvedValue({
+			code: 0,
+			data: { items: [dyn()] },
+		} as unknown as AllDynamicInfo);
+
+		await detect(b.engine);
+		// 没注入 ai → 不调 ai.comment
+		expect(b.comment).not.toHaveBeenCalled();
+
+		// 模拟 ai 服务后置 ready → setAi 注入
+		const comment = vi.fn().mockResolvedValue("点评");
+		const ai = { comment } as unknown as CommentaryGenerator;
+		b.engine.setAi(ai);
+
+		// 推下一条动态
+		const next = dyn();
+		(next as { id_str: string }).id_str = "d2";
+		(next.modules.module_author as { pub_ts: number }).pub_ts = 2000;
+		b.getAllDynamic.mockResolvedValue({
+			code: 0,
+			data: { items: [next] },
+		} as unknown as AllDynamicInfo);
+		await detect(b.engine);
+		expect(comment).toHaveBeenCalledTimes(1);
+	});
+
+	it("setAi(undefined) → 撤销后 detectDynamics 不再调 ai.comment", async () => {
+		const comment = vi.fn().mockResolvedValue("点评");
+		const ai = { comment } as unknown as CommentaryGenerator;
+		const b = makeEngine({
+			withAi: false,
+			withImage: false,
+			config: { aiEnabled: true },
+		});
+		seed(b.engine, "1", 500);
+		b.engine.setAi(ai);
+		b.getAllDynamic.mockResolvedValue({
+			code: 0,
+			data: { items: [dyn()] },
+		} as unknown as AllDynamicInfo);
+		await detect(b.engine);
+		expect(comment).toHaveBeenCalledTimes(1);
+
+		b.engine.setAi(undefined);
+		const next = dyn();
+		(next as { id_str: string }).id_str = "d2";
+		(next.modules.module_author as { pub_ts: number }).pub_ts = 2000;
+		b.getAllDynamic.mockResolvedValue({
+			code: 0,
+			data: { items: [next] },
+		} as unknown as AllDynamicInfo);
+		await detect(b.engine);
+		expect(comment).toHaveBeenCalledTimes(1); // 没新增调用
+	});
+
+	it("启动时 image 字段为 undefined → setImage 注入后 detectDynamics 调用 generateDynamicCard", async () => {
+		const b = makeEngine({
+			withImage: false,
+			withAi: false,
+		});
+		seed(b.engine, "1", 500);
+		b.getAllDynamic.mockResolvedValue({
+			code: 0,
+			data: { items: [dyn()] },
+		} as unknown as AllDynamicInfo);
+
+		await detect(b.engine);
+		expect(b.generateDynamicCard).not.toHaveBeenCalled();
+
+		const generateDynamicCard = vi.fn().mockResolvedValue(Buffer.from("png"));
+		const image = { generateDynamicCard } as unknown as ImageRenderer;
+		b.engine.setImage(image);
+
+		const next = dyn();
+		(next as { id_str: string }).id_str = "d2";
+		(next.modules.module_author as { pub_ts: number }).pub_ts = 2000;
+		b.getAllDynamic.mockResolvedValue({
+			code: 0,
+			data: { items: [next] },
+		} as unknown as AllDynamicInfo);
+		await detect(b.engine);
+		expect(generateDynamicCard).toHaveBeenCalledTimes(1);
+	});
+
+	it("setAi 多次替换 → 下次 detect 用最新引用(reload ai plugin 场景)", async () => {
+		const oldComment = vi.fn().mockResolvedValue("旧点评");
+		const newComment = vi.fn().mockResolvedValue("新点评");
+		const oldAi = { comment: oldComment } as unknown as CommentaryGenerator;
+		const newAi = { comment: newComment } as unknown as CommentaryGenerator;
+		const b = makeEngine({
+			withAi: false,
+			withImage: false,
+			config: { aiEnabled: true },
+		});
+		seed(b.engine, "1", 500);
+		b.engine.setAi(oldAi);
+		b.engine.setAi(newAi); // 第二次替换 = ai plugin reload
+
+		b.getAllDynamic.mockResolvedValue({
+			code: 0,
+			data: { items: [dyn()] },
+		} as unknown as AllDynamicInfo);
+		await detect(b.engine);
+		expect(oldComment).not.toHaveBeenCalled();
+		expect(newComment).toHaveBeenCalledTimes(1);
+	});
+
+	it("setImage(undefined) → 撤销后 detectDynamics 不再调 generateDynamicCard", async () => {
+		const generateDynamicCard = vi.fn().mockResolvedValue(Buffer.from("png"));
+		const image = { generateDynamicCard } as unknown as ImageRenderer;
+		const b = makeEngine({
+			withImage: false,
+			withAi: false,
+		});
+		seed(b.engine, "1", 500);
+		b.engine.setImage(image);
+		b.getAllDynamic.mockResolvedValue({
+			code: 0,
+			data: { items: [dyn()] },
+		} as unknown as AllDynamicInfo);
+		await detect(b.engine);
+		expect(generateDynamicCard).toHaveBeenCalledTimes(1);
+
+		b.engine.setImage(undefined);
+		const next = dyn();
+		(next as { id_str: string }).id_str = "d2";
+		(next.modules.module_author as { pub_ts: number }).pub_ts = 2000;
+		b.getAllDynamic.mockResolvedValue({
+			code: 0,
+			data: { items: [next] },
+		} as unknown as AllDynamicInfo);
+		await detect(b.engine);
+		expect(generateDynamicCard).toHaveBeenCalledTimes(1);
+	});
+});

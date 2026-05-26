@@ -115,13 +115,17 @@ export class BilibiliNotifyDynamic extends Service<BilibiliNotifyDynamicConfig> 
 		const bus = makeKoishiMessageBus(this.ctx);
 		const pushLike = adaptPush(internals.push);
 
+		// image / ai 不在 constructor 传入 —— 由下方 ctx.inject 在依赖服务 ready 时
+		// 后置注入。Service 类级 inject 仅含 "bilibili-notify",bilibili-notify-ai /
+		// -image 是 optional,启动时不等待。若在 constructor 一次性赋值,ai 服务比
+		// dynamic 晚 ready 的情况下 engine.ai 永远 undefined,推送时 silent skip。
 		this.engine = new DynamicEngine({
 			serviceCtx,
 			bus,
 			api: internals.api,
 			push: pushLike,
-			image: this.ctx.get("bilibili-notify-image")?.engine,
-			ai: this.ctx.get("bilibili-notify-ai")?.engine,
+			image: undefined,
+			ai: undefined,
 			config: this.toEngineConfig(this.config),
 			getSubs: () => {
 				const fresh = this.ctx["bilibili-notify"].getInternals(BILIBILI_NOTIFY_TOKEN);
@@ -131,6 +135,18 @@ export class BilibiliNotifyDynamic extends Service<BilibiliNotifyDynamicConfig> 
 		});
 
 		this.engine.start();
+
+		// 后置注入:ctx.inject 在 deps ready 时跑 callback、deps 任一脱离时 dispose
+		// fork,deps 再次都齐时再次跑 callback。fork 跟随 this.ctx 销毁(service stop
+		// 时整体回收),无需手动 dispose。
+		this.ctx.inject(["bilibili-notify-ai"], (subCtx) => {
+			this.engine?.setAi(subCtx.get("bilibili-notify-ai")?.engine);
+			subCtx.on("dispose", () => this.engine?.setAi(undefined));
+		});
+		this.ctx.inject(["bilibili-notify-image"], (subCtx) => {
+			this.engine?.setImage(subCtx.get("bilibili-notify-image")?.engine);
+			subCtx.on("dispose", () => this.engine?.setImage(undefined));
+		});
 
 		// koishi 端订阅事件 → engine.applyOps
 		this.ctx.on("bilibili-notify/subscription-changed", (ops: SubscriptionOp[]) => {

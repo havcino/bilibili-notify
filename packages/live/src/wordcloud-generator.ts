@@ -20,12 +20,17 @@ export const WORDCLOUD_TOP_WORDS = 90;
  * platform (e.g. via `LiveContentBuilder.image`).
  */
 export class WordcloudGenerator {
-	private readonly imageRenderer: ImageRenderer | null;
+	private readonly getImageRenderer: () => ImageRenderer | null;
 	private readonly isImageEnabled: () => boolean;
 	private readonly logger: Logger;
 
 	constructor(opts: {
-		imageRenderer: ImageRenderer | null;
+		/**
+		 * 渲染器 provider —— 每次 generate() 现取最新引用,使 LiveEngine 在 image
+		 * 服务上下线时通过 setImageRenderer 替换内部状态,词云生成自动同步,无需子组件
+		 * 接 setter。
+		 */
+		getImageRenderer: () => ImageRenderer | null;
 		/**
 		 * 卡片渲染总开关查询。返回 false 时直接跳过 puppeteer 调用,与缺失 imageRenderer
 		 * 等价。Adapter 通常用 `() => globals.defaults.cardStyle.enabled` 填充;缺省 () => true。
@@ -33,7 +38,7 @@ export class WordcloudGenerator {
 		isImageEnabled?: () => boolean;
 		logger: Logger;
 	}) {
-		this.imageRenderer = opts.imageRenderer;
+		this.getImageRenderer = opts.getImageRenderer;
 		this.isImageEnabled = opts.isImageEnabled ?? (() => true);
 		this.logger = opts.logger;
 	}
@@ -60,9 +65,10 @@ export class WordcloudGenerator {
 			this.logger.debug("[wordcloud] cardStyle.enabled=false,跳过词云图片生成");
 			return undefined;
 		}
-		if (!this.imageRenderer?.generateWordCloudImg) return undefined;
+		const renderer = this.getImageRenderer();
+		if (!renderer?.generateWordCloudImg) return undefined;
 		try {
-			return await this.imageRenderer.generateWordCloudImg(
+			return await renderer.generateWordCloudImg(
 				sortedWords.slice(0, WORDCLOUD_TOP_WORDS),
 				masterName,
 				masterAvatarUrl,

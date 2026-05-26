@@ -416,7 +416,7 @@ describe("RoomContext.sendLiveNotifyCard — LiveType → LivePushType 映射", 
 			danmakuCollector: {} as never,
 			// imageRenderer=null → 走文字降级分支(buffer undefined),依旧调
 			// push.broadcastToTargets(uid, msg, pushType),pushType 即被测的映射结果。
-			imageRenderer: null,
+			getImageRenderer: () => null,
 			config: {
 				customGuardBuy: { enable: false },
 				customLiveMsg: { enable: false },

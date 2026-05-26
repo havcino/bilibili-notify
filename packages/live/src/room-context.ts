@@ -72,7 +72,11 @@ export interface RoomContextOptions {
 	wordcloudGenerator: WordcloudGenerator;
 	liveSummaryRequester: LiveSummaryRequester;
 	danmakuCollector: DanmakuCollector;
-	imageRenderer: ImageRenderer | null;
+	/**
+	 * 渲染器 provider —— LiveEngine 在 image 服务上下线时通过 setImageRenderer
+	 * 替换内部状态;getter `imageRenderer` 每次现取,所有 RoomContext 自动同步。
+	 */
+	getImageRenderer: () => ImageRenderer | null;
 	config: ListenerManagerConfig;
 	emitEngineError: (message: string) => void;
 	/**
@@ -117,11 +121,16 @@ export class RoomContextBase {
 	readonly liveSummaryRequester: LiveSummaryRequester;
 	readonly danmakuCollector: DanmakuCollector;
 	/**
-	 * 真实注入的渲染器引用,private 是因为外部应通过 `imageRenderer` getter 访问 ——
+	 * 渲染器 provider —— private 是因为外部应通过 `imageRenderer` getter 访问 ——
 	 * 后者会在 `config.imageEnabled === false` 时返回 null,让所有
 	 * `if (this.imageRenderer?.generateXxx)` 自然落入文字回退分支。
+	 * provider 形式让 LiveEngine 的 setImageRenderer 无需逐 RoomContext 推。
+	 *
+	 * **不要直接调 `this._getImageRenderer()` 绕过 imageEnabled 门控**,业务路径
+	 * 必须通过 `this.imageRenderer` getter,否则用户在 dashboard 关掉卡片渲染时
+	 * 这条路径仍会渲图。
 	 */
-	private readonly _imageRenderer: ImageRenderer | null;
+	private readonly _getImageRenderer: () => ImageRenderer | null;
 	readonly emitEngineError: (message: string) => void;
 	private readonly _emitLiveState: ((uid: string, status: "live" | "idle") => void) | undefined;
 	private readonly _emitViewers: ((uid: string, viewers: string) => void) | undefined;
@@ -152,7 +161,7 @@ export class RoomContextBase {
 		this.wordcloudGenerator = opts.wordcloudGenerator;
 		this.liveSummaryRequester = opts.liveSummaryRequester;
 		this.danmakuCollector = opts.danmakuCollector;
-		this._imageRenderer = opts.imageRenderer;
+		this._getImageRenderer = opts.getImageRenderer;
 		this.config = opts.config;
 		this.emitEngineError = opts.emitEngineError;
 		this._emitLiveState = opts.emitLiveState;
@@ -175,7 +184,7 @@ export class RoomContextBase {
 
 	/** 受 `config.imageEnabled` 门控的渲染器视图;关闭时返回 null。 */
 	get imageRenderer(): ImageRenderer | null {
-		return this.config.imageEnabled === false ? null : this._imageRenderer;
+		return this.config.imageEnabled === false ? null : this._getImageRenderer();
 	}
 
 	updateConfig(config: ListenerManagerConfig): void {

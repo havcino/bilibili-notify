@@ -151,7 +151,7 @@ export class DynamicEngine {
 	private readonly bus: MessageBus;
 	private readonly api: BilibiliAPI;
 	private readonly push: PushLike;
-	private readonly image?: ImageRenderer;
+	private image?: ImageRenderer;
 	private ai?: CommentaryGenerator;
 	private readonly logger: Logger;
 	private readonly getSubs: () => SubscriptionsView | null;
@@ -257,6 +257,18 @@ export class DynamicEngine {
 	 */
 	setAi(ai: CommentaryGenerator | undefined): void {
 		this.ai = ai;
+	}
+
+	/**
+	 * 热替换 ImageRenderer 实例。与 setAi 对称:adapter 在 image 服务上下线时
+	 * 调用,引擎随后的卡片渲染会立即用新实例 (或回退到纯文字) ,无需重启 server。
+	 *
+	 * 主要给 koishi adapter 用 —— sibling service (-image) 启停时通过 ctx.inject
+	 * 后置注入。独立端 imageRenderer 是 engine 同进程一次性 wire,不会动态消失,
+	 * 不需要调用本方法 (cardStyle 热更走 imageRenderer.updateConfig)。
+	 */
+	setImage(image: ImageRenderer | undefined): void {
+		this.image = image;
 	}
 
 	get isActive(): boolean {
