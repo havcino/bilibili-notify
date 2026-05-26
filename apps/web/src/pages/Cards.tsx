@@ -25,6 +25,7 @@ import {
 } from "../components/forms";
 import { GlassBox } from "../components/glass-box";
 import { Icon, type IconName } from "../components/icons";
+import { useDirtyDraft } from "../hooks/useDirtyDraft";
 import { ApiError, api } from "../services/api";
 import type { PushTarget } from "../types/domain";
 import type { CardStyle, GlobalConfig, LogLevel } from "../types/globals";
@@ -274,7 +275,6 @@ export default function Cards() {
 	const [imageLogLevel, setImageLogLevel] = useState<ImageLogLevel>("");
 	const [kind, setKind] = useState<CardKind>("live");
 	const [content, setContent] = useState<PreviewContent>(DEFAULT_PREVIEW_CONTENT);
-	const [error, setError] = useState<string | null>(null);
 
 	const setLive = (next: Partial<PreviewContent["live"]>) =>
 		setContent((c) => ({ ...c, live: { ...c.live, ...next } }));
@@ -292,39 +292,56 @@ export default function Cards() {
 		}
 	}, [globalsQuery.data]);
 
-	const serverImageLogLevel = globalsQuery.data?.app.logLevels?.image ?? "";
-	const dirty = useMemo(() => {
-		if (!draft || !globalsQuery.data) return false;
-		return (
-			JSON.stringify(draft) !== JSON.stringify(globalsQuery.data.defaults.cardStyle) ||
-			imageLogLevel !== serverImageLogLevel
-		);
-	}, [draft, globalsQuery.data, imageLogLevel, serverImageLogLevel]);
-
 	const save = useMutation({
 		mutationFn: async (payload: { cardStyle: CardStyle; imageLogLevel: ImageLogLevel }) => {
-			setError(null);
-			try {
-				const existing = globalsQuery.data?.app.logLevels ?? {};
-				// "" → drop the override (fall back to global). Setting to a level
-				// → patch only that key, so other module overrides stay untouched.
-				const nextLogLevels =
-					payload.imageLogLevel === ""
-						? Object.fromEntries(Object.entries(existing).filter(([k]) => k !== "image"))
-						: { ...existing, image: payload.imageLogLevel };
-				await api.patch<GlobalConfig>("/api/globals", {
-					app: {
-						logLevels: Object.keys(nextLogLevels).length === 0 ? undefined : nextLogLevels,
-					},
-					defaults: { cardStyle: payload.cardStyle },
-				});
-			} catch (err) {
-				if (err instanceof ApiError) setError(err.message);
-				else setError(String(err));
-				throw err;
-			}
+			const existing = globalsQuery.data?.app.logLevels ?? {};
+			// "" → drop the override (fall back to global). Setting to a level
+			// → patch only that key, so other module overrides stay untouched.
+			const nextLogLevels =
+				payload.imageLogLevel === ""
+					? Object.fromEntries(Object.entries(existing).filter(([k]) => k !== "image"))
+					: { ...existing, image: payload.imageLogLevel };
+			await api.patch<GlobalConfig>("/api/globals", {
+				app: {
+					logLevels: Object.keys(nextLogLevels).length === 0 ? undefined : nextLogLevels,
+				},
+				defaults: { cardStyle: payload.cardStyle },
+			});
 		},
 		onSuccess: () => qc.invalidateQueries({ queryKey: ["globals"] }),
+	});
+
+	// 灵动岛 draft/baseline:把 cardStyle 顶层字段 + app.logLevels.image 合在
+	// 一个对象里,让 walkTreeDiff 输出的 code 跟 FIELD_LABELS 字典 key 对齐
+	// (cardColorStart / font / hideDesc / app.logLevels.image)。
+	const islandDraft = useMemo(() => {
+		if (draft === null) return null;
+		return {
+			...draft,
+			app: { logLevels: { image: imageLogLevel === "" ? null : imageLogLevel } },
+		};
+	}, [draft, imageLogLevel]);
+	const islandBaseline = useMemo(() => {
+		if (!globalsQuery.data) return null;
+		return {
+			...globalsQuery.data.defaults.cardStyle,
+			app: { logLevels: { image: globalsQuery.data.app.logLevels?.image ?? null } },
+		};
+	}, [globalsQuery.data]);
+
+	useDirtyDraft({
+		pageKey: "cards",
+		pageLabel: "卡片样式",
+		draft: islandDraft,
+		baseline: islandBaseline,
+		onSave: async () => {
+			if (draft !== null) await save.mutateAsync({ cardStyle: draft, imageLogLevel });
+		},
+		onDiscard: () => {
+			if (!globalsQuery.data) return;
+			setDraft(globalsQuery.data.defaults.cardStyle);
+			setImageLogLevel(globalsQuery.data.app.logLevels?.image ?? "");
+		},
 	});
 
 	if (!draft) {
@@ -339,12 +356,6 @@ export default function Cards() {
 		setDraft((d) => (d ? { ...d, [k]: v } : d));
 
 	const enabled = draft.enabled;
-
-	function discard(): void {
-		if (!globalsQuery.data) return;
-		setDraft(globalsQuery.data.defaults.cardStyle);
-		setImageLogLevel(globalsQuery.data.app.logLevels?.image ?? "");
-	}
 
 	const KindIcon = Icon[KIND_LABELS[kind].icon];
 
@@ -390,30 +401,7 @@ export default function Cards() {
 						]}
 					/>
 				</div>
-
-				{dirty ? (
-					<div className="mt-3.5 flex items-center justify-end gap-2">
-						<span className="text-[11.5px] font-semibold text-bn-pink">未保存</span>
-						<Btn variant="outline" size="sm" onClick={discard} disabled={save.isPending}>
-							丢弃
-						</Btn>
-						<Btn
-							variant="primary"
-							size="sm"
-							onClick={() => draft && save.mutate({ cardStyle: draft, imageLogLevel })}
-							disabled={save.isPending}
-						>
-							{save.isPending ? "保存中…" : "保存"}
-						</Btn>
-					</div>
-				) : null}
 			</div>
-
-			{error ? (
-				<div className="rounded border border-red-200 bg-red-50 p-2 text-xs text-red-700">
-					{error}
-				</div>
-			) : null}
 
 			<div className="grid gap-3.5 lg:grid-cols-[380px_1fr]">
 				{/* LEFT: image plugin config */}

@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { Avatar, Btn } from "../components/atoms";
 import {
 	Field,
@@ -11,6 +11,7 @@ import {
 } from "../components/forms";
 import { GlassBox } from "../components/glass-box";
 import { Icon } from "../components/icons";
+import { useDirtyDraft } from "../hooks/useDirtyDraft";
 import { ApiError, api } from "../services/api";
 import { useAuthStore } from "../store/auth";
 import { BiliLoginStatus, type BiliLoginStatusValue } from "../types/auth";
@@ -277,53 +278,48 @@ export default function System() {
 	});
 
 	const [draft, setDraft] = useState<GlobalConfig | null>(null);
-	const [systemError, setSystemError] = useState<string | null>(null);
 
 	useEffect(() => {
 		if (globalsQuery.data) setDraft(globalsQuery.data);
 	}, [globalsQuery.data]);
 
-	const dirty = useMemo(() => {
-		if (!draft || !globalsQuery.data) return false;
-		return JSON.stringify(draft) !== JSON.stringify(globalsQuery.data);
-	}, [draft, globalsQuery.data]);
-
 	function patchDraft(delta: GlobalConfigPatch): void {
 		setDraft((d) => (d ? deepMerge(d, delta) : d));
 	}
 
-	function discard(): void {
-		if (globalsQuery.data) setDraft(globalsQuery.data);
-		setSystemError(null);
-	}
-
 	const save = useMutation({
 		mutationFn: async (next: GlobalConfig) => {
-			setSystemError(null);
-			try {
-				// Only send the scopes this tab actually edits. Posting the whole
-				// draft would make the backend enable-check see `defaults.cardStyle`
-				// and `defaults.ai` in the patch body and run the puppeteer +
-				// chat.completions probes on every save — slow and pointless when
-				// the user never touched those fields here.
-				// SY1:清空的可选字段经线发显式 `null`(后端 deepMerge 约定 null=
-				// 清除)。直接发 undefined 会被 JSON.stringify 丢键,后端当作未改 →
-				// 已配的 master.targetId / userAgent / logLevels 无法经 UI 清除。
-				await api.patch<GlobalConfig>("/api/globals", {
-					app: {
-						...next.app,
-						userAgent: next.app.userAgent ?? null,
-						logLevels: next.app.logLevels ?? null,
-					},
-					master: { ...next.master, targetId: next.master.targetId ?? null },
-				});
-			} catch (err) {
-				if (err instanceof ApiError) setSystemError(err.message);
-				else setSystemError(String(err));
-				throw err;
-			}
+			// Only send the scopes this tab actually edits. Posting the whole
+			// draft would make the backend enable-check see `defaults.cardStyle`
+			// and `defaults.ai` in the patch body and run the puppeteer +
+			// chat.completions probes on every save — slow and pointless when
+			// the user never touched those fields here.
+			// SY1:清空的可选字段经线发显式 `null`(后端 deepMerge 约定 null=
+			// 清除)。直接发 undefined 会被 JSON.stringify 丢键,后端当作未改 →
+			// 已配的 master.targetId / userAgent / logLevels 无法经 UI 清除。
+			await api.patch<GlobalConfig>("/api/globals", {
+				app: {
+					...next.app,
+					userAgent: next.app.userAgent ?? null,
+					logLevels: next.app.logLevels ?? null,
+				},
+				master: { ...next.master, targetId: next.master.targetId ?? null },
+			});
 		},
 		onSuccess: () => qc.invalidateQueries({ queryKey: ["globals"] }),
+	});
+
+	useDirtyDraft<GlobalConfig>({
+		pageKey: "system",
+		pageLabel: "Core · 应用",
+		draft,
+		baseline: globalsQuery.data ?? null,
+		onSave: async () => {
+			if (draft !== null) await save.mutateAsync(draft);
+		},
+		onDiscard: () => {
+			if (globalsQuery.data) setDraft(globalsQuery.data);
+		},
 	});
 
 	function wrap<T>(action: () => Promise<T>): () => Promise<T | undefined> {
@@ -446,34 +442,11 @@ export default function System() {
 			</GlassBox>
 
 			{draft ? (
-				<>
-					{dirty ? (
-						<div className="flex items-center justify-end gap-2">
-							<span className="text-[11.5px] font-semibold text-bn-pink">未保存</span>
-							<Btn variant="outline" size="sm" onClick={discard} disabled={save.isPending}>
-								丢弃
-							</Btn>
-							<Btn
-								variant="primary"
-								size="sm"
-								onClick={() => save.mutate(draft)}
-								disabled={save.isPending}
-							>
-								{save.isPending ? "保存中…" : "保存"}
-							</Btn>
-						</div>
-					) : null}
-					{systemError ? (
-						<div className="rounded border border-red-200 bg-red-50 p-2 text-xs text-red-700">
-							{systemError}
-						</div>
-					) : null}
-					<SystemSettingsSection
-						draft={draft}
-						targets={targetsQuery.data ?? []}
-						onPatch={patchDraft}
-					/>
-				</>
+				<SystemSettingsSection
+					draft={draft}
+					targets={targetsQuery.data ?? []}
+					onPatch={patchDraft}
+				/>
 			) : globalsQuery.isLoading ? (
 				<div className="text-xs text-bn-text-tertiary">加载系统配置中…</div>
 			) : globalsQuery.error ? (

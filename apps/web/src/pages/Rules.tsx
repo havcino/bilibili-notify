@@ -1,8 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Avatar, Btn, Pill } from "../components/atoms";
+import { Avatar, Pill } from "../components/atoms";
 import { Icon } from "../components/icons";
-import { ApiError, api } from "../services/api";
+import { useDirtyDraft } from "../hooks/useDirtyDraft";
+import { api } from "../services/api";
 import type { Subscription } from "../types/domain";
 import type { GlobalConfig, GlobalConfigPatch } from "../types/globals";
 import { PerUpEditor, type PerUpOverrideKey, perUpOverrideKeys } from "./rules/PerUpEditor";
@@ -381,7 +382,6 @@ export default function Rules() {
 	const [scope, setScope] = useState<Scope>("__global");
 	const [section, setSection] = useState<SectionId>("filter");
 	const [draft, setDraft] = useState<GlobalConfig | null>(null);
-	const [error, setError] = useState<string | null>(null);
 	// 用户主动通过「添加 UP」加进来,但还没设任何 override 的 sub.id;客户端内存,刷新即清空。
 	const [addedSubIds, setAddedSubIds] = useState<Set<string>>(new Set());
 
@@ -389,33 +389,21 @@ export default function Rules() {
 		if (globalsQuery.data) setDraft(globalsQuery.data);
 	}, [globalsQuery.data]);
 
-	const dirty = useMemo(() => {
-		if (!draft || !globalsQuery.data) return false;
-		return JSON.stringify(draft) !== JSON.stringify(globalsQuery.data);
-	}, [draft, globalsQuery.data]);
-
 	const save = useMutation({
 		mutationFn: async (next: GlobalConfig) => {
-			setError(null);
-			try {
-				// Only the scopes this page actually edits — filter / live thresholds /
-				// templates / imageGroup。Posting the full draft would put
-				// `defaults.cardStyle` and `defaults.ai` into the body and trigger the
-				// backend enable-check (puppeteer launch + chat.completions probe)
-				// every save, even though nothing here touches those scopes.
-				await api.patch<GlobalConfig>("/api/globals", {
-					defaults: {
-						filters: next.defaults.filters,
-						schedule: next.defaults.schedule,
-						templates: next.defaults.templates,
-						imageGroup: next.defaults.imageGroup,
-					},
-				});
-			} catch (err) {
-				if (err instanceof ApiError) setError(err.message);
-				else setError(String(err));
-				throw err;
-			}
+			// Only the scopes this page actually edits — filter / live thresholds /
+			// templates / imageGroup。Posting the full draft would put
+			// `defaults.cardStyle` and `defaults.ai` into the body and trigger the
+			// backend enable-check (puppeteer launch + chat.completions probe)
+			// every save, even though nothing here touches those scopes.
+			await api.patch<GlobalConfig>("/api/globals", {
+				defaults: {
+					filters: next.defaults.filters,
+					schedule: next.defaults.schedule,
+					templates: next.defaults.templates,
+					imageGroup: next.defaults.imageGroup,
+				},
+			});
 		},
 		onSuccess: () => qc.invalidateQueries({ queryKey: ["globals"] }),
 	});
@@ -430,11 +418,6 @@ export default function Rules() {
 
 	function patchDraft(delta: GlobalConfigPatch): void {
 		setDraft((d) => (d ? deepMerge(d, delta) : d));
-	}
-
-	function discard(): void {
-		if (globalsQuery.data) setDraft(globalsQuery.data);
-		setError(null);
 	}
 
 	const allSubs = subsQuery.data ?? [];
@@ -486,6 +469,41 @@ export default function Rules() {
 	const isGlobal = scope === "__global";
 	const focusedSub = !isGlobal ? allSubs.find((s) => s.id === scope) : undefined;
 	const sections = isGlobal ? GLOBAL_SECTIONS : PERUP_SECTIONS;
+
+	// 灵动岛 draft/baseline:仅 isGlobal 时接;per-UP 模式置 null → useDirtyDraft
+	// unregister。结构上把 filters/imageGroup 顶层字段打平(它们字典里 code 无前缀),
+	// schedule/templates 保留 nested(字典 code 是 `schedule.X` / `templates.X`)。
+	const islandDraft = useMemo(() => {
+		if (!isGlobal || draft === null) return null;
+		return {
+			...draft.defaults.filters,
+			...draft.defaults.imageGroup,
+			schedule: draft.defaults.schedule,
+			templates: draft.defaults.templates,
+		};
+	}, [isGlobal, draft]);
+	const islandBaseline = useMemo(() => {
+		if (!isGlobal || !globalsQuery.data) return null;
+		return {
+			...globalsQuery.data.defaults.filters,
+			...globalsQuery.data.defaults.imageGroup,
+			schedule: globalsQuery.data.defaults.schedule,
+			templates: globalsQuery.data.defaults.templates,
+		};
+	}, [isGlobal, globalsQuery.data]);
+
+	useDirtyDraft({
+		pageKey: "rules",
+		pageLabel: "动态过滤规则",
+		draft: islandDraft,
+		baseline: islandBaseline,
+		onSave: async () => {
+			if (draft !== null) await save.mutateAsync(draft);
+		},
+		onDiscard: () => {
+			if (globalsQuery.data) setDraft(globalsQuery.data);
+		},
+	});
 	const customizedIds: Set<SectionId> | undefined =
 		!isGlobal && focusedSub
 			? new Set(sections.map((s) => s.id).filter((id) => isSectionCustomized(focusedSub, id)))
@@ -510,29 +528,6 @@ export default function Rules() {
 				onRemoveSub={handleRemoveSub}
 				overridesCountFor={(s) => overrideKeysOf(s).size + (s.specialUsers.length > 0 ? 1 : 0)}
 			/>
-
-			{isGlobal && dirty ? (
-				<div className="flex items-center justify-end gap-2">
-					<span className="text-[11.5px] font-semibold text-bn-pink">未保存的改动</span>
-					<Btn variant="outline" size="sm" onClick={discard} disabled={save.isPending}>
-						丢弃
-					</Btn>
-					<Btn
-						variant="primary"
-						size="sm"
-						onClick={() => save.mutate(draft)}
-						disabled={save.isPending}
-					>
-						{save.isPending ? "保存中…" : "保存全部"}
-					</Btn>
-				</div>
-			) : null}
-
-			{error ? (
-				<div className="rounded border border-red-200 bg-red-50 p-2 text-xs text-red-700">
-					{error}
-				</div>
-			) : null}
 
 			<div className="grid gap-4 xl:grid-cols-[220px_1fr]">
 				<SectionList

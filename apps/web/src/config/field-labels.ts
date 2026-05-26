@@ -90,6 +90,23 @@ export const FIELD_LABELS = {
 		hint: "只影响 image 模块;选「跟随全局」时与 app.logLevel 同步。保存后立即生效,无需重启。",
 		section: "logging",
 	},
+	// 以下 3 条仅作 diff-path entry 用(System 页 SYSTEM_MODULES 改 core/dynamic/live
+	// 时 walkTreeDiff 会输出对应 dot-path,跳转锚点回到包裹整组的 <Field code="app.logLevels">)。
+	"app.logLevels.core": {
+		label: "日志等级",
+		hint: "只影响 core 模块",
+		section: "logging",
+	},
+	"app.logLevels.dynamic": {
+		label: "日志等级",
+		hint: "只影响 dynamic 模块",
+		section: "logging",
+	},
+	"app.logLevels.live": {
+		label: "日志等级",
+		hint: "只影响 live 模块",
+		section: "logging",
+	},
 	"app.userAgent": {
 		label: "User-Agent",
 		hint: "留空使用默认;遇 -352 风控可换",
@@ -122,6 +139,11 @@ export const FIELD_LABELS = {
 		section: "ai",
 	},
 	"ai.preset": { label: "预设", section: "ai" },
+	// AI / Cards hero strip 的「启用」总开关 Toggle 没包 <Field>(Picker 直挂在
+	// GlassBox right 槽),walkTreeDiff 输出 `enabled` 顶层路径。label 取通用
+	// 「启用」,灵动岛上下文已经标 pageLabel("智能女仆" / "卡片样式"),用户
+	// 看上下文就知道是哪页的启用。
+	enabled: { label: "启用", section: "general" },
 	"ai.dynamicPrompt": { label: "动态点评 prompt", section: "ai" },
 	"ai.liveSummaryPrompt": { label: "直播总结 prompt", section: "ai" },
 	presets: {
@@ -285,6 +307,25 @@ export const FIELD_LABELS = {
 	"templates.liveEnd": { label: "下播", section: "templates" },
 	"templates.specialDanmaku": { label: "弹幕模板", section: "templates" },
 	"templates.specialUserEnter": { label: "进房模板", section: "templates" },
+	// 以下 7 条仅 diff-path entry 用(LiveMsg / GuardSection 的 Toggle 直接挂在
+	// GlassBox.right 槽,Guard 模板嵌在小卡 JSX 里没单独 <Field> 包裹,diff 会
+	// 输出整段嵌套 path)。
+	"templates.liveMsgEnabled": {
+		label: "启用直播消息模板",
+		hint: "总开关 · 关 = 走 builtin 简短文案",
+		section: "templates",
+	},
+	"templates.guardBuy.enable": {
+		label: "启用自定义上舰提示",
+		hint: "总开关 · 关 = 默认走 B 站官方上舰图",
+		section: "templates",
+	},
+	"templates.guardBuy.captain.template": { label: "舰长文案", section: "templates" },
+	"templates.guardBuy.captain.imageUrl": { label: "舰长图片", section: "templates" },
+	"templates.guardBuy.commander.template": { label: "提督文案", section: "templates" },
+	"templates.guardBuy.commander.imageUrl": { label: "提督图片", section: "templates" },
+	"templates.guardBuy.governor.template": { label: "总督文案", section: "templates" },
+	"templates.guardBuy.governor.imageUrl": { label: "总督图片", section: "templates" },
 
 	// ── 特别关注 / Special UID ────────────────────────────────────────────
 	specialUsers: { label: "UID 列表", section: "specialUsers" },

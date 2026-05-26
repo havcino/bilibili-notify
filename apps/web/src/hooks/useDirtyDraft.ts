@@ -74,12 +74,22 @@ export function useDirtyDraft<T>(opts: UseDirtyDraftOptions<T>): UseDirtyDraftRe
 
 	const discard = useCallback(() => {
 		onDiscardRef.current();
+		clearNonNaturalUiState(draftStoreHandle());
 	}, []);
 
-	// register / 更新 current(diff 变化 → store 同步)
+	// register / 更新 current(diff 变化 → store 同步)。
+	//
+	// 当调用方把 draft 或 baseline 显式置 null 时(常见于 Rules 在 per-UP scope
+	// 模式下不接灵动岛),立即 unregister 而不是注册 `diff:[]` —— 后者会让灵
+	// 动岛短暂停在 idle 态(不可见),但 store.current 还指向本页 onSave/onDiscard
+	// 闭包,易被后续 saving 路径误用。明示 null = 明示「本页此刻不接灵动岛」。
 	useEffect(() => {
+		if (draft === null || baseline === null) {
+			unregister();
+			return;
+		}
 		register({ pageKey, pageLabel, diff, onSave: save, onDiscard: discard });
-	}, [register, pageKey, pageLabel, diff, save, discard]);
+	}, [register, unregister, pageKey, pageLabel, diff, save, discard, draft, baseline]);
 
 	// unmount cleanup —— 切页 / 路由跳走时清掉 current
 	useEffect(() => () => unregister(), [unregister]);
@@ -103,6 +113,18 @@ export function draftStoreHandle(): SaveFlowHandle {
 			return { uiState: s.uiState, current: s.current };
 		},
 	};
+}
+
+/**
+ * 丢弃后从非自然态(saving/saved/error)拽回 dirty,让 register 在下一轮以 diff
+ * 派生出自然态(diff=[] → idle)。store register 顶替策略默认保留非自然态以保护
+ * saving/saved feedback,但丢弃语义就是用户主动放弃当前流转 → 必须解锁。
+ */
+export function clearNonNaturalUiState(handle: SaveFlowHandle): void {
+	const { uiState } = handle.getState();
+	if (uiState === "error" || uiState === "saved" || uiState === "saving") {
+		handle.setUiState("dirty");
+	}
 }
 
 export const SAVED_LINGER_MS = 1200;

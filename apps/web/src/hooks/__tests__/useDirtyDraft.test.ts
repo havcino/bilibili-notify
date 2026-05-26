@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DraftRegistration, DraftUiState } from "../../store/draft";
 import {
 	_resetSavedLingerTimerForTest,
+	clearNonNaturalUiState,
 	runSaveFlow,
 	SAVED_LINGER_MS,
 	type SaveFlowHandle,
@@ -120,6 +121,22 @@ describe("runSaveFlow", () => {
 		const { handle, transitions } = stubHandle({ current: null });
 		await runSaveFlow(() => 42, handle);
 		expect(transitions.map((t) => t.uiState)).toEqual(["saving", "saved"]);
+	});
+
+	it("clearNonNaturalUiState 把 error/saved/saving 拽回 dirty", () => {
+		for (const initial of ["error", "saved", "saving"] as const) {
+			const { handle, state } = stubHandle({ uiState: initial });
+			clearNonNaturalUiState(handle);
+			expect(state.uiState).toBe("dirty");
+		}
+	});
+
+	it("clearNonNaturalUiState 在 idle/dirty 态不动 store", () => {
+		for (const initial of ["idle", "dirty"] as const) {
+			const { handle, transitions } = stubHandle({ uiState: initial });
+			clearNonNaturalUiState(handle);
+			expect(transitions).toEqual([]);
+		}
 	});
 
 	it("连续两次 save:旧 linger timer 被 clear,只有第二次的 1.2s 生效", async () => {

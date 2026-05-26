@@ -16,7 +16,7 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
-import { Btn, Pill } from "../components/atoms";
+import { Pill } from "../components/atoms";
 import {
 	Field,
 	LogLevelPicker,
@@ -28,7 +28,8 @@ import {
 } from "../components/forms";
 import { GlassBox } from "../components/glass-box";
 import { Icon } from "../components/icons";
-import { ApiError, api } from "../services/api";
+import { useDirtyDraft } from "../hooks/useDirtyDraft";
+import { api } from "../services/api";
 import type { AIPersona, AISettings, GlobalConfig, LogLevel } from "../types/globals";
 
 // 日志等级绑定到 `app.logLevels.ai` (per-module override),不再压全局 `app.logLevel`。
@@ -46,6 +47,35 @@ const toPickerValue = (v: AiLogLevel): LogLevelValue | null =>
 const fromPickerValue = (v: LogLevelValue | null): AiLogLevel =>
 	v === null ? "" : NUM_TO_LOG_LEVEL[v];
 
+/**
+ * 灵动岛 draft/baseline 打包:walkTreeDiff 输出的 dot-path 跟 FIELD_LABELS
+ * 字典 key 对齐(否则 diff panel 归 "其他" 段、click 跳转锚点缺失)。
+ *
+ * AISettings 字段在 JSX 里 code 风格分两组:
+ * - 模型连接 / 参数 / prompts:`<Field code="ai.apiKey">` 等 → 包到 `ai` 命名空间
+ * - 人格 / 预设:`<Field code="persona.name">` / `code="presets"` → 顶层
+ */
+function packIsland(ai: AISettings, levelOverride: AiLogLevel) {
+	const {
+		apiKey,
+		baseUrl,
+		model,
+		temperature,
+		dynamicPrompt,
+		liveSummaryPrompt,
+		persona,
+		presets,
+		enabled,
+	} = ai;
+	return {
+		ai: { apiKey, baseUrl, model, temperature, dynamicPrompt, liveSummaryPrompt },
+		persona,
+		presets,
+		enabled,
+		app: { logLevels: { ai: levelOverride === "" ? null : levelOverride } },
+	};
+}
+
 export default function Ai() {
 	const qc = useQueryClient();
 	const globalsQuery = useQuery({
@@ -55,7 +85,6 @@ export default function Ai() {
 
 	const [draft, setDraft] = useState<AISettings | null>(null);
 	const [aiLogLevel, setAiLogLevel] = useState<AiLogLevel>("");
-	const [error, setError] = useState<string | null>(null);
 	// "Which preset is currently active" is UI-local; AISettings has no
 	// activePresetId field. Initialised by matching the persona/prompts
 	// against each preset on hydrate; falls back to "custom".
@@ -108,39 +137,51 @@ export default function Ai() {
 		}
 	}, [selectedPresetId, draft?.persona, draft?.dynamicPrompt, draft?.liveSummaryPrompt, draft]);
 
-	const serverAiLogLevel = globalsQuery.data?.app.logLevels?.ai ?? "";
-	const dirty = useMemo(() => {
-		if (!draft || !globalsQuery.data) return false;
-		return (
-			JSON.stringify(draft) !== JSON.stringify(globalsQuery.data.defaults.ai) ||
-			aiLogLevel !== serverAiLogLevel
-		);
-	}, [draft, globalsQuery.data, aiLogLevel, serverAiLogLevel]);
-
 	const save = useMutation({
 		mutationFn: async (payload: { ai: AISettings; aiLogLevel: AiLogLevel }) => {
-			setError(null);
-			try {
-				const existing = globalsQuery.data?.app.logLevels ?? {};
-				// 与 cards 同款合并:"" → 删 ai key,落到全局;具体值 → 仅 patch 该 key,
-				// 其余模块 override 不动。
-				const nextLogLevels =
-					payload.aiLogLevel === ""
-						? Object.fromEntries(Object.entries(existing).filter(([k]) => k !== "ai"))
-						: { ...existing, ai: payload.aiLogLevel };
-				await api.patch<GlobalConfig>("/api/globals", {
-					app: {
-						logLevels: Object.keys(nextLogLevels).length === 0 ? undefined : nextLogLevels,
-					},
-					defaults: { ai: payload.ai },
-				});
-			} catch (err) {
-				if (err instanceof ApiError) setError(err.message);
-				else setError(String(err));
-				throw err;
-			}
+			const existing = globalsQuery.data?.app.logLevels ?? {};
+			// 与 cards 同款合并:"" → 删 ai key,落到全局;具体值 → 仅 patch 该 key,
+			// 其余模块 override 不动。
+			const nextLogLevels =
+				payload.aiLogLevel === ""
+					? Object.fromEntries(Object.entries(existing).filter(([k]) => k !== "ai"))
+					: { ...existing, ai: payload.aiLogLevel };
+			await api.patch<GlobalConfig>("/api/globals", {
+				app: {
+					logLevels: Object.keys(nextLogLevels).length === 0 ? undefined : nextLogLevels,
+				},
+				defaults: { ai: payload.ai },
+			});
 		},
 		onSuccess: () => qc.invalidateQueries({ queryKey: ["globals"] }),
+	});
+
+	const islandDraft = useMemo(
+		() => (draft === null ? null : packIsland(draft, aiLogLevel)),
+		[draft, aiLogLevel],
+	);
+	const islandBaseline = useMemo(() => {
+		if (!globalsQuery.data) return null;
+		return packIsland(
+			globalsQuery.data.defaults.ai,
+			(globalsQuery.data.app.logLevels?.ai ?? "") as AiLogLevel,
+		);
+	}, [globalsQuery.data]);
+
+	useDirtyDraft({
+		pageKey: "ai",
+		pageLabel: "智能女仆",
+		draft: islandDraft,
+		baseline: islandBaseline,
+		onSave: async () => {
+			if (draft !== null) await save.mutateAsync({ ai: draft, aiLogLevel });
+		},
+		onDiscard: () => {
+			if (globalsQuery.data) {
+				setDraft(globalsQuery.data.defaults.ai);
+				setAiLogLevel(globalsQuery.data.app.logLevels?.ai ?? "");
+			}
+		},
 	});
 
 	if (!draft) {
@@ -205,40 +246,7 @@ export default function Ai() {
 						]}
 					/>
 				</div>
-
-				{dirty ? (
-					<div className="mt-3.5 flex items-center justify-end gap-2">
-						<span className="text-[11.5px] font-semibold text-bn-pink">未保存</span>
-						<Btn
-							variant="outline"
-							size="sm"
-							onClick={() => {
-								if (globalsQuery.data) {
-									setDraft(globalsQuery.data.defaults.ai);
-									setAiLogLevel(globalsQuery.data.app.logLevels?.ai ?? "");
-								}
-							}}
-							disabled={save.isPending}
-						>
-							丢弃
-						</Btn>
-						<Btn
-							variant="primary"
-							size="sm"
-							onClick={() => draft && save.mutate({ ai: draft, aiLogLevel })}
-							disabled={save.isPending}
-						>
-							{save.isPending ? "保存中…" : "保存"}
-						</Btn>
-					</div>
-				) : null}
 			</div>
-
-			{error ? (
-				<div className="rounded border border-red-200 bg-red-50 p-2 text-xs text-red-700">
-					{error}
-				</div>
-			) : null}
 
 			<div className="grid gap-4 lg:grid-cols-2">
 				<GlassBox
