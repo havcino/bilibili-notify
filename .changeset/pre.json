@@ -27,6 +27,7 @@
     "cardstyle-three-fields",
     "dependent-bumps-push-internal-image",
     "imagegroup-subtree-and-overrides",
+    "koishi-ai-image-late-inject",
     "koishi-config-convergence",
     "koishi-image-hide-follower-rename",
     "koishi-master-notifier-engine-error",
