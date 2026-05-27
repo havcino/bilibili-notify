@@ -232,3 +232,21 @@ describe("DraftIsland expand panel DiffRow 行跳转", () => {
 		expect(screen.getByText("调度")).toBeTruthy();
 	});
 });
+
+describe("DraftIsland dirty 态外圈流光线(grill-me 二轮:单色流动)", () => {
+	it("dirty 渲染 → 流光节点存在", () => {
+		useDraftStore.setState({ current: makeReg(), uiState: "dirty" });
+		render(<DraftIsland />);
+		expect(screen.getByTestId("draft-island-aura")).toBeTruthy();
+	});
+
+	it.each(["saving", "saved", "error"] as const)("%s 态 → 不渲染流光节点", (state) => {
+		useDraftStore.setState({
+			current: makeReg(),
+			uiState: state,
+			errorMessage: state === "error" ? "x" : null,
+		});
+		render(<DraftIsland />);
+		expect(screen.queryByTestId("draft-island-aura")).toBeNull();
+	});
+});

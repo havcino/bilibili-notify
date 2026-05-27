@@ -67,6 +67,7 @@ export function DraftIsland(): ReactNode {
 
 	const [hovered, setHovered] = useState(false);
 	const containerRef = useRef<HTMLElement>(null);
+	const leaveTimerRef = useRef<number | null>(null);
 
 	// 外部 click → 关闭 locked panel。仅 panelLocked 为 true 时才挂监听,
 	// 减少全局事件流量。
@@ -81,6 +82,32 @@ export function DraftIsland(): ReactNode {
 		document.addEventListener("mousedown", handleOutsideClick);
 		return () => document.removeEventListener("mousedown", handleOutsideClick);
 	}, [panelLocked, togglePanelLocked]);
+
+	// 鼠标从 chip 跨 panel 的 8px gap 时,motion.section 会瞬间触发 mouseleave
+	// → setHovered(false) → panel 退场 → 鼠标到 panel 又 mouseenter → 入场,
+	// 视觉上闪烁。debounce 100ms:mouseleave 后等 100ms 才真 setHovered(false),
+	// 期间 mouseenter 取消 timer。8px gap + 慢速移动 ~80ms,100ms 足够覆盖。
+	function handleMouseEnter() {
+		if (leaveTimerRef.current !== null) {
+			window.clearTimeout(leaveTimerRef.current);
+			leaveTimerRef.current = null;
+		}
+		setHovered(true);
+	}
+
+	function handleMouseLeave() {
+		leaveTimerRef.current = window.setTimeout(() => {
+			setHovered(false);
+			leaveTimerRef.current = null;
+		}, 100);
+	}
+
+	useEffect(
+		() => () => {
+			if (leaveTimerRef.current !== null) window.clearTimeout(leaveTimerRef.current);
+		},
+		[],
+	);
 
 	const kind = selectChipKind(uiState, current);
 	const showPanel = kind === "dirty" && current !== null && (hovered || panelLocked);
@@ -106,8 +133,8 @@ export function DraftIsland(): ReactNode {
 			style={{ bottom: "calc(1rem + env(safe-area-inset-bottom))" }}
 			animate={{ y: aiBarDismissed ? 0 : STACK_LIFT_PX }}
 			transition={STACK_SPRING}
-			onMouseEnter={() => setHovered(true)}
-			onMouseLeave={() => setHovered(false)}
+			onMouseEnter={handleMouseEnter}
+			onMouseLeave={handleMouseLeave}
 		>
 			<AnimatePresence>
 				{showPanel && current !== null ? <ExpandPanel key="panel" current={current} /> : null}
@@ -124,11 +151,14 @@ function ChipShell({
 	extraAnimate,
 	className = "",
 	onClick,
+	aura = false,
 }: {
 	children: ReactNode;
 	extraAnimate?: Record<string, unknown>;
 	className?: string;
 	onClick?: (e: React.MouseEvent<HTMLDivElement>) => void;
+	/** 是否绕一圈外圈流光线。仅 dirty 态传 true(plan Q5)。 */
+	aura?: boolean;
 }) {
 	return (
 		<motion.div
@@ -138,8 +168,9 @@ function ChipShell({
 			exit={{ opacity: 0, y: 16, scale: 0.92 }}
 			transition={SHELL_SPRING}
 			onClick={onClick}
-			className={`pointer-events-auto flex items-center gap-2.5 rounded-full bg-black/85 px-4 py-2 text-white shadow-[0_8px_24px_rgba(0,0,0,0.3)] backdrop-blur-xl ${className}`}
+			className={`pointer-events-auto relative flex items-center gap-2.5 rounded-full bg-black/85 px-4 py-2 text-white shadow-[0_8px_24px_rgba(0,0,0,0.3)] backdrop-blur-xl ${className}`}
 		>
+			{aura ? <span aria-hidden className="bn-anim-aura" data-testid="draft-island-aura" /> : null}
 			{children}
 		</motion.div>
 	);
@@ -157,7 +188,7 @@ function DirtyContent({ current }: { current: DraftRegistration }) {
 	}
 
 	return (
-		<ChipShell onClick={handleChipClick} className="cursor-pointer select-none">
+		<ChipShell onClick={handleChipClick} className="cursor-pointer select-none" aura>
 			<span className="block h-1.5 w-1.5 rounded-full bg-bn-pink" aria-hidden />
 			<span className="text-[12px] font-medium">{current.pageLabel}</span>
 			{/* 数字徽章:diff.length 变化时通过 key 强制重 mount,触发 initial→animate 的 pop。 */}
@@ -166,7 +197,7 @@ function DirtyContent({ current }: { current: DraftRegistration }) {
 				initial={{ scale: 0.6, opacity: 0 }}
 				animate={{ scale: 1, opacity: 1 }}
 				transition={{ type: "spring", stiffness: 500, damping: 22 }}
-				className="rounded-full bg-bn-pink px-1.5 py-px text-[10.5px] font-bold leading-[14px]"
+				className="rounded-full bg-bn-pink px-1.5 py-px text-[10.5px] font-bold leading-3.5"
 				aria-label={`${current.diff.length} 项未保存`}
 			>
 				{current.diff.length}
@@ -255,7 +286,7 @@ function ErrorContent({ message }: { message: string | null }) {
 			>
 				!
 			</span>
-			<span className="max-w-[260px] truncate text-[12px]" title={message ?? undefined}>
+			<span className="max-w-65 truncate text-[12px]" title={message ?? undefined}>
 				{message ?? "保存失败"}
 			</span>
 			<button
@@ -300,7 +331,7 @@ function ExpandPanel({ current }: { current: DraftRegistration }) {
 			animate={{ opacity: 1, y: 0, scale: 1 }}
 			exit={{ opacity: 0, y: 12, scale: 0.96 }}
 			transition={PANEL_SPRING}
-			className="pointer-events-auto mb-2 w-[420px] max-w-[calc(100vw-2rem)] overflow-hidden rounded-2xl border border-white/10 bg-black/85 text-white shadow-[0_12px_36px_rgba(0,0,0,0.4)] backdrop-blur-xl"
+			className="pointer-events-auto mb-2 w-105 max-w-[calc(100vw-2rem)] overflow-hidden rounded-2xl border border-white/10 bg-black/85 text-white shadow-[0_12px_36px_rgba(0,0,0,0.4)] backdrop-blur-xl"
 		>
 			<div className="flex max-h-[60vh] flex-col">
 				<div className="border-b border-white/10 px-4 py-2.5 text-[11.5px] font-semibold tracking-wide text-white/70">

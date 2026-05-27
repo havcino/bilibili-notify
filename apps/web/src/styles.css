@@ -116,6 +116,67 @@ body {
 	border-radius: 8px;
 }
 
+/* 灵动岛 dirty 态外圈流光线(grill-me 二轮校准:单色流动 + 砍 pulse)。
+   2px bn-pink 细描边沿 pill 边贴边,单色 → 透明 45° 弧,2.4s/圈;panel 展开
+   减速到 4s/圈。reduced-motion 完全隐藏。
+
+   ring 实现走 padding + mask-composite: exclude 现代标准做法 —— 让 ring
+   沿继承的 border-radius(rounded-full pill)自适应贴边,不再用 radial-gradient
+   mask(对长宽比悬殊的 pill 会变成椭圆 mask,左右两端 ring 厚度膨胀)。 */
+@property --bn-aura-angle {
+	syntax: "<angle>";
+	initial-value: 0deg;
+	inherits: false;
+}
+
+@keyframes bn-aura-spin {
+	to {
+		--bn-aura-angle: 360deg;
+	}
+}
+
+@keyframes bn-aura-fade-in {
+	from {
+		opacity: 0;
+	}
+	to {
+		opacity: 1;
+	}
+}
+
+.bn-anim-aura {
+	position: absolute;
+	inset: -1px;
+	padding: 2px;
+	border-radius: inherit;
+	pointer-events: none;
+	background: conic-gradient(
+		from var(--bn-aura-angle),
+		var(--color-bn-pink) 0deg,
+		transparent 45deg,
+		transparent 360deg
+	);
+	-webkit-mask:
+		linear-gradient(#000 0 0) content-box,
+		linear-gradient(#000 0 0);
+	-webkit-mask-composite: xor;
+	mask:
+		linear-gradient(#000 0 0) content-box,
+		linear-gradient(#000 0 0);
+	mask-composite: exclude;
+	filter: drop-shadow(0 0 1px rgba(251, 114, 153, 0.55)) saturate(1.2);
+	animation:
+		bn-aura-spin var(--bn-aura-spin-dur, 2.4s) linear infinite,
+		bn-aura-fade-in 250ms ease-out both;
+}
+
+/* prefers-reduced-motion 下完全隐藏流光,plan Q8 C。 */
+@media (prefers-reduced-motion: reduce) {
+	.bn-anim-aura {
+		display: none;
+	}
+}
+
 /* 隐藏滚动条但保留滚动行为。Dashboard 「粉丝数变化」N 多时容器内滚动,
    不想露出滚动条破坏卡片视觉。 */
 .bn-no-scrollbar {
