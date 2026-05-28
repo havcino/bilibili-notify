@@ -125,7 +125,16 @@ export const TemplateBundleSchema = z.object({
 });
 export type TemplateBundle = z.infer<typeof TemplateBundleSchema>;
 
-export const TemplateBundlePartialSchema = TemplateBundleSchema.partial();
+// `.partial()` 只把顶层字段变可选,**不剥离内层 `.default()`** —— 直接 partial 会让
+// per-UP override 解析 `{ templates: { liveSummary } }` 时把 dynamic/dynamicVideo
+// 注入成默认值,被下游(buildDynamicSubViewSingle / isSectionCustomized)误当成真有
+// per-UP 动态模板覆盖:该 UP 停止跟随全局动态模板热更、面板误标「已定制」、保存时
+// 把注入字段落盘。override 维度的 dynamic/dynamicVideo 必须是「无默认的纯可选」,
+// 与全局 TemplateBundleSchema(带 .default 供 globals.json 缺字段回填)分开。
+export const TemplateBundlePartialSchema = TemplateBundleSchema.partial().extend({
+	dynamic: z.string().optional(),
+	dynamicVideo: z.string().optional(),
+});
 export type TemplateBundlePartial = z.infer<typeof TemplateBundlePartialSchema>;
 
 export const AIPersonaSchema = z.object({

@@ -343,4 +343,65 @@ describe("ConfigStore", () => {
 		expect(t.guardBuy.captain.template).toBe("{uname} 成为了 {mname} 的舰长！");
 		await rm(dir2, { recursive: true, force: true });
 	});
+
+	it("累积迁移:真 alpha.x globals.json(有 liveMsgEnabled、无 dynamic/dynamicVideo、旧 {title} liveStart)经 load() 自洽", async () => {
+		// 跨三笔改动的兜底:① liveMsgEnabled 已从 schema 删除 → safeParse 须 strip 不报错;
+		// ② dynamic/dynamicVideo 字段是新加的 → .default() 回填;③ 旧 {title} 默认 liveStart
+		// → 一次性迁移成新默认。三件事叠加后顺序/交互不能互相打架。
+		const dir2 = await mkdtemp(join(tmpdir(), "bn-config-legacy-"));
+		const state2 = join(dir2, "state");
+		await mkdir(state2, { recursive: true });
+		// 从当前默认起步,再"退化"成 alpha.x 磁盘形态:抹掉 dynamic/dynamicVideo(老数据
+		// 没这俩字段)、塞 liveMsgEnabled(schema 已删的旧键)、写回旧 {title}/{duration}
+		// 直播默认 + 旧 {user} 上舰默认。用 JSON 往返 + 析构剔除,不用 delete。
+		const base = makeDefaultGlobalConfig() as unknown as {
+			defaults: {
+				templates: Record<string, unknown> & { guardBuy: { captain: { template: string } } };
+			};
+		};
+		const { dynamic: _d, dynamicVideo: _dv, ...restTpl } = base.defaults.templates;
+		const legacy = {
+			...base,
+			defaults: {
+				...base.defaults,
+				templates: {
+					...restTpl,
+					liveMsgEnabled: false, // schema 已无此键 → 须被 strip
+					liveStart: "{name} 开播了！\n直播间标题：{title}\n直播间链接：{link}",
+					liveOngoing: "{name} 仍在直播中（已直播 {duration}）\n标题：{title}\n看过：{watched}",
+					liveEnd: "{name} 下播了，直播时长 {duration}",
+					guardBuy: {
+						...base.defaults.templates.guardBuy,
+						captain: {
+							...base.defaults.templates.guardBuy.captain,
+							template: "{user} 成为了 {mastername} 的舰长！",
+						},
+					},
+				},
+			},
+		};
+		await writeFile(join(state2, "globals.json"), JSON.stringify(legacy), "utf8");
+
+		const store2 = createConfigStore({
+			bootstrap: makeBootstrap(dir2),
+			bus: makeFakeBus(),
+			serviceCtx: makeFakeServiceCtx(),
+		});
+		// ① 不报错(strip 未知键,不抛 ConfigValidationError)
+		await store2.load();
+		const t = store2.getGlobals().defaults.templates as Record<string, unknown>;
+		// ① liveMsgEnabled 被 strip
+		expect(t.liveMsgEnabled).toBeUndefined();
+		// ② dynamic/dynamicVideo 回填成当前默认
+		expect(t.dynamic).toBe("{name}发布了一条动态：{url}");
+		expect(t.dynamicVideo).toBe("{name}发布了新视频：{url}");
+		// ③ 旧 {title}/{duration} 直播默认 + 旧 {user} 上舰默认迁移成当前默认
+		expect(t.liveStart).toBe("{name} 开播啦，当前粉丝数：{follower}\n{link}");
+		expect(t.liveOngoing).toBe("{name} 正在直播，已播 {time}，累计观看：{watched}\n{link}");
+		expect(t.liveEnd).toBe("{name} 下播啦，本次直播了 {time}，粉丝变化 {follower_change}");
+		expect((t.guardBuy as { captain: { template: string } }).captain.template).toBe(
+			"{uname} 成为了 {mname} 的舰长！",
+		);
+		await rm(dir2, { recursive: true, force: true });
+	});
 });

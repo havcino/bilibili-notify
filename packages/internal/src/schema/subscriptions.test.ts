@@ -117,3 +117,37 @@ describe("M2: 外置 schema 仍 export(SubRuntimeStore / join 复用)", () => {
 		expect(r.success).toBe(true);
 	});
 });
+
+// 回归(Codex 高危发现):TemplateBundleSchema 的 dynamic/dynamicVideo 带 .default()
+// 供全局 globals.json 缺字段回填,但 `.partial()` 不剥内层 default → per-UP override
+// 解析会把它们注入成默认值,被下游误当 per-UP 动态模板覆盖(停止跟随全局热更 + 面板
+// 误标已定制 + 落盘)。override schema 已拆成无默认纯可选,此处锁住。
+describe("per-UP template override 不被全局默认污染 (Codex 回归)", () => {
+	it("只覆盖 templates.liveSummary → dynamic/dynamicVideo 仍 undefined", () => {
+		const parsed = SubscriptionSchema.parse({
+			...BASE,
+			overrides: { templates: { liveSummary: "只改总结" } },
+		});
+		expect(parsed.overrides.templates?.liveSummary).toBe("只改总结");
+		expect(parsed.overrides.templates?.dynamic).toBeUndefined();
+		expect(parsed.overrides.templates?.dynamicVideo).toBeUndefined();
+	});
+
+	it("只覆盖 templates.liveStart(直播消息)→ dynamic/dynamicVideo 仍 undefined", () => {
+		const parsed = SubscriptionSchema.parse({
+			...BASE,
+			overrides: { templates: { liveStart: "自定义开播 {name}" } },
+		});
+		expect(parsed.overrides.templates?.dynamic).toBeUndefined();
+		expect(parsed.overrides.templates?.dynamicVideo).toBeUndefined();
+	});
+
+	it("显式覆盖 templates.dynamic → 保留;未覆盖的 dynamicVideo 仍 undefined", () => {
+		const parsed = SubscriptionSchema.parse({
+			...BASE,
+			overrides: { templates: { dynamic: "🔔 {name} {url}" } },
+		});
+		expect(parsed.overrides.templates?.dynamic).toBe("🔔 {name} {url}");
+		expect(parsed.overrides.templates?.dynamicVideo).toBeUndefined();
+	});
+});
