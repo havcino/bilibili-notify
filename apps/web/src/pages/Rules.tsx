@@ -169,7 +169,7 @@ function ScopeTabs({
 								size={18}
 								url={sub.cachedProfile?.avatar}
 							/>
-							<span className="max-w-[140px] truncate" title={displayName(sub)}>
+							<span className="max-w-35 truncate" title={displayName(sub)}>
 								{displayName(sub)}
 							</span>
 							{count > 0 ? (
@@ -185,7 +185,7 @@ function ScopeTabs({
 								onRemoveSub(sub.id);
 							}}
 							title={`移除 ${displayName(sub)} 的个性化配置`}
-							className={`grid h-[18px] w-[18px] place-items-center rounded ${
+							className={`grid h-4.5 w-4.5 place-items-center rounded ${
 								active
 									? "text-bn-pink/80 hover:bg-bn-pink/10"
 									: "text-bn-text-tertiary/70 hover:bg-black/5"
@@ -205,7 +205,7 @@ function ScopeTabs({
 					title="从订阅列表添加 UP 主的个性化配置"
 					className={`flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-[12.5px] font-semibold transition ${
 						adding
-							? "border-bn-pink/40 bg-bn-pink/[0.06] text-bn-pink"
+							? "border-bn-pink/40 bg-bn-pink/6 text-bn-pink"
 							: "border-dashed border-black/15 text-bn-text-tertiary hover:text-bn-text-primary"
 					}`}
 				>
@@ -213,7 +213,7 @@ function ScopeTabs({
 					添加 UP
 				</button>
 				{adding ? (
-					<div className="absolute left-0 top-[calc(100%+6px)] z-30 min-w-[240px] overflow-hidden rounded-[10px] border border-black/[0.08] bg-white shadow-[0_8px_24px_rgba(0,0,0,0.12)]">
+					<div className="absolute left-0 top-[calc(100%+6px)] z-30 min-w-60 overflow-hidden rounded-[10px] border border-black/8 bg-white shadow-[0_8px_24px_rgba(0,0,0,0.12)]">
 						<div className="border-b border-gray-100 px-3 pb-1.5 pt-2 text-[11px] font-bold uppercase tracking-wider text-bn-text-tertiary">
 							选择要单独定制的 UP 主
 						</div>
@@ -300,7 +300,7 @@ function SectionList({
 	customizedIds?: Set<SectionId>;
 }) {
 	return (
-		<aside className="sticky top-[120px] h-fit min-w-0">
+		<aside className="sticky top-30 h-fit min-w-0">
 			<div className="mb-2 px-1 text-[11px] font-bold uppercase tracking-wider text-bn-text-tertiary">
 				{heading}
 			</div>
@@ -340,7 +340,7 @@ function SectionList({
 										/>
 									) : null}
 								</span>
-								<span className="mt-0.5 block break-words text-[10.5px] leading-snug text-bn-text-tertiary">
+								<span className="mt-0.5 block wrap-break-word text-[10.5px] leading-snug text-bn-text-tertiary">
 									{s.desc}
 								</span>
 							</span>
