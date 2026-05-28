@@ -2,7 +2,7 @@ import type { CommentaryGenerator } from "@bilibili-notify/ai";
 import type { BilibiliAPI } from "@bilibili-notify/api";
 import type { ImageRenderer } from "@bilibili-notify/image";
 import type { Disposable, Logger, MessageBus, ServiceContext } from "@bilibili-notify/internal";
-import { withLock } from "@bilibili-notify/internal";
+import { interpolate, withLock } from "@bilibili-notify/internal";
 import { CronJob } from "cron";
 import { DateTime } from "luxon";
 import { DynamicFilterReason, filterDynamic } from "./dynamic-filter";
@@ -26,6 +26,27 @@ const LOG_TAG = "bilibili-notify-dynamic";
 const DETECTOR_RESTART_BACKOFF_MS = 5 * 60_000;
 
 /**
+ * 动态推送文本模板的内建兜底,仅在 adapter 未填 config.dynamicTemplate /
+ * videoTemplate 时使用(真实 adapter 都会从 globals.defaults.templates 填充)。
+ * 与 `@bilibili-notify/internal` 的 `DEFAULT_TEMPLATES.dynamic/.dynamicVideo`
+ * 保持一致。变量 `{name}`(UP 名) / `{url}`(链接,未启用 URL 时为空)。
+ */
+const DEFAULT_DYNAMIC_TEXT = {
+	dynamic: "{name}发布了一条动态：{url}",
+	video: "{name}发布了新视频：{url}",
+} as const;
+
+/**
+ * 渲染动态推送文本:`{name}` / `{url}` 插值 + `\n` 展开。`url` 为空(未启用 URL)
+ * 时连同 `{url}` 的前导分隔符一起去掉,避免行尾残留孤立的「：」。两个推送分支
+ * (有图 / 无图)都走此函数 → 文字内容一致。
+ */
+function renderDynamicText(template: string, name: string, url: string): string {
+	const tmpl = url ? template : template.replace(/\s*[：:]?\s*\{url\}/g, "");
+	return interpolate(tmpl, { name, url }).replaceAll("\\n", "\n");
+}
+
+/**
  * Runtime configuration for {@link DynamicEngine}. Mirrors the platform-neutral
  * subset of `BilibiliNotifyDynamicConfig`; the koishi shell maps its schema
  * fields onto this struct, the standalone runtime fills it from its own config
@@ -39,6 +60,17 @@ export interface DynamicEngineConfig {
 	dynamicCron: string;
 	/** 视频动态时是否将 URL 替换为 BV 号。 */
 	dynamicVideoUrlToBV: boolean;
+	/**
+	 * 非视频动态的推送文本模板。变量 `{name}`(UP 名) / `{url}`(动态链接)。
+	 * `{url}` 在 `dynamicUrl=false` 时为空,引擎会顺带去掉相邻分隔符。
+	 * 缺省时回退到内建文案。Adapter 通常用 `globals.defaults.templates.dynamic` 填充。
+	 */
+	dynamicTemplate?: string;
+	/**
+	 * 视频投稿的推送文本模板。变量 `{name}` / `{url}`(视频链接或 BV)。
+	 * 缺省时回退到内建文案。Adapter 通常用 `globals.defaults.templates.dynamicVideo` 填充。
+	 */
+	videoTemplate?: string;
 	/**
 	 * DYNAMIC_TYPE_DRAW 图集图片推送行为。enable=false 时跳过图集广播,
 	 * 只发文本/卡片。forward=true 时走合并转发(聊天记录卡片,走 OneBot
@@ -597,19 +629,21 @@ export class DynamicEngine {
 					this.imageFailureNotified = false;
 				}
 
-				// Build URL suffix
-				let dUrl = "";
+				// Build bare URL (模板的 {url} 变量,不含任何前缀文案)。
+				// dynamicUrl=false(QQ 官方机器人)时为空,renderDynamicText 会去掉分隔符。
+				const isVideo = item.type === "DYNAMIC_TYPE_AV";
+				let url = "";
 				if (this.config.dynamicUrl) {
-					if (item.type === "DYNAMIC_TYPE_AV") {
+					if (isVideo) {
 						const jumpUrl = item.modules.module_dynamic.major?.archive?.jump_url ?? "";
 						if (this.config.dynamicVideoUrlToBV) {
 							const bvMatch = jumpUrl.match(/BV[0-9A-Za-z]+/);
-							dUrl = bvMatch ? bvMatch[0] : "";
+							url = bvMatch ? bvMatch[0] : "";
 						} else {
-							dUrl = `${name}发布了新视频：https:${jumpUrl}`;
+							url = `https:${jumpUrl}`;
 						}
 					} else {
-						dUrl = `${name}发布了一条动态：https://t.bilibili.com/${item.id_str}`;
+						url = `https://t.bilibili.com/${item.id_str}`;
 					}
 				}
 
@@ -647,19 +681,20 @@ export class DynamicEngine {
 					continue;
 				}
 
-				// Send
-				const textPart = aiComment ?? (dUrl || undefined);
+				// Send —— 文字内容在「有图」「无图」两条分支完全一致:有 AI 点评用点评,
+				// 否则按模板(per-UP override ?? engine 全局 config ?? 内建兜底)渲染。
+				const tmpl = isVideo
+					? (sub?.customVideoTemplate ?? this.config.videoTemplate ?? DEFAULT_DYNAMIC_TEXT.video)
+					: (sub?.customDynamicTemplate ??
+						this.config.dynamicTemplate ??
+						DEFAULT_DYNAMIC_TEXT.dynamic);
+				const text = aiComment ?? renderDynamicText(tmpl, name, url);
 				const segments: PushSegment[] = buffer
 					? [
 							{ type: "image", buffer, mime: "image/jpeg" },
-							...(textPart ? ([{ type: "text", text: textPart }] as PushSegment[]) : []),
+							...(text ? ([{ type: "text", text }] as PushSegment[]) : []),
 						]
-					: [
-							{
-								type: "text",
-								text: aiComment ?? `${name}发布了一条动态${dUrl ? `：${dUrl}` : ""}`,
-							},
-						];
+					: [{ type: "text", text }];
 				await this.push.broadcastDynamic(uid, segments, "dynamic");
 
 				// Push extra images from draw dynamics. DYNAMIC_TYPE_DRAW 的原图在

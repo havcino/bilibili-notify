@@ -16,7 +16,7 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
-import { Btn, Pill } from "../components/atoms";
+import { Pill } from "../components/atoms";
 import {
 	Field,
 	LogLevelPicker,
@@ -28,7 +28,8 @@ import {
 } from "../components/forms";
 import { GlassBox } from "../components/glass-box";
 import { Icon } from "../components/icons";
-import { ApiError, api } from "../services/api";
+import { useDirtyDraft } from "../hooks/useDirtyDraft";
+import { api } from "../services/api";
 import type { AIPersona, AISettings, GlobalConfig, LogLevel } from "../types/globals";
 
 // 日志等级绑定到 `app.logLevels.ai` (per-module override),不再压全局 `app.logLevel`。
@@ -46,6 +47,35 @@ const toPickerValue = (v: AiLogLevel): LogLevelValue | null =>
 const fromPickerValue = (v: LogLevelValue | null): AiLogLevel =>
 	v === null ? "" : NUM_TO_LOG_LEVEL[v];
 
+/**
+ * 灵动岛 draft/baseline 打包:walkTreeDiff 输出的 dot-path 跟 FIELD_LABELS
+ * 字典 key 对齐(否则 diff panel 归 "其他" 段、click 跳转锚点缺失)。
+ *
+ * AISettings 字段在 JSX 里 code 风格分两组:
+ * - 模型连接 / 参数 / prompts:`<Field code="ai.apiKey">` 等 → 包到 `ai` 命名空间
+ * - 人格 / 预设:`<Field code="persona.name">` / `code="presets"` → 顶层
+ */
+function packIsland(ai: AISettings, levelOverride: AiLogLevel) {
+	const {
+		apiKey,
+		baseUrl,
+		model,
+		temperature,
+		dynamicPrompt,
+		liveSummaryPrompt,
+		persona,
+		presets,
+		enabled,
+	} = ai;
+	return {
+		ai: { apiKey, baseUrl, model, temperature, dynamicPrompt, liveSummaryPrompt },
+		persona,
+		presets,
+		enabled,
+		app: { logLevels: { ai: levelOverride === "" ? null : levelOverride } },
+	};
+}
+
 export default function Ai() {
 	const qc = useQueryClient();
 	const globalsQuery = useQuery({
@@ -55,7 +85,6 @@ export default function Ai() {
 
 	const [draft, setDraft] = useState<AISettings | null>(null);
 	const [aiLogLevel, setAiLogLevel] = useState<AiLogLevel>("");
-	const [error, setError] = useState<string | null>(null);
 	// "Which preset is currently active" is UI-local; AISettings has no
 	// activePresetId field. Initialised by matching the persona/prompts
 	// against each preset on hydrate; falls back to "custom".
@@ -108,39 +137,51 @@ export default function Ai() {
 		}
 	}, [selectedPresetId, draft?.persona, draft?.dynamicPrompt, draft?.liveSummaryPrompt, draft]);
 
-	const serverAiLogLevel = globalsQuery.data?.app.logLevels?.ai ?? "";
-	const dirty = useMemo(() => {
-		if (!draft || !globalsQuery.data) return false;
-		return (
-			JSON.stringify(draft) !== JSON.stringify(globalsQuery.data.defaults.ai) ||
-			aiLogLevel !== serverAiLogLevel
-		);
-	}, [draft, globalsQuery.data, aiLogLevel, serverAiLogLevel]);
-
 	const save = useMutation({
 		mutationFn: async (payload: { ai: AISettings; aiLogLevel: AiLogLevel }) => {
-			setError(null);
-			try {
-				const existing = globalsQuery.data?.app.logLevels ?? {};
-				// 与 cards 同款合并:"" → 删 ai key,落到全局;具体值 → 仅 patch 该 key,
-				// 其余模块 override 不动。
-				const nextLogLevels =
-					payload.aiLogLevel === ""
-						? Object.fromEntries(Object.entries(existing).filter(([k]) => k !== "ai"))
-						: { ...existing, ai: payload.aiLogLevel };
-				await api.patch<GlobalConfig>("/api/globals", {
-					app: {
-						logLevels: Object.keys(nextLogLevels).length === 0 ? undefined : nextLogLevels,
-					},
-					defaults: { ai: payload.ai },
-				});
-			} catch (err) {
-				if (err instanceof ApiError) setError(err.message);
-				else setError(String(err));
-				throw err;
-			}
+			const existing = globalsQuery.data?.app.logLevels ?? {};
+			// 与 cards 同款合并:"" → 删 ai key,落到全局;具体值 → 仅 patch 该 key,
+			// 其余模块 override 不动。
+			const nextLogLevels =
+				payload.aiLogLevel === ""
+					? Object.fromEntries(Object.entries(existing).filter(([k]) => k !== "ai"))
+					: { ...existing, ai: payload.aiLogLevel };
+			await api.patch<GlobalConfig>("/api/globals", {
+				app: {
+					logLevels: Object.keys(nextLogLevels).length === 0 ? undefined : nextLogLevels,
+				},
+				defaults: { ai: payload.ai },
+			});
 		},
 		onSuccess: () => qc.invalidateQueries({ queryKey: ["globals"] }),
+	});
+
+	const islandDraft = useMemo(
+		() => (draft === null ? null : packIsland(draft, aiLogLevel)),
+		[draft, aiLogLevel],
+	);
+	const islandBaseline = useMemo(() => {
+		if (!globalsQuery.data) return null;
+		return packIsland(
+			globalsQuery.data.defaults.ai,
+			(globalsQuery.data.app.logLevels?.ai ?? "") as AiLogLevel,
+		);
+	}, [globalsQuery.data]);
+
+	useDirtyDraft({
+		pageKey: "ai",
+		pageLabel: "智能女仆",
+		draft: islandDraft,
+		baseline: islandBaseline,
+		onSave: async () => {
+			if (draft !== null) await save.mutateAsync({ ai: draft, aiLogLevel });
+		},
+		onDiscard: () => {
+			if (globalsQuery.data) {
+				setDraft(globalsQuery.data.defaults.ai);
+				setAiLogLevel(globalsQuery.data.app.logLevels?.ai ?? "");
+			}
+		},
 	});
 
 	if (!draft) {
@@ -205,40 +246,7 @@ export default function Ai() {
 						]}
 					/>
 				</div>
-
-				{dirty ? (
-					<div className="mt-3.5 flex items-center justify-end gap-2">
-						<span className="text-[11.5px] font-semibold text-bn-pink">未保存</span>
-						<Btn
-							variant="outline"
-							size="sm"
-							onClick={() => {
-								if (globalsQuery.data) {
-									setDraft(globalsQuery.data.defaults.ai);
-									setAiLogLevel(globalsQuery.data.app.logLevels?.ai ?? "");
-								}
-							}}
-							disabled={save.isPending}
-						>
-							丢弃
-						</Btn>
-						<Btn
-							variant="primary"
-							size="sm"
-							onClick={() => draft && save.mutate({ ai: draft, aiLogLevel })}
-							disabled={save.isPending}
-						>
-							{save.isPending ? "保存中…" : "保存"}
-						</Btn>
-					</div>
-				) : null}
 			</div>
-
-			{error ? (
-				<div className="rounded border border-red-200 bg-red-50 p-2 text-xs text-red-700">
-					{error}
-				</div>
-			) : null}
 
 			<div className="grid gap-4 lg:grid-cols-2">
 				<GlassBox
@@ -248,7 +256,7 @@ export default function Ai() {
 					icon={<Icon.link size={14} />}
 					badge="connection"
 				>
-					<Field label="API Key" code="ai.apiKey" required>
+					<Field code="ai.apiKey" required>
 						<TInput
 							value={draft.apiKey ?? ""}
 							onChange={(v) => setAi("apiKey", v || undefined)}
@@ -256,7 +264,7 @@ export default function Ai() {
 							mono
 						/>
 					</Field>
-					<Field label="Base URL" code="ai.baseUrl" full>
+					<Field code="ai.baseUrl" full>
 						<TInput
 							value={draft.baseUrl ?? ""}
 							onChange={(v) => setAi("baseUrl", v || undefined)}
@@ -264,15 +272,10 @@ export default function Ai() {
 							placeholder="https://api.openai.com/v1"
 						/>
 					</Field>
-					<Field label="模型 ID" code="ai.model">
+					<Field code="ai.model">
 						<TInput value={draft.model} onChange={(v) => setAi("model", v)} mono full={false} />
 					</Field>
-					<Field
-						label="日志等级"
-						code="app.logLevels.ai"
-						hint="只影响 ai 模块;选「跟随全局」时与 app.logLevel 同步。保存后立即生效,无需重启。"
-						full
-					>
+					<Field code="app.logLevels.ai" full>
 						<LogLevelPicker
 							value={toPickerValue(aiLogLevel)}
 							onChange={(v) => setAiLogLevel(fromPickerValue(v))}
@@ -288,7 +291,7 @@ export default function Ai() {
 					icon={<Icon.sparkle size={14} />}
 					badge="generation"
 				>
-					<Field label="temperature" code="ai.temperature" hint="0–2，越高越发散">
+					<Field code="ai.temperature">
 						<TNum
 							value={draft.temperature}
 							onChange={(v) => setAi("temperature", v)}
@@ -309,12 +312,11 @@ export default function Ai() {
 				badge="persona"
 			>
 				<Field
-					label="基础预设"
 					code="presets"
 					hint={
 						draft.presets.length === 0
 							? "未配置 ai.presets，可在「完全自定义」下手动填写人格"
-							: "选择预设可快速套用人格 / prompts"
+							: undefined
 					}
 					full
 				>
@@ -369,7 +371,7 @@ export default function Ai() {
 					/>
 				</Field>
 				<div className="grid grid-cols-1 gap-0 lg:grid-cols-2">
-					<Field label="名字" code="persona.name" hint="留空跟随预设">
+					<Field code="persona.name">
 						<TInput
 							value={draft.persona.name}
 							onChange={(v) => setPersona("name", v)}
@@ -377,7 +379,7 @@ export default function Ai() {
 							full={false}
 						/>
 					</Field>
-					<Field label="称呼用户" code="persona.addressUser">
+					<Field code="persona.addressUser">
 						<TInput
 							value={draft.persona.addressUser}
 							onChange={(v) => setPersona("addressUser", v)}
@@ -385,7 +387,7 @@ export default function Ai() {
 							full={false}
 						/>
 					</Field>
-					<Field label="自称" code="persona.addressSelf">
+					<Field code="persona.addressSelf">
 						<TInput
 							value={draft.persona.addressSelf}
 							onChange={(v) => setPersona("addressSelf", v)}
@@ -393,7 +395,7 @@ export default function Ai() {
 							full={false}
 						/>
 					</Field>
-					<Field label="口头禅" code="persona.catchphrase">
+					<Field code="persona.catchphrase">
 						<TInput
 							value={draft.persona.catchphrase}
 							onChange={(v) => setPersona("catchphrase", v)}
@@ -402,34 +404,24 @@ export default function Ai() {
 						/>
 					</Field>
 				</div>
-				<Field label="性格特点" code="persona.traits" hint="逗号分隔" full>
+				<Field code="persona.traits" full>
 					<TInput value={draft.persona.traits} onChange={(v) => setPersona("traits", v)} />
 				</Field>
-				<Field
-					label="基础角色描述"
-					code="persona.baseRole"
-					hint="system prompt 起手段,定义 AI 身份"
-					full
-				>
+				<Field code="persona.baseRole" full>
 					<TArea
 						value={draft.persona.baseRole}
 						onChange={(v) => setPersona("baseRole", v)}
 						rows={2}
 					/>
 				</Field>
-				<Field
-					label="追加 system prompt"
-					code="persona.extraSystemPrompt"
-					hint="附加到 system prompt 末尾,用于安全约束、避讳词、语气微调"
-					full
-				>
+				<Field code="persona.extraSystemPrompt" full>
 					<TArea
 						value={draft.persona.extraSystemPrompt}
 						onChange={(v) => setPersona("extraSystemPrompt", v)}
 						rows={2}
 					/>
 				</Field>
-				<Field label="动态点评 prompt" code="ai.dynamicPrompt" full>
+				<Field code="ai.dynamicPrompt" full>
 					<TArea
 						value={draft.dynamicPrompt}
 						onChange={(v) => setAi("dynamicPrompt", v)}
@@ -437,7 +429,7 @@ export default function Ai() {
 						mono
 					/>
 				</Field>
-				<Field label="直播总结 prompt" code="ai.liveSummaryPrompt" full>
+				<Field code="ai.liveSummaryPrompt" full>
 					<TArea
 						value={draft.liveSummaryPrompt}
 						onChange={(v) => setAi("liveSummaryPrompt", v)}

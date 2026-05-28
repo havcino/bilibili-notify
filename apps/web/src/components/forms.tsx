@@ -6,37 +6,49 @@
  */
 
 import { type ReactNode, useEffect, useState } from "react";
+import { type FieldLabel, getFieldLabel } from "../config/field-labels.js";
 
 // ── Field ────────────────────────────────────────────────────────────────────
 
+/**
+ * Field props 设计:
+ * - `code` 必填,作为字段身份。外层 div 挂 `data-code={code}`,灵动岛 click
+ *   跳转(Phase E)用 `querySelector('[data-code="X"]')` 找回字段位置。
+ * - `label` / `hint` 可选 override,默认走 `field-labels.ts` 字典 lookup。
+ *   多数页面只填 code 即可;Targets 这种 transport 类型分支会动态 label/hint
+ *   的场景仍走 prop override(prop 优先 > 字典 > code 字面量兜底)。
+ * - lookup miss 在开发环境会 warn 但不抛错,防止 schema 漂移直接白屏。
+ */
 export interface FieldProps {
-	label: ReactNode;
+	code: string;
+	label?: ReactNode;
 	hint?: ReactNode;
-	code?: string;
 	required?: boolean;
 	full?: boolean;
 	children: ReactNode;
 }
 
-export function Field({ label, hint, code, required, full, children }: FieldProps) {
+export function Field({ code, label, hint, required, full, children }: FieldProps) {
+	const entry: FieldLabel | null = getFieldLabel(code);
+	const effectiveLabel: ReactNode = label ?? entry?.label ?? code;
+	const effectiveHint: ReactNode = hint ?? entry?.hint;
 	return (
 		<div
+			data-code={code}
 			className={`border-b border-dashed border-black/5 py-2.5 ${
 				full ? "flex flex-col gap-1.5" : "flex flex-row gap-3.5"
 			} last:border-b-0`}
 		>
 			<div className={`pt-1 ${full ? "flex-none" : "flex-none basis-50"}`}>
 				<div className="mb-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
-					<span className="text-[12.5px] font-semibold text-bn-text-primary">{label}</span>
+					<span className="text-[12.5px] font-semibold text-bn-text-primary">{effectiveLabel}</span>
 					{required ? <span className="text-[11px] text-red-500">*</span> : null}
-					{code ? (
-						<code className="rounded bg-black/5 px-1.5 py-px font-mono text-[10.5px] text-bn-text-tertiary">
-							{code}
-						</code>
-					) : null}
+					<code className="rounded bg-black/5 px-1.5 py-px font-mono text-[10.5px] text-bn-text-tertiary">
+						{code}
+					</code>
 				</div>
-				{hint ? (
-					<div className="text-[11px] leading-snug text-bn-text-secondary">{hint}</div>
+				{effectiveHint ? (
+					<div className="text-[11px] leading-snug text-bn-text-secondary">{effectiveHint}</div>
 				) : null}
 			</div>
 			<div className="flex min-w-0 flex-1 items-start">{children}</div>

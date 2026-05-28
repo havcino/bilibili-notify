@@ -88,6 +88,16 @@ export interface SubItemView {
 	 * 单图永远不走合并转发(在 engine 内已守卫)。
 	 */
 	imageGroupForward?: boolean;
+	/**
+	 * Per-UP 非视频动态文本模板;undefined 继承 engine config `dynamicTemplate`。
+	 * Adapter 折叠 `Subscription.overrides.templates.dynamic` 后填入。
+	 */
+	customDynamicTemplate?: string;
+	/**
+	 * Per-UP 视频投稿文本模板;undefined 继承 engine config `videoTemplate`。
+	 * Adapter 折叠 `Subscription.overrides.templates.dynamicVideo` 后填入。
+	 */
+	customVideoTemplate?: string;
 }
 
 export type SubscriptionsView = Record<string, SubItemView>;

@@ -101,36 +101,51 @@ export const GlobalConfigSchema = z.object({
 });
 export type GlobalConfig = z.infer<typeof GlobalConfigSchema>;
 
-/** 模板默认值（占位，可由 UI 编辑）。 */
+/**
+ * 模板默认值（占位，可由 UI 编辑）。
+ *
+ * 占位符统一 `{key}` 语法,由 `LiveTemplateRenderer.applyTemplate` / `interpolate`
+ * 替换(`applyTemplate` 同时兼容 koishi 旧存档的 legacy `-key`)。变量集严格对齐
+ * 渲染器实际提供的字段:
+ * - 直播:`{name}` `{time}` `{follower}` `{follower_change}` `{watched}` `{link}`
+ * - 上舰:`{uname}` `{mname}` `{guard}`
+ * - 特别关注:`{mastername}` `{uname}` `{msg}`
+ * - 弹幕总结:`{dmc}` `{mdn}` `{dca}` `{un1..5}` `{dc1..5}`
+ * - 动态:`{name}` `{url}`
+ *
+ * liveStart/liveOngoing/liveEnd 与 packages/live 的 `DEFAULT_LIVE_TEMPLATES`
+ * 保持字面量一致 —— 这样「自定义关闭时实际推送的内建默认」== 「自定义打开时
+ * UI 载入的默认文本」,不再出现 `{name}` 原样吐出的错配。
+ */
 export const DEFAULT_TEMPLATES = {
-	liveStart: "{name} 开播了！\n直播间标题：{title}\n直播间链接：{link}",
-	liveOngoing: "{name} 仍在直播中（已直播 {duration}）\n标题：{title}\n看过：{watched}",
-	liveEnd: "{name} 下播了，直播时长 {duration}",
-	// false = builtin 简短文案；true = 启用上面三段自定义模板
-	liveMsgEnabled: false,
+	liveStart: "{name} 开播啦，当前粉丝数：{follower}\n{link}",
+	liveOngoing: "{name} 正在直播，已播 {time}，累计观看：{watched}\n{link}",
+	liveEnd: "{name} 下播啦，本次直播了 {time}，粉丝变化 {follower_change}",
 	liveSummary: `🔍【弹幕情报站】本场直播数据如下：
-🧍‍♂️ 总共 -dmc 位-mdn上线
-💬 共计 -dca 条弹幕飞驰而过
+🧍‍♂️ 总共 {dmc} 位{mdn}上线
+💬 共计 {dca} 条弹幕飞驰而过
 📊 热词云图已生成，快来看看你有没有上榜！
 👑 本场顶级输出选手：
-🥇 -un1 - 弹幕输出 -dc1 条
-🥈 -un2 - 弹幕 -dc2 条，萌力惊人
-🥉 -un3 - -dc3 条精准狙击
-🎖️ 特别嘉奖：-un4 & -un5
+🥇 {un1} - 弹幕输出 {dc1} 条
+🥈 {un2} - 弹幕 {dc2} 条，萌力惊人
+🥉 {un3} - {dc3} 条精准狙击
+🎖️ 特别嘉奖：{un4} & {un5}
 你们的弹幕，我们都记录在案！🕵️‍♀️`,
+	dynamic: "{name}发布了一条动态：{url}",
+	dynamicVideo: "{name}发布了新视频：{url}",
 	specialDanmaku: "{mastername} 的关注用户 {uname} 发送弹幕：{msg}",
 	specialUserEnter: "{uname} 进入了 {mastername} 的直播间",
 	guardBuy: {
 		// false = 默认上舰图 + 内置文案；true = 启用三档自定义文案/图片
 		enable: false,
-		captain: { imageUrl: "", template: "{user} 成为了 {mastername} 的舰长！" },
+		captain: { imageUrl: "", template: "{uname} 成为了 {mname} 的舰长！" },
 		commander: {
 			imageUrl: "",
-			template: "{user} 成为了 {mastername} 的提督！",
+			template: "{uname} 成为了 {mname} 的提督！",
 		},
 		governor: {
 			imageUrl: "",
-			template: "{user} 成为了 {mastername} 的总督！",
+			template: "{uname} 成为了 {mname} 的总督！",
 		},
 	},
 } as const;

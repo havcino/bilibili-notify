@@ -68,7 +68,7 @@ export const BilibiliNotifyLiveConfig: Schema<BilibiliNotifyLiveConfig> = Schema
 		.default(DEFAULT_TEMPLATES.liveSummary.split("\n"))
 		.role("table")
 		.description(
-			"这里可以自定义直播总结的模版～每一行就是一段内容，女仆会按主人写的格式发送哦 (〃´-`〃)♡变量解释：-dmc代表总弹幕发送人数，-mdn代表主播粉丝牌子名，-dca代表总弹幕数，-un1到-un5代表弹幕发送条数前五名用户的用户名，-dc1到-dc5代表弹幕发送条数前五名的弹幕发送数量，数组每一行代表换行",
+			"这里可以自定义直播总结的模版～每一行就是一段内容，女仆会按主人写的格式发送哦 (〃´-`〃)♡变量解释：{dmc}代表总弹幕发送人数，{mdn}代表主播粉丝牌子名，{dca}代表总弹幕数，{un1}到{un5}代表弹幕发送条数前五名用户的用户名，{dc1}到{dc5}代表弹幕发送条数前五名的弹幕发送数量，数组每一行代表换行",
 		),
 
 	customGuardBuy: Schema.intersect([
@@ -79,9 +79,9 @@ export const BilibiliNotifyLiveConfig: Schema<BilibiliNotifyLiveConfig> = Schema
 			Schema.object({
 				enable: Schema.const(true).required(),
 				guardBuyMsg: Schema.string()
-					.default("【-mname的直播间】-uname 加入了大航海（-guard）")
+					.default("【{mname}的直播间】{uname} 加入了大航海（{guard}）")
 					.description(
-						"这里可以自定义上舰提示内容～-uname 是用户名，-mname 是主播名，-guard 是舰长类型哒！女仆会甜甜地发送给主人的群里 (〃ﾉωﾉ)♡",
+						"这里可以自定义上舰提示内容～{uname} 是用户名，{mname} 是主播名，{guard} 是舰长类型哒！女仆会甜甜地发送给主人的群里 (〃ﾉωﾉ)♡",
 					),
 				captainImgUrl: Schema.string()
 					.default(
@@ -119,19 +119,19 @@ export const BilibiliNotifyLiveConfig: Schema<BilibiliNotifyLiveConfig> = Schema
 			Schema.object({
 				enable: Schema.const(true).required(),
 				customLiveStart: Schema.string()
-					.default("-name 开播啦，当前粉丝数：-follower\n-link")
+					.default("{name} 开播啦，当前粉丝数：{follower}\n{link}")
 					.description(
-						"这是开播提示语的自定义格式～女仆会把 -name、-follower、-link 都替换成真实数据送给主人 (〃´-`〃)♡，-name代表UP昵称，-follower代表当前粉丝数，-link代表直播间链接（QQ官方机器人请不要使用），\\n为换行",
+						"这是开播提示语的自定义格式～女仆会把 {name}、{follower}、{link} 都替换成真实数据送给主人 (〃´-`〃)♡，{name}代表UP昵称，{follower}代表当前粉丝数，{link}代表直播间链接（QQ官方机器人请不要使用），\\n为换行",
 					),
 				customLive: Schema.string()
-					.default("-name 正在直播，已播 -time，累计观看：-watched\n-link")
+					.default("{name} 正在直播，已播 {time}，累计观看：{watched}\n{link}")
 					.description(
-						"直播中提示语的自定义内容在这里～-name、-time、-watched 都会由女仆乖乖替换哒！-name代表UP昵称，-time代表开播时长，-watched代表累计观看人数，-link代表直播间链接（QQ官方机器人请不要使用），\\n为换行",
+						"直播中提示语的自定义内容在这里～{name}、{time}、{watched} 都会由女仆乖乖替换哒！{name}代表UP昵称，{time}代表开播时长，{watched}代表累计观看人数，{link}代表直播间链接（QQ官方机器人请不要使用），\\n为换行",
 					),
 				customLiveEnd: Schema.string()
-					.default("-name 下播啦，本次直播了 -time，粉丝变化 -follower_change")
+					.default("{name} 下播啦，本次直播了 {time}，粉丝变化 {follower_change}")
 					.description(
-						"下播提示语的设定～-time、-follower_change 等变量女仆都会帮主人处理好 (*´∀`)，-name代表UP昵称，-follower_change代表本场直播粉丝数变化，-time代表开播时长，\\n为换行",
+						"下播提示语的设定～{time}、{follower_change} 等变量女仆都会帮主人处理好 (*´∀`)，{name}代表UP昵称，{follower_change}代表本场直播粉丝数变化，{time}代表开播时长，\\n为换行",
 					),
 			}),
 			Schema.object({}),

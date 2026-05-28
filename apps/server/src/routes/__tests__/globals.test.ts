@@ -53,4 +53,49 @@ describe("shouldRunAiEnableCheck", () => {
 			shouldRunAiEnableCheck(cur, { defaults: { ai: { enabled: true, persona: { name: "x" } } } }),
 		).toBe(false);
 	});
+
+	it("patch 含连接字段但值跟 current 相同 → 不触发探活(前端整段 patch 兼容)", () => {
+		const cur = enabledAiGlobals();
+		// 模拟 Ai.tsx 现状:用户只改 persona,但前端把整段 defaults.ai 送上,
+		// baseUrl/model 跟 current 完全一致(apiKey 经 stripRedactedSecrets 已剔除)。
+		expect(
+			shouldRunAiEnableCheck(cur, {
+				defaults: {
+					ai: {
+						baseUrl: cur.defaults.ai.baseUrl,
+						model: cur.defaults.ai.model,
+						persona: { name: "恶魔兔" },
+					},
+				},
+			}),
+		).toBe(false);
+	});
+
+	it("patch 含连接字段且 baseUrl 真改了 → 触发探活", () => {
+		const cur = enabledAiGlobals();
+		expect(
+			shouldRunAiEnableCheck(cur, {
+				defaults: {
+					ai: {
+						baseUrl: "https://api.example.com/v2", // changed
+						model: cur.defaults.ai.model, // unchanged
+					},
+				},
+			}),
+		).toBe(true);
+	});
+
+	it("patch 含连接字段且 model 真改了 → 触发探活", () => {
+		const cur = enabledAiGlobals();
+		expect(
+			shouldRunAiEnableCheck(cur, {
+				defaults: {
+					ai: {
+						baseUrl: cur.defaults.ai.baseUrl, // unchanged
+						model: "gpt-4o", // changed
+					},
+				},
+			}),
+		).toBe(true);
+	});
 });

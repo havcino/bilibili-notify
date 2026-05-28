@@ -87,20 +87,20 @@ jobs:
       # dry-run(${{ env.DRY_RUN }} == 'true')时 push=false 不污染 registry。
       - name: Build + push-by-digest
         id: build
+        # 不再 pin v7.1.0:alpha.5 构建 amd64 / arm64 双双卡在本步(Build +
+        # push-by-digest),非单一 arch / 版本特有 → 排除 build-push-action 版本嫌疑,
+        # 回到 @v7 主标签。
         uses: docker/build-push-action@v7
         with:
           context: .
           file: ./apps/Dockerfile
           platforms: linux/${{ matrix.platform.arch }}
           outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=${{ env.DRY_RUN == 'true' && 'false' || 'true' }}
-          # Per-arch cache scope:amd64 / arm64 cache 独立,避免相互污染冲掉 layer。
-          # mode=min 只 export 最终 runtime 层,不导出 builder 中间层 —— builder 阶段
-          # 有几十个 intermediate layer,mode=max 在 arm64 runner 上把 cache 推到 GHA
-          # 时会饱和 Cache API 触发节流 hang(实测卡 30+ 分钟,跟 moby/buildkit#2804
-          # 一致)。mode=min 数据量小不卡,代价是 builder 阶段(pnpm install / build)
-          # 每次重跑,arm64 +4-5min / amd64 +3-4min;但发版频率低,可接受。
-          cache-from: type=gha,scope=${{ matrix.platform.arch }}
-          cache-to: type=gha,mode=min,scope=${{ matrix.platform.arch }}
+          # 彻底关闭 GHA cache:此前 mode=max 卡 arm64、改 mode=min 后 alpha.5 仍双
+          # arch 卡死本步 —— 高度怀疑 GHA Cache API 导入/导出节流 hang(moby/buildkit
+          # #2804 一类)。先完全去掉 cache-from/cache-to 验证。无 cache → builder 阶段
+          # (pnpm install / build)每次全量重跑,arm64 +4-5min / amd64 +3-4min,发版
+          # 频率低可接受。若确认缓存是元凶,再按 arch scope 谨慎恢复(或换 type=registry)。
 
       # Smoke 只在 amd64 跑 —— GHA arm64 runner 也能跑自家镜像但意义不大:
       # smoke 验的是"镜像启动 + /api/health + dashboard 静态资源",amd64 验过

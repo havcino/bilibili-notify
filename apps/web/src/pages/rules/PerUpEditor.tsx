@@ -45,6 +45,7 @@ import type {
 } from "../../types/globals";
 import { colorFromUid, displayName } from "../up/helpers";
 import {
+	DynamicMsgVariableHints,
 	GuardVariableHints,
 	LiveMsgVariableHints,
 	type SectionId,
@@ -232,6 +233,13 @@ export function PerUpEditor({ sub, defaults, section }: PerUpEditorProps) {
 					baseline={defaults.templates}
 				/>
 			) : null}
+			{section === "dynamicMsg" ? (
+				<DynamicMsgOverrideBox
+					value={draft.overrides.templates}
+					onChange={(v) => setSlice("templates", v)}
+					baseline={defaults.templates}
+				/>
+			) : null}
 			{section === "guard" ? (
 				<GuardOverrideBox
 					value={draft.overrides.templates}
@@ -334,21 +342,21 @@ function FilterOverrideBox({
 		>
 			{enabled ? (
 				<>
-					<Field label="屏蔽关键词" code="blockKeywords" hint="任一命中即屏蔽" full>
+					<Field code="blockKeywords" full>
 						<ArrayEditor value={get("blockKeywords")} onChange={(n) => set("blockKeywords", n)} />
 					</Field>
-					<Field label="屏蔽正则" code="blockRegex" hint="正则表达式 · 命中的动态被屏蔽" full>
+					<Field code="blockRegex" full>
 						<ArrayEditor value={get("blockRegex")} onChange={(n) => set("blockRegex", n)} />
 					</Field>
-					<Field label="白名单关键词" code="whitelistKeywords" hint="非空时仅命中条目会被推送" full>
+					<Field code="whitelistKeywords" full>
 						<ArrayEditor
 							value={get("whitelistKeywords")}
 							onChange={(n) => set("whitelistKeywords", n)}
 						/>
 					</Field>
 					<div className="mt-1.5 grid grid-cols-1 gap-2 sm:grid-cols-2">
-						<Field label="屏蔽转发动态" code="blockForward">
-							<div className="flex h-[30px] items-center">
+						<Field code="blockForward">
+							<div className="flex h-7.5 items-center">
 								<Toggle
 									value={get("blockForward")}
 									onChange={(v) => set("blockForward", v)}
@@ -356,8 +364,8 @@ function FilterOverrideBox({
 								/>
 							</div>
 						</Field>
-						<Field label="屏蔽专栏动态" code="blockArticle">
-							<div className="flex h-[30px] items-center">
+						<Field code="blockArticle">
+							<div className="flex h-7.5 items-center">
 								<Toggle
 									value={get("blockArticle")}
 									onChange={(v) => set("blockArticle", v)}
@@ -365,13 +373,13 @@ function FilterOverrideBox({
 								/>
 							</div>
 						</Field>
-						<Field label="屏蔽图文动态" code="blockDraw">
-							<div className="flex h-[30px] items-center">
+						<Field code="blockDraw">
+							<div className="flex h-7.5 items-center">
 								<Toggle value={get("blockDraw")} onChange={(v) => set("blockDraw", v)} size="sm" />
 							</div>
 						</Field>
-						<Field label="屏蔽视频动态" code="blockAv">
-							<div className="flex h-[30px] items-center">
+						<Field code="blockAv">
+							<div className="flex h-7.5 items-center">
 								<Toggle value={get("blockAv")} onChange={(v) => set("blockAv", v)} size="sm" />
 							</div>
 						</Field>
@@ -427,7 +435,7 @@ function LiveOverrideBox({
 		>
 			{enabled ? (
 				<div className="grid grid-cols-1 gap-0 sm:grid-cols-2">
-					<Field label="SC 最低金额" code="minScPrice" hint="低于此金额不推送 · 0 = 全推">
+					<Field code="minScPrice">
 						<TNum
 							value={fCur.minScPrice ?? baselineFilters.minScPrice}
 							onChange={(v) => onFilters({ ...fCur, minScPrice: v })}
@@ -435,7 +443,7 @@ function LiveOverrideBox({
 							suffix="元"
 						/>
 					</Field>
-					<Field label="上舰最低等级" code="minGuardLevel" hint="3 = 全部 · 1 = 仅总督">
+					<Field code="minGuardLevel">
 						<Picker<1 | 2 | 3>
 							value={fCur.minGuardLevel ?? baselineFilters.minGuardLevel}
 							onChange={(v) => onFilters({ ...fCur, minGuardLevel: v })}
@@ -446,7 +454,7 @@ function LiveOverrideBox({
 							]}
 						/>
 					</Field>
-					<Field label="状态推送间隔" code="schedule.pushTime" hint="0 = 不推送">
+					<Field code="schedule.pushTime">
 						<TNum
 							value={sCur.pushTime ?? baselineSchedule.pushTime}
 							onChange={(v) => onSchedule({ ...sCur, pushTime: v })}
@@ -455,12 +463,8 @@ function LiveOverrideBox({
 							suffix="小时"
 						/>
 					</Field>
-					<Field
-						label="启动后立即推送"
-						code="schedule.restartPush"
-						hint="重启时若 UP 在播则立即推送一次"
-					>
-						<div className="flex h-[30px] items-center">
+					<Field code="schedule.restartPush">
+						<div className="flex h-7.5 items-center">
 							<Toggle
 								value={sCur.restartPush ?? baselineSchedule.restartPush}
 								onChange={(v) => onSchedule({ ...sCur, restartPush: v })}
@@ -468,12 +472,7 @@ function LiveOverrideBox({
 							/>
 						</div>
 					</Field>
-					<Field
-						label="免扰时段"
-						code="schedule.quietHours"
-						hint="该 UP 在此区间内的推送一律丢弃(覆盖全局)"
-						full
-					>
+					<Field code="schedule.quietHours" hint="该 UP 在此区间内的推送一律丢弃(覆盖全局)" full>
 						<QuietHoursEditor
 							value={sCur.quietHours ?? baselineSchedule.quietHours}
 							onChange={(v) => onSchedule({ ...sCur, quietHours: v })}
@@ -519,7 +518,7 @@ function SummaryOverrideBox({
 			{enabled ? (
 				<>
 					<SummaryVariableHints />
-					<Field label="总结正文" code="templates.liveSummary" full>
+					<Field code="templates.liveSummary" full>
 						<TArea
 							value={cur.liveSummary ?? baseline.liveSummary}
 							onChange={(v) => onChange({ ...cur, liveSummary: v })}
@@ -546,8 +545,11 @@ function MsgOverrideBox({
 	onChange: (next: TemplateOverride | undefined) => void;
 	baseline: GlobalDefaults["templates"];
 }) {
-	// 覆盖语义:开 = 该 UP 强制启用自定义直播消息(写入 liveMsgEnabled=true);关 = 继承全局决定。
-	const enabled = value?.liveMsgEnabled === true;
+	// 无 enable flag(与动态模板一致):有 liveStart/liveOngoing/liveEnd 任一覆盖即「覆盖中」。
+	const enabled =
+		value?.liveStart !== undefined ||
+		value?.liveOngoing !== undefined ||
+		value?.liveEnd !== undefined;
 	const cur = value ?? {};
 	function set<K extends "liveStart" | "liveOngoing" | "liveEnd">(k: K, v: string): void {
 		onChange({ ...cur, [k]: v });
@@ -556,20 +558,19 @@ function MsgOverrideBox({
 		if (on) {
 			onChange({
 				...cur,
-				liveMsgEnabled: true,
 				liveStart: cur.liveStart ?? baseline.liveStart,
 				liveOngoing: cur.liveOngoing ?? baseline.liveOngoing,
 				liveEnd: cur.liveEnd ?? baseline.liveEnd,
 			});
 		} else {
-			const { liveMsgEnabled: _flag, liveStart: _a, liveOngoing: _b, liveEnd: _c, ...rest } = cur;
+			const { liveStart: _a, liveOngoing: _b, liveEnd: _c, ...rest } = cur;
 			onChange(Object.keys(rest).length > 0 ? rest : undefined);
 		}
 	}
 	return (
 		<GlassBox
 			title="直播消息覆盖"
-			subtitle="开 = 该 UP 强制使用自定义开播 / 直播中 / 下播文案;关 = 继承全局决定"
+			subtitle="开 = 该 UP 使用自定义开播 / 直播中 / 下播文案;关 = 继承全局"
 			accent="#FB7299"
 			icon={<Icon.chat size={14} />}
 			badge={enabled ? "覆盖中" : "继承"}
@@ -578,7 +579,7 @@ function MsgOverrideBox({
 			{enabled ? (
 				<>
 					<LiveMsgVariableHints />
-					<Field label="开播" code="templates.liveStart" full>
+					<Field code="templates.liveStart" full>
 						<TArea
 							value={cur.liveStart ?? baseline.liveStart}
 							onChange={(v) => set("liveStart", v)}
@@ -586,7 +587,7 @@ function MsgOverrideBox({
 							mono
 						/>
 					</Field>
-					<Field label="直播中" code="templates.liveOngoing" full>
+					<Field code="templates.liveOngoing" full>
 						<TArea
 							value={cur.liveOngoing ?? baseline.liveOngoing}
 							onChange={(v) => set("liveOngoing", v)}
@@ -594,7 +595,7 @@ function MsgOverrideBox({
 							mono
 						/>
 					</Field>
-					<Field label="下播" code="templates.liveEnd" full>
+					<Field code="templates.liveEnd" full>
 						<TArea
 							value={cur.liveEnd ?? baseline.liveEnd}
 							onChange={(v) => set("liveEnd", v)}
@@ -605,6 +606,71 @@ function MsgOverrideBox({
 				</>
 			) : (
 				<InheritHint>该 UP 将继承全局直播消息模板</InheritHint>
+			)}
+		</GlassBox>
+	);
+}
+
+/* -------- Dynamic msg (overrides.templates.dynamic / dynamicVideo) -------- */
+
+function DynamicMsgOverrideBox({
+	value,
+	onChange,
+	baseline,
+}: {
+	value: TemplateOverride | undefined;
+	onChange: (next: TemplateOverride | undefined) => void;
+	baseline: GlobalDefaults["templates"];
+}) {
+	// 无 enable flag —— 动态推送总会发;有 dynamic / dynamicVideo 任一覆盖即「覆盖中」。
+	const enabled = value?.dynamic !== undefined || value?.dynamicVideo !== undefined;
+	const cur = value ?? {};
+	function set<K extends "dynamic" | "dynamicVideo">(k: K, v: string): void {
+		onChange({ ...cur, [k]: v });
+	}
+	function toggle(on: boolean): void {
+		if (on) {
+			onChange({
+				...cur,
+				dynamic: cur.dynamic ?? baseline.dynamic,
+				dynamicVideo: cur.dynamicVideo ?? baseline.dynamicVideo,
+			});
+		} else {
+			const { dynamic: _a, dynamicVideo: _b, ...rest } = cur;
+			onChange(Object.keys(rest).length > 0 ? rest : undefined);
+		}
+	}
+	return (
+		<GlassBox
+			title="动态消息覆盖"
+			subtitle="开 = 该 UP 使用自定义动态 / 视频投稿文案;关 = 继承全局"
+			accent="#9b6dff"
+			icon={<Icon.chat size={14} />}
+			badge={enabled ? "覆盖中" : "继承"}
+			right={<Toggle value={enabled} onChange={toggle} />}
+		>
+			{enabled ? (
+				<>
+					<DynamicMsgVariableHints />
+					<Field code="templates.dynamic" full>
+						<TArea
+							value={cur.dynamic ?? baseline.dynamic}
+							onChange={(v) => set("dynamic", v)}
+							rows={2}
+							mono
+						/>
+					</Field>
+					<Field code="templates.dynamicVideo" full>
+						<TArea
+							value={cur.dynamicVideo ?? baseline.dynamicVideo}
+							onChange={(v) => set("dynamicVideo", v)}
+							rows={2}
+							mono
+						/>
+					</Field>
+				</>
+			) : (
+				<InheritHint>该 UP 将继承全局动态消息模板</InheritHint>
 			)}
 		</GlassBox>
 	);
@@ -788,7 +854,6 @@ function SpecialUserBox({
 			{enabled ? (
 				<>
 					<Field
-						label="UID 列表"
 						code="specialUsers"
 						hint={
 							kind === "danmaku" ? "命中后该 UID 的弹幕会单独提醒" : "命中后该 UID 进房会单独提醒"
@@ -799,7 +864,6 @@ function SpecialUserBox({
 					</Field>
 					{kind === "danmaku" ? <SpecialDanmakuVariableHints /> : <SpecialEnterVariableHints />}
 					<Field
-						label="模板"
 						code={`templates.${templateField}`}
 						hint={tplOverridden ? "已覆盖全局" : "继承全局模板"}
 						full
@@ -858,13 +922,13 @@ function CardStyleOverrideBox({
 		>
 			{enabled ? (
 				<>
-					<Field label="渐变起始" code="cardColorStart">
+					<Field code="cardColorStart">
 						<TColor
 							value={cur.cardColorStart ?? baseline.cardColorStart}
 							onChange={(v) => set("cardColorStart", v)}
 						/>
 					</Field>
-					<Field label="渐变结束" code="cardColorEnd">
+					<Field code="cardColorEnd">
 						<TColor
 							value={cur.cardColorEnd ?? baseline.cardColorEnd}
 							onChange={(v) => set("cardColorEnd", v)}
@@ -937,7 +1001,7 @@ function AiOverrideBox({
 		>
 			{enabled ? (
 				<>
-					<Field label="预设" code="ai.preset" full>
+					<Field code="ai.preset" full>
 						<Picker
 							value={cur.preset}
 							onChange={(v) => onChange({ ...cur, preset: v })}
@@ -946,7 +1010,7 @@ function AiOverrideBox({
 					</Field>
 
 					{isPreset && activePreset ? (
-						<div className="rounded-lg border border-[#a29bfe]/30 bg-[#a29bfe]/8 px-3 py-2 text-[11.5px] text-bn-text-secondary">
+						<div className="rounded-lg border border-bn-purple/30 bg-bn-purple/8 px-3 py-2 text-[11.5px] text-bn-text-secondary">
 							已套用预设「{activePreset.label}」 · 名字 {activePreset.persona.name} · 称呼用户{" "}
 							{activePreset.persona.addressUser} ·
 							提示词随预设。需要更细的微调请改用「完全自定义」。
@@ -956,28 +1020,28 @@ function AiOverrideBox({
 					{isCustom ? (
 						<>
 							<div className="grid grid-cols-1 gap-0 lg:grid-cols-2">
-								<Field label="名字" code="ai.persona.name">
+								<Field code="ai.persona.name">
 									<TInput
 										value={personaBase.name}
 										onChange={(v) => setPersonaField("name", v)}
 										full={false}
 									/>
 								</Field>
-								<Field label="称呼用户" code="ai.persona.addressUser">
+								<Field code="ai.persona.addressUser">
 									<TInput
 										value={personaBase.addressUser}
 										onChange={(v) => setPersonaField("addressUser", v)}
 										full={false}
 									/>
 								</Field>
-								<Field label="自称" code="ai.persona.addressSelf">
+								<Field code="ai.persona.addressSelf">
 									<TInput
 										value={personaBase.addressSelf}
 										onChange={(v) => setPersonaField("addressSelf", v)}
 										full={false}
 									/>
 								</Field>
-								<Field label="口头禅" code="ai.persona.catchphrase">
+								<Field code="ai.persona.catchphrase">
 									<TInput
 										value={personaBase.catchphrase}
 										onChange={(v) => setPersonaField("catchphrase", v)}
@@ -985,34 +1049,24 @@ function AiOverrideBox({
 									/>
 								</Field>
 							</div>
-							<Field label="性格特点" code="ai.persona.traits" hint="逗号分隔" full>
+							<Field code="ai.persona.traits" full>
 								<TInput value={personaBase.traits} onChange={(v) => setPersonaField("traits", v)} />
 							</Field>
-							<Field
-								label="基础角色描述"
-								code="ai.persona.baseRole"
-								hint="system prompt 起手段,定义 AI 的身份"
-								full
-							>
+							<Field code="ai.persona.baseRole" full>
 								<TArea
 									value={personaBase.baseRole}
 									onChange={(v) => setPersonaField("baseRole", v)}
 									rows={2}
 								/>
 							</Field>
-							<Field
-								label="追加 system prompt"
-								code="ai.persona.extraSystemPrompt"
-								hint="附加到 system prompt 末尾,用于安全约束、避讳词、语气微调"
-								full
-							>
+							<Field code="ai.persona.extraSystemPrompt" full>
 								<TArea
 									value={personaBase.extraSystemPrompt}
 									onChange={(v) => setPersonaField("extraSystemPrompt", v)}
 									rows={2}
 								/>
 							</Field>
-							<Field label="动态点评 prompt" code="ai.dynamicPrompt" full>
+							<Field code="ai.dynamicPrompt" full>
 								<TArea
 									value={cur.dynamicPrompt ?? ""}
 									onChange={(v) => onChange({ ...cur, dynamicPrompt: v })}
@@ -1020,7 +1074,7 @@ function AiOverrideBox({
 									mono
 								/>
 							</Field>
-							<Field label="直播总结 prompt" code="ai.liveSummaryPrompt" full>
+							<Field code="ai.liveSummaryPrompt" full>
 								<TArea
 									value={cur.liveSummaryPrompt ?? ""}
 									onChange={(v) => onChange({ ...cur, liveSummaryPrompt: v })}
@@ -1030,7 +1084,7 @@ function AiOverrideBox({
 							</Field>
 						</>
 					) : null}
-					<Field label="temperature" code="ai.temperature" hint="0–2,越高越发散">
+					<Field code="ai.temperature">
 						<TNum
 							value={cur.temperature ?? baseline.temperature}
 							onChange={(v) => onChange({ ...cur, temperature: v })}
@@ -1084,10 +1138,10 @@ function ImageGroupOverrideBox({
 		>
 			{enabled ? (
 				<>
-					<Field label="推送动态图集" code="enable">
+					<Field code="enable">
 						<Toggle value={effEnable} onChange={(v) => set("enable", v)} />
 					</Field>
-					<Field label="图集走合并转发" code="forward" hint="单图不走合并转发">
+					<Field code="forward">
 						<Toggle value={effForward} onChange={(v) => set("forward", v)} disabled={!effEnable} />
 					</Field>
 				</>

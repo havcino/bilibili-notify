@@ -10,30 +10,40 @@ import { describe, expect, it } from "vitest";
 import { applyTemplate, LiveTemplateRenderer } from "../template-renderer";
 
 /**
- * 回归守护 — P2:applyTemplate 单遍替换。
- * 不变量:① 用户可控值含 token(`-link` 等)不被二次替换(token 注入);
- * ② 前缀 token(`-follower`)不吞噬更长 token(`-follower_change`);
- * ③ `\n` 仍展开为真换行。复发点:改回顺序 for…replaceAll。
+ * 回归守护 — P2:applyTemplate 单遍替换 + 裸键双语法。
+ * vars 以裸键给出,模板里 `{name}`(主)与 legacy `-name`(兼容)都被替换。
+ * 不变量:① 用户可控值含 token(`{link}`/`-link`)不被二次替换(token 注入);
+ * ② 前缀 token(legacy `-follower`)不吞噬更长 token(`-follower_change`);
+ * ③ `\n` 仍展开为真换行;④ koishi 旧存档的 `-key` 写法继续生效。
  */
-describe("applyTemplate — 单遍替换 (P2)", () => {
+describe("applyTemplate — 单遍替换 + 裸键双语法 (P2)", () => {
 	it("用户值含 token 不被二次替换(token 注入防护)", () => {
-		const out = applyTemplate("-name 开播 -link", {
-			"-name": "黑客-link注入",
-			"-link": "https://live/1",
+		const out = applyTemplate("{name} 开播 {link}", {
+			name: "黑客{link}注入",
+			link: "https://live/1",
 		});
-		expect(out).toBe("黑客-link注入 开播 https://live/1");
+		expect(out).toBe("黑客{link}注入 开播 https://live/1");
 	});
 
-	it("前缀 token 不吞噬更长 token", () => {
-		const out = applyTemplate("粉丝-follower 变化-follower_change", {
-			"-follower": "100",
-			"-follower_change": "+5",
+	it("前缀 token 不吞噬更长 token(含 legacy `-` 写法)", () => {
+		const out = applyTemplate("粉丝{follower} 变化{follower_change}", {
+			follower: "100",
+			follower_change: "+5",
 		});
 		expect(out).toBe("粉丝100 变化+5");
+		const legacy = applyTemplate("粉丝-follower 变化-follower_change", {
+			follower: "100",
+			follower_change: "+5",
+		});
+		expect(legacy).toBe("粉丝100 变化+5");
 	});
 
-	it("\\n 展开为真换行;未知 token 原样保留", () => {
-		expect(applyTemplate("-name\\n-x", { "-name": "A" })).toBe("A\n-x");
+	it("`\\n` 展开为真换行;未知 token 原样保留", () => {
+		expect(applyTemplate("{name}\\n{x}", { name: "A" })).toBe("A\n{x}");
+	});
+
+	it("legacy `-key` 与新 `{key}` 同模板混用都被替换(koishi 旧存档兼容)", () => {
+		expect(applyTemplate("-name / {name}", { name: "绫" })).toBe("绫 / 绫");
 	});
 });
 

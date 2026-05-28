@@ -25,6 +25,7 @@ import {
 } from "../components/forms";
 import { GlassBox } from "../components/glass-box";
 import { Icon, type IconName } from "../components/icons";
+import { useDirtyDraft } from "../hooks/useDirtyDraft";
 import { ApiError, api } from "../services/api";
 import type { PushTarget } from "../types/domain";
 import type { CardStyle, GlobalConfig, LogLevel } from "../types/globals";
@@ -209,7 +210,7 @@ function TestPushCard({
 			icon={<Icon.bell size={14} />}
 			badge="test-push"
 		>
-			<Field label="推送目标" code="targetId" hint="仅列启用的外部投递目标" full>
+			<Field code="targetId" full>
 				<select
 					value={targetId}
 					onChange={(e) => setTargetId(e.target.value)}
@@ -274,7 +275,6 @@ export default function Cards() {
 	const [imageLogLevel, setImageLogLevel] = useState<ImageLogLevel>("");
 	const [kind, setKind] = useState<CardKind>("live");
 	const [content, setContent] = useState<PreviewContent>(DEFAULT_PREVIEW_CONTENT);
-	const [error, setError] = useState<string | null>(null);
 
 	const setLive = (next: Partial<PreviewContent["live"]>) =>
 		setContent((c) => ({ ...c, live: { ...c.live, ...next } }));
@@ -292,39 +292,56 @@ export default function Cards() {
 		}
 	}, [globalsQuery.data]);
 
-	const serverImageLogLevel = globalsQuery.data?.app.logLevels?.image ?? "";
-	const dirty = useMemo(() => {
-		if (!draft || !globalsQuery.data) return false;
-		return (
-			JSON.stringify(draft) !== JSON.stringify(globalsQuery.data.defaults.cardStyle) ||
-			imageLogLevel !== serverImageLogLevel
-		);
-	}, [draft, globalsQuery.data, imageLogLevel, serverImageLogLevel]);
-
 	const save = useMutation({
 		mutationFn: async (payload: { cardStyle: CardStyle; imageLogLevel: ImageLogLevel }) => {
-			setError(null);
-			try {
-				const existing = globalsQuery.data?.app.logLevels ?? {};
-				// "" → drop the override (fall back to global). Setting to a level
-				// → patch only that key, so other module overrides stay untouched.
-				const nextLogLevels =
-					payload.imageLogLevel === ""
-						? Object.fromEntries(Object.entries(existing).filter(([k]) => k !== "image"))
-						: { ...existing, image: payload.imageLogLevel };
-				await api.patch<GlobalConfig>("/api/globals", {
-					app: {
-						logLevels: Object.keys(nextLogLevels).length === 0 ? undefined : nextLogLevels,
-					},
-					defaults: { cardStyle: payload.cardStyle },
-				});
-			} catch (err) {
-				if (err instanceof ApiError) setError(err.message);
-				else setError(String(err));
-				throw err;
-			}
+			const existing = globalsQuery.data?.app.logLevels ?? {};
+			// "" → drop the override (fall back to global). Setting to a level
+			// → patch only that key, so other module overrides stay untouched.
+			const nextLogLevels =
+				payload.imageLogLevel === ""
+					? Object.fromEntries(Object.entries(existing).filter(([k]) => k !== "image"))
+					: { ...existing, image: payload.imageLogLevel };
+			await api.patch<GlobalConfig>("/api/globals", {
+				app: {
+					logLevels: Object.keys(nextLogLevels).length === 0 ? undefined : nextLogLevels,
+				},
+				defaults: { cardStyle: payload.cardStyle },
+			});
 		},
 		onSuccess: () => qc.invalidateQueries({ queryKey: ["globals"] }),
+	});
+
+	// 灵动岛 draft/baseline:把 cardStyle 顶层字段 + app.logLevels.image 合在
+	// 一个对象里,让 walkTreeDiff 输出的 code 跟 FIELD_LABELS 字典 key 对齐
+	// (cardColorStart / font / hideDesc / app.logLevels.image)。
+	const islandDraft = useMemo(() => {
+		if (draft === null) return null;
+		return {
+			...draft,
+			app: { logLevels: { image: imageLogLevel === "" ? null : imageLogLevel } },
+		};
+	}, [draft, imageLogLevel]);
+	const islandBaseline = useMemo(() => {
+		if (!globalsQuery.data) return null;
+		return {
+			...globalsQuery.data.defaults.cardStyle,
+			app: { logLevels: { image: globalsQuery.data.app.logLevels?.image ?? null } },
+		};
+	}, [globalsQuery.data]);
+
+	useDirtyDraft({
+		pageKey: "cards",
+		pageLabel: "卡片样式",
+		draft: islandDraft,
+		baseline: islandBaseline,
+		onSave: async () => {
+			if (draft !== null) await save.mutateAsync({ cardStyle: draft, imageLogLevel });
+		},
+		onDiscard: () => {
+			if (!globalsQuery.data) return;
+			setDraft(globalsQuery.data.defaults.cardStyle);
+			setImageLogLevel(globalsQuery.data.app.logLevels?.image ?? "");
+		},
 	});
 
 	if (!draft) {
@@ -339,12 +356,6 @@ export default function Cards() {
 		setDraft((d) => (d ? { ...d, [k]: v } : d));
 
 	const enabled = draft.enabled;
-
-	function discard(): void {
-		if (!globalsQuery.data) return;
-		setDraft(globalsQuery.data.defaults.cardStyle);
-		setImageLogLevel(globalsQuery.data.app.logLevels?.image ?? "");
-	}
 
 	const KindIcon = Icon[KIND_LABELS[kind].icon];
 
@@ -390,30 +401,7 @@ export default function Cards() {
 						]}
 					/>
 				</div>
-
-				{dirty ? (
-					<div className="mt-3.5 flex items-center justify-end gap-2">
-						<span className="text-[11.5px] font-semibold text-bn-pink">未保存</span>
-						<Btn variant="outline" size="sm" onClick={discard} disabled={save.isPending}>
-							丢弃
-						</Btn>
-						<Btn
-							variant="primary"
-							size="sm"
-							onClick={() => draft && save.mutate({ cardStyle: draft, imageLogLevel })}
-							disabled={save.isPending}
-						>
-							{save.isPending ? "保存中…" : "保存"}
-						</Btn>
-					</div>
-				) : null}
 			</div>
-
-			{error ? (
-				<div className="rounded border border-red-200 bg-red-50 p-2 text-xs text-red-700">
-					{error}
-				</div>
-			) : null}
 
 			<div className="grid gap-3.5 lg:grid-cols-[380px_1fr]">
 				{/* LEFT: image plugin config */}
@@ -425,36 +413,26 @@ export default function Cards() {
 						icon={<Icon.edit size={14} />}
 						badge="cardStyle"
 					>
-						<Field label="渐变起始" code="cardColorStart">
+						<Field code="cardColorStart">
 							<TColor value={draft.cardColorStart} onChange={(v) => set("cardColorStart", v)} />
 						</Field>
-						<Field label="渐变结束" code="cardColorEnd">
+						<Field code="cardColorEnd">
 							<TColor value={draft.cardColorEnd} onChange={(v) => set("cardColorEnd", v)} />
 						</Field>
-						<Field
-							label="字体"
-							code="font"
-							hint="CSS font-family。容器/浏览器没装时自动回退到内置兜底链(Microsoft YaHei / Noto Sans CJK / sans-serif)。"
-							full
-						>
+						<Field code="font" full>
 							<TInput value={draft.font} onChange={(v) => set("font", v)} />
 						</Field>
-						<Field label="隐藏直播简介" code="hideDesc">
+						<Field code="hideDesc">
 							<div className="flex h-7.5 items-center">
 								<Toggle value={draft.hideDesc} onChange={(v) => set("hideDesc", v)} />
 							</div>
 						</Field>
-						<Field label="隐藏粉丝数据" code="hideFollower">
+						<Field code="hideFollower">
 							<div className="flex h-7.5 items-center">
 								<Toggle value={draft.hideFollower} onChange={(v) => set("hideFollower", v)} />
 							</div>
 						</Field>
-						<Field
-							label="日志等级"
-							code="app.logLevels.image"
-							hint="只影响 image 模块;选「跟随全局」时与 app.logLevel 同步。保存后立即生效,无需重启。"
-							full
-						>
+						<Field code="app.logLevels.image" full>
 							<LogLevelPicker
 								value={toPickerValue(imageLogLevel)}
 								onChange={(v) => setImageLogLevel(fromPickerValue(v))}
@@ -503,7 +481,7 @@ export default function Cards() {
 						</div>
 						{kind === "live" ? (
 							<>
-								<Field label="直播间号" code="roomId" hint="纯数字，例如 5440">
+								<Field code="roomId">
 									<TInput
 										value={content.live.roomId}
 										onChange={(v) => setLive({ roomId: v })}
@@ -517,14 +495,14 @@ export default function Cards() {
 							</>
 						) : kind === "dyn" ? (
 							<>
-								<Field label="UP 主 UID" code="uid" hint="目标 UP 主的 UID">
+								<Field code="uid">
 									<TInput
 										value={content.dyn.uid}
 										onChange={(v) => setDyn({ uid: v })}
 										placeholder="留空则使用示例数据"
 									/>
 								</Field>
-								<Field label="第几条动态" code="offset" hint="按 B 站列表顺序取第 N 条(可能含置顶)">
+								<Field code="offset">
 									<TInput
 										value={String(content.dyn.offset)}
 										onChange={(v) => {
@@ -541,10 +519,10 @@ export default function Cards() {
 							</>
 						) : kind === "sc" ? (
 							<>
-								<Field label="SC 文案" code="text" hint="留言内容">
+								<Field code="text">
 									<TArea value={content.sc.text} onChange={(v) => setSc({ text: v })} rows={3} />
 								</Field>
-								<Field label="SC 价格" code="price" hint="决定背景色与时长 (30/50/100/500/1000)">
+								<Field code="price">
 									<TInput
 										value={String(content.sc.price)}
 										onChange={(v) => {
@@ -560,7 +538,7 @@ export default function Cards() {
 							</>
 						) : (
 							<>
-								<Field label="舰长等级" code="level" hint="决定徽章图与背景色">
+								<Field code="level">
 									<div className="flex flex-wrap gap-1.5">
 										{GUARD_LEVELS.map((g) => {
 											const active = content.guard.level === g.v;

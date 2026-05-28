@@ -284,6 +284,23 @@ describe("createEngines — boot wiring", () => {
 		expect(H.image).toHaveLength(1);
 		expect(H.image[0].start).toHaveBeenCalledTimes(1);
 	});
+
+	it("直播消息模板无开关:boot 时 live 引擎 config 始终带全局模板(回归 liveMsgEnabled 移除)", () => {
+		// 此前 liveMsgEnabled=false(默认)→ customLiveMsg 不带 customLiveStart,引擎走
+		// builtin。现无开关:全局模板始终下发,编辑即生效(默认值 == builtin,输出不变)。
+		const c = setup();
+		active = c;
+		const liveCfg = H.live[0].opts.config;
+		expect(liveCfg.customLiveMsg.customLiveStart).toBe(
+			"{name} 开播啦，当前粉丝数：{follower}\n{link}",
+		);
+		expect(liveCfg.customLiveMsg.customLive).toBe(
+			"{name} 正在直播，已播 {time}，累计观看：{watched}\n{link}",
+		);
+		expect(liveCfg.customLiveMsg.customLiveEnd).toBe(
+			"{name} 下播啦，本次直播了 {time}，粉丝变化 {follower_change}",
+		);
+	});
 });
 
 describe("createEngines — config-changed globals 热重载", () => {
@@ -315,6 +332,23 @@ describe("createEngines — config-changed globals 热重载", () => {
 		c.bus.emit("config-changed", "globals");
 		const cfg = H.dynamic[0].updateConfig.mock.calls.at(-1)?.[0];
 		expect(cfg.dynamicCron).toBe("*/7 * * * *");
+	});
+
+	it("改全局 templates.dynamic/dynamicVideo → dynamic.updateConfig 热推新模板(templatesChanged 触发)", () => {
+		// 回归:dynamicConfig() 读 templates.dynamic/dynamicVideo,触发条件必须含
+		// templatesChanged,否则只改全局动态文本模板时引擎不热更、无 per-UP 覆盖的
+		// 订阅一直用旧模板。
+		const c = setup();
+		active = c;
+		patchGlobals(c, (g) => {
+			g.defaults.templates.dynamic = "🔔 {name} {url}";
+			g.defaults.templates.dynamicVideo = "🎬 {name} {url}";
+		});
+		c.bus.emit("config-changed", "globals");
+		expect(H.dynamic[0].updateConfig).toHaveBeenCalledTimes(1);
+		const cfg = H.dynamic[0].updateConfig.mock.calls.at(-1)?.[0];
+		expect(cfg.dynamicTemplate).toBe("🔔 {name} {url}");
+		expect(cfg.videoTemplate).toBe("🎬 {name} {url}");
 	});
 
 	it("item 4 — 改 defaults.ai 不扇出重设 UA / level / healthCheck", () => {
@@ -554,6 +588,44 @@ describe("createEngines — 订阅禁用/启用转译", () => {
 		c.bus.emit("subscription-changed", [{ type: "add", sub }]);
 
 		expect(H.live[0].applyOps.mock.calls.at(-1)?.[0]).toEqual([]);
+	});
+
+	it("add op 携带 per-UP 覆盖(imageGroup / 动态模板),不再只带卡片样式", () => {
+		// 回归 add gap:此前 dynamic add op 只投影 customCardStyle,新增即带 per-UP
+		// imageGroup / filter / 模板覆盖的订阅首推会用全局,要等下次全量刷新。现走
+		// buildDynamicSubViewSingle 全量投影。
+		const sub = makeSub("600", true);
+		sub.overrides.imageGroup = { enable: false };
+		sub.overrides.templates = { dynamic: "🔔 {name} {url}", dynamicVideo: "🎬 {name} {url}" };
+		const c = setup({ subs: [sub] });
+		active = c;
+		c.bus.emit("subscription-changed", [{ type: "add", sub }]);
+
+		const dynOps = H.dynamic[0].applyOps.mock.calls.at(-1)?.[0];
+		expect(dynOps).toHaveLength(1);
+		expect(dynOps[0].type).toBe("add");
+		const view = dynOps[0].sub;
+		expect(view.uid).toBe("600");
+		expect(view.dynamic).toBe(true);
+		expect(view.imageGroupEnable).toBe(false);
+		expect(view.customDynamicTemplate).toBe("🔔 {name} {url}");
+		expect(view.customVideoTemplate).toBe("🎬 {name} {url}");
+	});
+
+	it("禁用订阅 add:dynamic add op 仍下发但 dynamic:false(engine applyOps 的 !op.sub.dynamic 拦截)", () => {
+		// buildDynamicSubViewSingle 的 `dynamic: sub.enabled && eff.features.dynamic`
+		// 门必须对 disabled sub 产出 false —— 与旧 add 路径 hasDyn(disabled→false) 等价。
+		// engine 侧 applyOps add 分支 `if(!op.sub.dynamic) break` 据此不启动轮询。
+		const sub = makeSub("700", false);
+		const c = setup({ subs: [sub] });
+		active = c;
+		c.bus.emit("subscription-changed", [{ type: "add", sub }]);
+
+		const dynOps = H.dynamic[0].applyOps.mock.calls.at(-1)?.[0];
+		expect(dynOps).toHaveLength(1);
+		expect(dynOps[0].type).toBe("add");
+		expect(dynOps[0].sub.uid).toBe("700");
+		expect(dynOps[0].sub.dynamic).toBe(false);
 	});
 
 	it("remove op:live 与 dynamic 均收到 delete(无视 enabled)", () => {

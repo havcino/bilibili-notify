@@ -309,6 +309,52 @@ describe("customFilters / customSchedule enable 门(分组收口 + 继承修正)
 	});
 });
 
+describe("customDynamicMsg enable 门 → overrides.templates.dynamic/dynamicVideo (Part B)", () => {
+	function withDynamicMsg(extra: { customDynamicMsg?: Record<string, unknown> }) {
+		return {
+			subs: { "UP-1": { ...makeRaw("11", "111111"), ...extra } },
+		} as unknown as AdvancedSubRawConfigShape;
+	}
+
+	it("缺省 customDynamicMsg → 不写 overrides.templates.dynamic/dynamicVideo(纯继承全局)", () => {
+		const { subs } = buildAdvancedSubAndTargets(withDynamicMsg({}));
+		expect(subs[0].overrides.templates?.dynamic).toBeUndefined();
+		expect(subs[0].overrides.templates?.dynamicVideo).toBeUndefined();
+	});
+
+	it("enable=false → 即便带字段也整组跳过", () => {
+		const { subs } = buildAdvancedSubAndTargets(
+			withDynamicMsg({
+				customDynamicMsg: { enable: false, dynamicText: "x{name}", videoText: "y{name}" },
+			}),
+		);
+		expect(subs[0].overrides.templates?.dynamic).toBeUndefined();
+		expect(subs[0].overrides.templates?.dynamicVideo).toBeUndefined();
+	});
+
+	it("enable=true → dynamicText/videoText 折进 overrides.templates", () => {
+		const { subs } = buildAdvancedSubAndTargets(
+			withDynamicMsg({
+				customDynamicMsg: {
+					enable: true,
+					dynamicText: "🔔 {name} 有新动态 {url}",
+					videoText: "🎬 {name} 投稿 {url}",
+				},
+			}),
+		);
+		expect(subs[0].overrides.templates?.dynamic).toBe("🔔 {name} 有新动态 {url}");
+		expect(subs[0].overrides.templates?.dynamicVideo).toBe("🎬 {name} 投稿 {url}");
+	});
+
+	it("enable=true 但仅填 dynamicText → 只写 dynamic,dynamicVideo 仍继承(undefined)", () => {
+		const { subs } = buildAdvancedSubAndTargets(
+			withDynamicMsg({ customDynamicMsg: { enable: true, dynamicText: "只改普通动态 {name}" } }),
+		);
+		expect(subs[0].overrides.templates?.dynamic).toBe("只改普通动态 {name}");
+		expect(subs[0].overrides.templates?.dynamicVideo).toBeUndefined();
+	});
+});
+
 // shim to keep the test typing-light without importing the schemastery type
 type AdvancedSubRawShim = {
 	subs: Record<string, ReturnType<typeof makeRaw>>;

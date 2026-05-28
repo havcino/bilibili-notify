@@ -228,8 +228,9 @@ export interface TemplateBundleFull {
 	liveStart: string;
 	liveOngoing: string;
 	liveEnd: string;
-	liveMsgEnabled: boolean;
 	liveSummary: string;
+	dynamic: string;
+	dynamicVideo: string;
 	specialDanmaku: string;
 	specialUserEnter: string;
 	guardBuy: GuardBundleShape;

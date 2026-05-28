@@ -356,6 +356,8 @@ export function createEngines(opts: CreateEnginesOptions): EnginesRuntime {
 			imageGroup: globals().defaults.imageGroup,
 			imageEnabled: globals().defaults.cardStyle.enabled,
 			aiEnabled: globals().defaults.ai.enabled,
+			dynamicTemplate: globals().defaults.templates.dynamic,
+			videoTemplate: globals().defaults.templates.dynamicVideo,
 			filter: {
 				enable: blockHasRules,
 				notify: false,
@@ -413,20 +415,15 @@ export function createEngines(opts: CreateEnginesOptions): EnginesRuntime {
 				supervisorImgUrl: g.defaults.templates.guardBuy.commander.imageUrl,
 				governorImgUrl: g.defaults.templates.guardBuy.governor.imageUrl,
 			},
-			// Only forward the schema templates when the user opted in via
-			// `liveMsgEnabled`. When false, leave the override empty so the engine
-			// falls back to `DEFAULT_LIVE_TEMPLATES` in template-renderer.ts (the
-			// legacy `-name / -time / -watched` shorthand that users expect by
-			// default). The schema fields use `{name}` style and are only honoured
-			// when the user explicitly turns on the custom-template switch.
-			customLiveMsg: g.defaults.templates.liveMsgEnabled
-				? {
-						enable: true,
-						customLiveStart: g.defaults.templates.liveStart,
-						customLive: g.defaults.templates.liveOngoing,
-						customLiveEnd: g.defaults.templates.liveEnd,
-					}
-				: { enable: false },
+			// 直播消息模板与动态模板一致:无开关,全局模板始终下发(默认值 ==
+			// DEFAULT_LIVE_TEMPLATES,未编辑时输出不变;编辑后即生效)。renderer 走
+			// subCustom ?? globalCustom ?? DEFAULT_LIVE_TEMPLATES,enable 仅占位、不被读。
+			customLiveMsg: {
+				enable: true,
+				customLiveStart: g.defaults.templates.liveStart,
+				customLive: g.defaults.templates.liveOngoing,
+				customLiveEnd: g.defaults.templates.liveEnd,
+			},
 		};
 	};
 
@@ -593,8 +590,10 @@ export function createEngines(opts: CreateEnginesOptions): EnginesRuntime {
 						hideFollower: cs.hideFollower,
 					});
 				}
-				// dynamicConfig() 读 app.dynamicCron + defaults.{filters,cardStyle.enabled,ai.enabled}。
-				if (appChanged || filtersChanged || cardStyleChanged || aiChanged) {
+				// dynamicConfig() 读 app.dynamicCron + defaults.{filters,cardStyle.enabled,
+				// ai.enabled,templates.dynamic/dynamicVideo}。改全局动态文本模板也要热更,
+				// 否则无 per-UP 覆盖的订阅会一直用旧模板直到下次别的 section 变更/重启。
+				if (appChanged || filtersChanged || cardStyleChanged || aiChanged || templatesChanged) {
 					dynamic.updateConfig(dynamicConfig());
 				}
 				// liveConfig() 读 defaults.{schedule,filters,templates,cardStyle.enabled,ai.enabled}。
@@ -930,7 +929,7 @@ function buildDynamicFilter(eff: ReturnType<typeof resolve>) {
 	};
 }
 
-function buildDynamicSubsView(
+export function buildDynamicSubsView(
 	store: SubscriptionStore,
 	subRuntimeStore: SubRuntimeStore,
 	globals: GlobalConfig,
@@ -938,31 +937,50 @@ function buildDynamicSubsView(
 	const view: DynamicSubsView = {};
 	for (const sub of store.list()) {
 		if (!sub.enabled) continue;
-		const eff = resolve(sub, globals.defaults);
-		// features.dynamic 决定是否纳入动态轮询(source-side)。routing 由推送层(BilibiliPush)
-		// 在 broadcast 时按 routing 空 = 无 sink 自然兜底——所以 features.dynamic=true /
-		// routing.dynamic=[] 的 UP 仍跑 cron,后续加 routing 时下一个轮询周期立即生效。
-		const hasDynamic = eff.features.dynamic;
-		view[sub.uid] = {
-			uid: sub.uid,
-			uname: subRuntimeStore.get(sub.id)?.cachedProfile?.name ?? sub.uid,
-			dynamic: hasDynamic,
-			customCardStyle: {
-				enable: true,
-				cardColorStart: eff.cardStyle.cardColorStart,
-				cardColorEnd: eff.cardStyle.cardColorEnd,
-			},
-			// 每次 cron tick getSubs() 都会重新跑这里,per-UP filter / aiOverride 改完
-			// 下一个轮询周期自动生效,不需要单独 hot-reload 路径。
-			filter: buildDynamicFilter(eff),
-			aiOverride: buildAiOverride(eff),
-			// per-UP imageGroup override(enable / forward)直接透传 raw 值;engine
-			// 内部用 `?? engine.config.imageGroup` 与全局 default 兜底。
-			imageGroupEnable: sub.overrides.imageGroup?.enable,
-			imageGroupForward: sub.overrides.imageGroup?.forward,
-		};
+		view[sub.uid] = buildDynamicSubViewSingle(sub, subRuntimeStore, globals);
 	}
 	return view;
+}
+
+/**
+ * 单条 Subscription → DynamicEngine 视图。全量构建(buildDynamicSubsView)与增量
+ * add op 翻译共用同一投影,避免 add 路径只带部分字段(此前只带 customCardStyle,
+ * 新增订阅若同时带 per-UP filter/imageGroup/模板覆盖会丢,要等下次全量刷新)。
+ * 与直播端 buildLiveSubViewSingle 对称。
+ *
+ * customCardStyle / filter / aiOverride / 模板等只在**真有 per-UP override 时**才
+ * 生成;无 override 时留 undefined / enable:false,engine 推送路径用 `?? this.config`
+ * 兜底全局(随 dynamic.updateConfig hot-reload)。否则 eff=resolve(sub,globals) 会把
+ * 全局值合进 eff 伪装成 per-UP,而 dynamicSubManager 快照不刷 → 全局改了 dynamic 端
+ * 永远沿用旧值。
+ */
+export function buildDynamicSubViewSingle(
+	sub: Subscription,
+	subRuntimeStore: SubRuntimeStore,
+	globals: GlobalConfig,
+): DynamicSubsView[string] {
+	const eff = resolve(sub, globals.defaults);
+	return {
+		uid: sub.uid,
+		uname: subRuntimeStore.get(sub.id)?.cachedProfile?.name ?? sub.uid,
+		// enabled 门 + features.dynamic:add op 可能收到 disabled sub,engine applyOps
+		// add 用 `if(!op.sub.dynamic) break` 拦截。buildDynamicSubsView 已 continue 跳
+		// disabled,这里 `sub.enabled &&` 对它是恒真无副作用。
+		dynamic: sub.enabled && eff.features.dynamic,
+		customCardStyle: sub.overrides.cardStyle
+			? {
+					enable: true,
+					cardColorStart: sub.overrides.cardStyle.cardColorStart,
+					cardColorEnd: sub.overrides.cardStyle.cardColorEnd,
+				}
+			: { enable: false },
+		filter: sub.overrides.filters ? buildDynamicFilter(eff) : undefined,
+		aiOverride: sub.overrides.ai ? buildAiOverride(eff) : undefined,
+		imageGroupEnable: sub.overrides.imageGroup?.enable,
+		imageGroupForward: sub.overrides.imageGroup?.forward,
+		customDynamicTemplate: sub.overrides.templates?.dynamic,
+		customVideoTemplate: sub.overrides.templates?.dynamicVideo,
+	};
 }
 
 function buildLiveSubsView(
@@ -978,7 +996,7 @@ function buildLiveSubsView(
 	return view;
 }
 
-function buildLiveSubViewSingle(
+export function buildLiveSubViewSingle(
 	sub: Subscription,
 	subRuntimeStore: SubRuntimeStore,
 	globals: GlobalConfig,
@@ -1003,11 +1021,18 @@ function buildLiveSubViewSingle(
 		wordcloud: feat("wordcloud"),
 		liveSummary: feat("liveSummary"),
 		target: eff.routing,
-		customCardStyle: {
-			enable: true,
-			cardColorStart: eff.cardStyle.cardColorStart,
-			cardColorEnd: eff.cardStyle.cardColorEnd,
-		},
+		// customCardStyle / aiOverride 只在真有 per-UP override 时生成(对齐 dynamic
+		// 端 buildDynamicSubsView 同名字段)。无 override → enable:false / undefined →
+		// LiveEngine 推送时(room-helpers `cardStyle?.enable ? cardStyle : undefined`
+		// / live-summary-requester 透传 aiOverride)自动传 undefined → ImageRenderer
+		// / CommentaryGenerator 走 this.config 兜底,跟全局 hot-reload 同步。
+		customCardStyle: sub.overrides.cardStyle
+			? {
+					enable: true,
+					cardColorStart: sub.overrides.cardStyle.cardColorStart,
+					cardColorEnd: sub.overrides.cardStyle.cardColorEnd,
+				}
+			: { enable: false },
 		// Per-UP 阈值 / 调度 / AI;adapter 在 add 路径上灌入,room-session 在 SC /
 		// guard / restartPush / pushTime / liveSummary 调用点先取 sub 值,缺失时回退全局。
 		// 已活跃 listener 通过 LiveScopedChange 同步增量更新(`subscriptionOpsToLive`
@@ -1017,15 +1042,15 @@ function buildLiveSubViewSingle(
 		minGuardLevel: eff.filters.minGuardLevel,
 		pushTime: eff.schedule.pushTime,
 		restartPush: eff.schedule.restartPush,
-		aiOverride: buildAiOverride(eff),
-		customLiveMsg: eff.templates.liveMsgEnabled
-			? {
-					enable: true,
-					customLiveStart: eff.templates.liveStart,
-					customLive: eff.templates.liveOngoing,
-					customLiveEnd: eff.templates.liveEnd,
-				}
-			: { enable: false },
+		aiOverride: sub.overrides.ai ? buildAiOverride(eff) : undefined,
+		// 无开关:始终下发 eff 模板(eff 合并 per-UP override → 全局),与 liveSummary
+		// 同模式;LiveEngine 在全局/per-UP 变更时收完整 update op 刷新,无快照陈旧问题。
+		customLiveMsg: {
+			enable: true,
+			customLiveStart: eff.templates.liveStart,
+			customLive: eff.templates.liveOngoing,
+			customLiveEnd: eff.templates.liveEnd,
+		},
 		customGuardBuy: {
 			enable: eff.templates.guardBuy.enable,
 			guardBuyMsg: eff.templates.guardBuy.captain.template,
@@ -1073,20 +1098,12 @@ function subscriptionOpsToDynamic(
 	};
 	for (const op of ops) {
 		if (op.type === "add") {
+			// 全量视图(filter/imageGroup/ai/模板 per-UP 覆盖一并带上),与
+			// buildDynamicSubsView 投影一致 —— 新增即带覆盖的订阅首推就生效,
+			// 不必等下次全量刷新。dynamic 字段已含 enabled 门(见 buildDynamicSubViewSingle)。
 			out.push({
 				type: "add",
-				sub: {
-					uid: op.sub.uid,
-					uname: subRuntimeStore.get(op.sub.id)?.cachedProfile?.name ?? op.sub.uid,
-					dynamic: hasDyn(op.sub),
-					customCardStyle: op.sub.overrides.cardStyle
-						? {
-								enable: true,
-								cardColorStart: op.sub.overrides.cardStyle.cardColorStart,
-								cardColorEnd: op.sub.overrides.cardStyle.cardColorEnd,
-							}
-						: { enable: false },
-				},
+				sub: buildDynamicSubViewSingle(op.sub, subRuntimeStore, globals),
 			});
 		} else if (op.type === "remove") {
 			out.push({ type: "delete", uid: op.uid });
