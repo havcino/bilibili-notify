@@ -573,6 +573,28 @@ describe("createEngines — 订阅禁用/启用转译", () => {
 		expect(H.live[0].applyOps.mock.calls.at(-1)?.[0]).toEqual([]);
 	});
 
+	it("add op 携带 per-UP 覆盖(imageGroup / 动态模板),不再只带卡片样式", () => {
+		// 回归 add gap:此前 dynamic add op 只投影 customCardStyle,新增即带 per-UP
+		// imageGroup / filter / 模板覆盖的订阅首推会用全局,要等下次全量刷新。现走
+		// buildDynamicSubViewSingle 全量投影。
+		const sub = makeSub("600", true);
+		sub.overrides.imageGroup = { enable: false };
+		sub.overrides.templates = { dynamic: "🔔 {name} {url}", dynamicVideo: "🎬 {name} {url}" };
+		const c = setup({ subs: [sub] });
+		active = c;
+		c.bus.emit("subscription-changed", [{ type: "add", sub }]);
+
+		const dynOps = H.dynamic[0].applyOps.mock.calls.at(-1)?.[0];
+		expect(dynOps).toHaveLength(1);
+		expect(dynOps[0].type).toBe("add");
+		const view = dynOps[0].sub;
+		expect(view.uid).toBe("600");
+		expect(view.dynamic).toBe(true);
+		expect(view.imageGroupEnable).toBe(false);
+		expect(view.customDynamicTemplate).toBe("🔔 {name} {url}");
+		expect(view.customVideoTemplate).toBe("🎬 {name} {url}");
+	});
+
 	it("remove op:live 与 dynamic 均收到 delete(无视 enabled)", () => {
 		const sub = makeSub("400", true);
 		const c = setup({ subs: [sub] });

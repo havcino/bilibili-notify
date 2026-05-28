@@ -942,46 +942,50 @@ export function buildDynamicSubsView(
 	const view: DynamicSubsView = {};
 	for (const sub of store.list()) {
 		if (!sub.enabled) continue;
-		const eff = resolve(sub, globals.defaults);
-		// features.dynamic 决定是否纳入动态轮询(source-side)。routing 由推送层(BilibiliPush)
-		// 在 broadcast 时按 routing 空 = 无 sink 自然兜底——所以 features.dynamic=true /
-		// routing.dynamic=[] 的 UP 仍跑 cron,后续加 routing 时下一个轮询周期立即生效。
-		const hasDynamic = eff.features.dynamic;
-		// customCardStyle / aiOverride 只在**真有 per-UP override 时**才生成;无
-		// override 时这两个字段留 undefined / enable:false,engine 推送路径就传
-		// undefined 给 ImageRenderer / CommentaryGenerator —— 它们各自走 this.config
-		// 兜底 (`generateXxxCard` 解构 `= this.config.cardColorStart`,
-		// `getSystemPrompt` 用 `override?.persona ?? this.config.persona`),自动
-		// 跟全局 hot-reload。否则:eff = resolve(sub, globals) 会把全局值合进 eff,
-		// 再"伪装"成 per-UP override 写进 SubItemView,而 dynamicSubManager 是 add
-		// 时的快照不刷,全局改了 dynamic 端永远沿用 add 时的旧值。
-		view[sub.uid] = {
-			uid: sub.uid,
-			uname: subRuntimeStore.get(sub.id)?.cachedProfile?.name ?? sub.uid,
-			dynamic: hasDynamic,
-			customCardStyle: sub.overrides.cardStyle
-				? {
-						enable: true,
-						cardColorStart: sub.overrides.cardStyle.cardColorStart,
-						cardColorEnd: sub.overrides.cardStyle.cardColorEnd,
-					}
-				: { enable: false },
-			// filter / aiOverride 仅在真有 per-UP override 时生成;无 override 时
-			// undefined,engine 推送路径 `subForFilter?.filter ?? this.config.filter`
-			// 自动走 engine.config(全局 filter 经 dynamic.updateConfig 已 hot-reload)。
-			filter: sub.overrides.filters ? buildDynamicFilter(eff) : undefined,
-			aiOverride: sub.overrides.ai ? buildAiOverride(eff) : undefined,
-			// per-UP imageGroup override(enable / forward)直接透传 raw 值;engine
-			// 内部用 `?? engine.config.imageGroup` 与全局 default 兜底。
-			imageGroupEnable: sub.overrides.imageGroup?.enable,
-			imageGroupForward: sub.overrides.imageGroup?.forward,
-			// per-UP 动态/视频文本模板覆盖直接透传;engine 内
-			// `?? config.dynamicTemplate/videoTemplate` 兜底到全局(hot-reload)。
-			customDynamicTemplate: sub.overrides.templates?.dynamic,
-			customVideoTemplate: sub.overrides.templates?.dynamicVideo,
-		};
+		view[sub.uid] = buildDynamicSubViewSingle(sub, subRuntimeStore, globals);
 	}
 	return view;
+}
+
+/**
+ * 单条 Subscription → DynamicEngine 视图。全量构建(buildDynamicSubsView)与增量
+ * add op 翻译共用同一投影,避免 add 路径只带部分字段(此前只带 customCardStyle,
+ * 新增订阅若同时带 per-UP filter/imageGroup/模板覆盖会丢,要等下次全量刷新)。
+ * 与直播端 buildLiveSubViewSingle 对称。
+ *
+ * customCardStyle / filter / aiOverride / 模板等只在**真有 per-UP override 时**才
+ * 生成;无 override 时留 undefined / enable:false,engine 推送路径用 `?? this.config`
+ * 兜底全局(随 dynamic.updateConfig hot-reload)。否则 eff=resolve(sub,globals) 会把
+ * 全局值合进 eff 伪装成 per-UP,而 dynamicSubManager 快照不刷 → 全局改了 dynamic 端
+ * 永远沿用旧值。
+ */
+export function buildDynamicSubViewSingle(
+	sub: Subscription,
+	subRuntimeStore: SubRuntimeStore,
+	globals: GlobalConfig,
+): DynamicSubsView[string] {
+	const eff = resolve(sub, globals.defaults);
+	return {
+		uid: sub.uid,
+		uname: subRuntimeStore.get(sub.id)?.cachedProfile?.name ?? sub.uid,
+		// enabled 门 + features.dynamic:add op 可能收到 disabled sub,engine applyOps
+		// add 用 `if(!op.sub.dynamic) break` 拦截。buildDynamicSubsView 已 continue 跳
+		// disabled,这里 `sub.enabled &&` 对它是恒真无副作用。
+		dynamic: sub.enabled && eff.features.dynamic,
+		customCardStyle: sub.overrides.cardStyle
+			? {
+					enable: true,
+					cardColorStart: sub.overrides.cardStyle.cardColorStart,
+					cardColorEnd: sub.overrides.cardStyle.cardColorEnd,
+				}
+			: { enable: false },
+		filter: sub.overrides.filters ? buildDynamicFilter(eff) : undefined,
+		aiOverride: sub.overrides.ai ? buildAiOverride(eff) : undefined,
+		imageGroupEnable: sub.overrides.imageGroup?.enable,
+		imageGroupForward: sub.overrides.imageGroup?.forward,
+		customDynamicTemplate: sub.overrides.templates?.dynamic,
+		customVideoTemplate: sub.overrides.templates?.dynamicVideo,
+	};
 }
 
 function buildLiveSubsView(
@@ -1099,20 +1103,12 @@ function subscriptionOpsToDynamic(
 	};
 	for (const op of ops) {
 		if (op.type === "add") {
+			// 全量视图(filter/imageGroup/ai/模板 per-UP 覆盖一并带上),与
+			// buildDynamicSubsView 投影一致 —— 新增即带覆盖的订阅首推就生效,
+			// 不必等下次全量刷新。dynamic 字段已含 enabled 门(见 buildDynamicSubViewSingle)。
 			out.push({
 				type: "add",
-				sub: {
-					uid: op.sub.uid,
-					uname: subRuntimeStore.get(op.sub.id)?.cachedProfile?.name ?? op.sub.uid,
-					dynamic: hasDyn(op.sub),
-					customCardStyle: op.sub.overrides.cardStyle
-						? {
-								enable: true,
-								cardColorStart: op.sub.overrides.cardStyle.cardColorStart,
-								cardColorEnd: op.sub.overrides.cardStyle.cardColorEnd,
-							}
-						: { enable: false },
-				},
+				sub: buildDynamicSubViewSingle(op.sub, subRuntimeStore, globals),
 			});
 		} else if (op.type === "remove") {
 			out.push({ type: "delete", uid: op.uid });
