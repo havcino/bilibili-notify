@@ -305,6 +305,8 @@ export const FIELD_LABELS = {
 	"templates.liveStart": { label: "开播", section: "templates" },
 	"templates.liveOngoing": { label: "直播中", section: "templates" },
 	"templates.liveEnd": { label: "下播", section: "templates" },
+	"templates.dynamic": { label: "动态文案", section: "templates" },
+	"templates.dynamicVideo": { label: "视频文案", section: "templates" },
 	"templates.specialDanmaku": { label: "弹幕模板", section: "templates" },
 	"templates.specialUserEnter": { label: "进房模板", section: "templates" },
 	// 以下 7 条仅 diff-path entry 用(LiveMsg / GuardSection 的 Toggle 直接挂在

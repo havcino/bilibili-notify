@@ -522,6 +522,43 @@ class NodeConfigStore implements ConfigStore {
 				}
 			}
 
+			// 一次性迁移:占位符语法统一前(alpha.x)写入的 globals.json,直播消息模板
+			// 用了渲染器并不提供的 {title}/{duration},上舰文案用了旧变量名
+			// {user}/{mastername} —— 这些「旧默认原值」不会被正确渲染,且与「自定义关闭
+			// 时实际推送的内建文案」不一致。检测到用户从未改过(值 == 旧默认)时一次性
+			// 改写成当前默认;用户自定义过的值(≠旧默认)原样保留。
+			if (existed) {
+				const tpl = this.globals.defaults.templates;
+				const fresh = makeDefaultGlobalConfig().defaults.templates;
+				let tplMigrated = false;
+				const OLD_LIVE = {
+					liveStart: "{name} 开播了！\n直播间标题：{title}\n直播间链接：{link}",
+					liveOngoing: "{name} 仍在直播中（已直播 {duration}）\n标题：{title}\n看过：{watched}",
+					liveEnd: "{name} 下播了，直播时长 {duration}",
+				} as const;
+				for (const k of ["liveStart", "liveOngoing", "liveEnd"] as const) {
+					if (tpl[k] === OLD_LIVE[k]) {
+						tpl[k] = fresh[k];
+						tplMigrated = true;
+					}
+				}
+				const OLD_GUARD = {
+					captain: "{user} 成为了 {mastername} 的舰长！",
+					commander: "{user} 成为了 {mastername} 的提督！",
+					governor: "{user} 成为了 {mastername} 的总督！",
+				} as const;
+				for (const role of ["captain", "commander", "governor"] as const) {
+					if (tpl.guardBuy[role].template === OLD_GUARD[role]) {
+						tpl.guardBuy[role].template = fresh.guardBuy[role].template;
+						tplMigrated = true;
+					}
+				}
+				if (tplMigrated) {
+					await this.persistGlobals(this.globals);
+					this.touch("globals");
+				}
+			}
+
 			// Move apiKey out of plaintext globals.json into encrypted secrets
 			// (+ one-time lift), then hydrate it back in memory.
 			await this.hydrateSecrets();

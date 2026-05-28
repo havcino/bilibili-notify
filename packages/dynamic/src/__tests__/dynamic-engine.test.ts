@@ -671,6 +671,89 @@ describe("DynamicEngine.detectDynamics — 推送形态", () => {
 	});
 });
 
+describe("DynamicEngine.detectDynamics — 动态文本模板 (Part A/B)", () => {
+	type Seg = { type: string; text?: string };
+	const textOf = (segments: Seg[]): string | undefined =>
+		segments.find((s) => s.type === "text")?.text;
+	const segsOf = (b: EngineBag): Seg[] => b.push.broadcastDynamic.mock.calls[0]?.[1] as Seg[];
+
+	it("无图 + 无 AI + dynamicUrl=false → 模板渲染,url 空时去掉尾随分隔符", async () => {
+		const b = makeEngine();
+		b.getAllDynamic.mockResolvedValue(resp([makeItem({ uid: 1, pubTs: 1000, name: "阿绫" })]));
+		seed(b.engine, "1", 0);
+		await detect(b.engine);
+		expect(textOf(segsOf(b))).toBe("阿绫发布了一条动态");
+	});
+
+	it("Part A:有图分支的文字段 == 无图分支的文字段(模板单源,无双前缀)", async () => {
+		const withImg = makeEngine({ withImage: true });
+		withImg.generateDynamicCard.mockResolvedValue(Buffer.from("png"));
+		withImg.getAllDynamic.mockResolvedValue(
+			resp([makeItem({ uid: 1, pubTs: 1000, name: "阿绫" })]),
+		);
+		seed(withImg.engine, "1", 0);
+		await detect(withImg.engine);
+		const imgSegs = segsOf(withImg);
+		expect(imgSegs[0]?.type).toBe("image");
+
+		const noImg = makeEngine();
+		noImg.getAllDynamic.mockResolvedValue(resp([makeItem({ uid: 1, pubTs: 1000, name: "阿绫" })]));
+		seed(noImg.engine, "1", 0);
+		await detect(noImg.engine);
+		expect(textOf(imgSegs)).toBe("阿绫发布了一条动态");
+		expect(textOf(imgSegs)).toBe(textOf(segsOf(noImg)));
+	});
+
+	it("dynamicUrl=true 普通动态 → 单条链接(双前缀 bug 回归守护)", async () => {
+		const b = makeEngine({ config: { dynamicUrl: true } });
+		b.getAllDynamic.mockResolvedValue(resp([makeItem({ uid: 1, pubTs: 1000, name: "阿绫" })]));
+		seed(b.engine, "1", 0);
+		await detect(b.engine);
+		expect(textOf(segsOf(b))).toBe("阿绫发布了一条动态：https://t.bilibili.com/id-1");
+	});
+
+	it("视频动态(DYNAMIC_TYPE_AV)走 videoTemplate", async () => {
+		const b = makeEngine();
+		b.getAllDynamic.mockResolvedValue(
+			resp([makeItem({ uid: 1, pubTs: 1000, name: "阿绫", type: "DYNAMIC_TYPE_AV" })]),
+		);
+		seed(b.engine, "1", 0);
+		await detect(b.engine);
+		expect(textOf(segsOf(b))).toBe("阿绫发布了新视频");
+	});
+
+	it("per-UP customDynamicTemplate 覆盖内建模板", async () => {
+		const b = makeEngine({ config: { dynamicUrl: true } });
+		b.getAllDynamic.mockResolvedValue(resp([makeItem({ uid: 1, pubTs: 1000, name: "阿绫" })]));
+		seed(b.engine, "1", 0, {
+			uid: "1",
+			uname: "UP",
+			customDynamicTemplate: "🔔 {name} 有新动态 {url}",
+		});
+		await detect(b.engine);
+		expect(textOf(segsOf(b))).toBe("🔔 阿绫 有新动态 https://t.bilibili.com/id-1");
+	});
+
+	it("全局 config.dynamicTemplate 覆盖内建兜底", async () => {
+		const b = makeEngine({ config: { dynamicTemplate: "【动态】{name}" } });
+		b.getAllDynamic.mockResolvedValue(resp([makeItem({ uid: 1, pubTs: 1000, name: "阿绫" })]));
+		seed(b.engine, "1", 0);
+		await detect(b.engine);
+		expect(textOf(segsOf(b))).toBe("【动态】阿绫");
+	});
+
+	it("有 AI 点评时两分支都用点评,不走模板", async () => {
+		const b = makeEngine({ withAi: true, config: { dynamicUrl: true } });
+		b.comment.mockResolvedValue("这条很有意思");
+		b.getAllDynamic.mockResolvedValue(
+			resp([makeItem({ uid: 1, pubTs: 1000, name: "阿绫", text: "原始内容" })]),
+		);
+		seed(b.engine, "1", 0);
+		await detect(b.engine);
+		expect(textOf(segsOf(b))).toBe("这条很有意思");
+	});
+});
+
 describe("DynamicEngine.detectDynamics — 过滤 notify", () => {
 	it("命中过滤 + notify=false → 不广播,但 timeline 仍推进", async () => {
 		const b = makeEngine();

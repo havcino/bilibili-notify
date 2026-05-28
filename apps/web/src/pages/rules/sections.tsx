@@ -41,6 +41,7 @@ export type SectionId =
 	| "live"
 	| "summary"
 	| "msg"
+	| "dynamicMsg"
 	| "guard"
 	| "specialDanmaku"
 	| "specialEnter"
@@ -75,6 +76,12 @@ export const GLOBAL_SECTIONS: SectionMeta[] = [
 		label: "动态图集",
 		icon: <Icon.dyn size={14} />,
 		desc: "是否推图 / 合并转发",
+	},
+	{
+		id: "dynamicMsg",
+		label: "动态消息模板",
+		icon: <Icon.chat size={14} />,
+		desc: "动态 / 视频投稿文案",
 	},
 	{
 		id: "live",
@@ -118,6 +125,12 @@ export const PERUP_SECTIONS: SectionMeta[] = [
 		label: "动态图集",
 		icon: <Icon.dyn size={14} />,
 		desc: "覆盖图集推送 / 合并转发",
+	},
+	{
+		id: "dynamicMsg",
+		label: "动态消息",
+		icon: <Icon.chat size={14} />,
+		desc: "覆盖动态 / 视频文案",
 	},
 	{
 		id: "live",
@@ -411,15 +424,22 @@ interface VarSpec {
 
 const LIVE_MSG_VARS: VarSpec[] = [
 	{ code: "{name}", desc: "UP 主名字" },
-	{ code: "{title}", desc: "直播间标题" },
-	{ code: "{link}", desc: "直播间链接" },
-	{ code: "{duration}", desc: "直播时长 / 已直播时长(直播中、下播)" },
-	{ code: "{watched}", desc: "看过人数(直播中)" },
+	{ code: "{link}", desc: "直播间链接(开播 / 直播中)" },
+	{ code: "{follower}", desc: "当前粉丝数(开播)" },
+	{ code: "{follower_change}", desc: "粉丝变化(下播)" },
+	{ code: "{time}", desc: "开播时长 / 已直播时长(直播中、下播)" },
+	{ code: "{watched}", desc: "累计观看人数(直播中)" },
+];
+
+const DYNAMIC_MSG_VARS: VarSpec[] = [
+	{ code: "{name}", desc: "UP 主名字" },
+	{ code: "{url}", desc: "动态 / 视频链接(关闭附带 URL 时为空)" },
 ];
 
 const GUARD_VARS: VarSpec[] = [
-	{ code: "{user}", desc: "上舰用户名" },
-	{ code: "{mastername}", desc: "UP 主名字" },
+	{ code: "{uname}", desc: "上舰用户名" },
+	{ code: "{mname}", desc: "UP 主名字" },
+	{ code: "{guard}", desc: "舰长类别(舰长 / 提督 / 总督)" },
 ];
 
 const SPECIAL_DANMAKU_VARS: VarSpec[] = [
@@ -476,6 +496,10 @@ export function SummaryVariableHints() {
 
 export function LiveMsgVariableHints() {
 	return <VariableHints vars={LIVE_MSG_VARS} accent="#FB7299" titleColor="#b8425d" />;
+}
+
+export function DynamicMsgVariableHints() {
+	return <VariableHints vars={DYNAMIC_MSG_VARS} accent="#9b6dff" titleColor="#6b46c1" />;
 }
 
 export function GuardVariableHints() {
@@ -539,6 +563,40 @@ export function LiveMsgSection({
 					未启用 · 引擎将使用内置直播提示文案
 				</div>
 			)}
+		</GlassBox>
+	);
+}
+
+// ── 4b. Dynamic message templates ────────────────────────────────────────────
+
+export function DynamicMsgSection({
+	templates,
+	onPatch,
+}: {
+	templates: TemplateBundle;
+	onPatch: (delta: GlobalConfigPatch) => void;
+}) {
+	const setT = <K extends keyof TemplateBundle>(k: K, v: TemplateBundle[K]) =>
+		onPatch({ defaults: { templates: { [k]: v } as Partial<TemplateBundle> } });
+	return (
+		<GlassBox
+			title="动态消息模板"
+			subtitle="动态 / 视频投稿推送文案(无 AI 点评时使用)"
+			accent="#9b6dff"
+			icon={<Icon.chat size={14} />}
+		>
+			<DynamicMsgVariableHints />
+			<FieldRow code="templates.dynamic" full>
+				<TArea value={templates.dynamic} onChange={(v) => setT("dynamic", v)} rows={2} mono />
+			</FieldRow>
+			<FieldRow code="templates.dynamicVideo" full>
+				<TArea
+					value={templates.dynamicVideo}
+					onChange={(v) => setT("dynamicVideo", v)}
+					rows={2}
+					mono
+				/>
+			</FieldRow>
 		</GlassBox>
 	);
 }

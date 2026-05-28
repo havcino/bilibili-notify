@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -282,5 +282,65 @@ describe("ConfigStore", () => {
 		expect(store2.getGlobals().app.dynamicCron).toBe("*/7 * * * *");
 		expect(store2.getSubscriptions()).toHaveLength(1);
 		expect(store2.getSubscriptions()[0]?.id).toBe(sub.id);
+	});
+
+	it("加载缺 templates.dynamic/dynamicVideo 的老 globals.json → schema 回填默认,不抛", async () => {
+		// 回归:dynamic/dynamicVideo 字段加入前写入的 globals.json 没有这两项。
+		// 若 TemplateBundleSchema 把它们设为 required 无默认,旧用户升级后 load() 会
+		// ConfigValidationError 直接拒绝启动。.default(...) 兜底保证旧配置仍可加载。
+		const dir2 = await mkdtemp(join(tmpdir(), "bn-config-old-"));
+		const state2 = join(dir2, "state");
+		await mkdir(state2, { recursive: true });
+		const old = makeDefaultGlobalConfig() as unknown as {
+			defaults: { templates: Record<string, unknown> };
+		};
+		delete old.defaults.templates.dynamic;
+		delete old.defaults.templates.dynamicVideo;
+		await writeFile(join(state2, "globals.json"), JSON.stringify(old), "utf8");
+
+		const store2 = createConfigStore({
+			bootstrap: makeBootstrap(dir2),
+			bus: makeFakeBus(),
+			serviceCtx: makeFakeServiceCtx(),
+		});
+		await expect(store2.load()).resolves.toBeUndefined();
+		const tpl = store2.getGlobals().defaults.templates;
+		expect(tpl.dynamic).toBe("{name}发布了一条动态：{url}");
+		expect(tpl.dynamicVideo).toBe("{name}发布了新视频：{url}");
+		await rm(dir2, { recursive: true, force: true });
+	});
+
+	it("一次性迁移:老 globals.json 旧默认直播/上舰模板 → 改写为当前默认,自定义值保留", async () => {
+		const dir2 = await mkdtemp(join(tmpdir(), "bn-config-tpl-"));
+		const state2 = join(dir2, "state");
+		await mkdir(state2, { recursive: true });
+		const old = makeDefaultGlobalConfig() as unknown as {
+			defaults: {
+				templates: Record<string, unknown> & {
+					guardBuy: { captain: { template: string }; commander: { template: string } };
+				};
+			};
+		};
+		// 占位符语法统一前的旧默认(用 {title}/{duration}/{user}/{mastername})
+		old.defaults.templates.liveStart = "{name} 开播了！\n直播间标题：{title}\n直播间链接：{link}";
+		old.defaults.templates.liveOngoing =
+			"{name} 仍在直播中（已直播 {duration}）\n标题：{title}\n看过：{watched}";
+		// liveEnd 改成用户自定义 → 迁移必须保留
+		old.defaults.templates.liveEnd = "我自定义的下播文案 {name}";
+		old.defaults.templates.guardBuy.captain.template = "{user} 成为了 {mastername} 的舰长！";
+		await writeFile(join(state2, "globals.json"), JSON.stringify(old), "utf8");
+
+		const store2 = createConfigStore({
+			bootstrap: makeBootstrap(dir2),
+			bus: makeFakeBus(),
+			serviceCtx: makeFakeServiceCtx(),
+		});
+		await store2.load();
+		const t = store2.getGlobals().defaults.templates;
+		expect(t.liveStart).toBe("{name} 开播啦，当前粉丝数：{follower}\n{link}");
+		expect(t.liveOngoing).toBe("{name} 正在直播，已播 {time}，累计观看：{watched}\n{link}");
+		expect(t.liveEnd).toBe("我自定义的下播文案 {name}"); // 自定义保留,不被迁移覆盖
+		expect(t.guardBuy.captain.template).toBe("{uname} 成为了 {mname} 的舰长！");
+		await rm(dir2, { recursive: true, force: true });
 	});
 });

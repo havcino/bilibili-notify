@@ -317,6 +317,23 @@ describe("createEngines — config-changed globals 热重载", () => {
 		expect(cfg.dynamicCron).toBe("*/7 * * * *");
 	});
 
+	it("改全局 templates.dynamic/dynamicVideo → dynamic.updateConfig 热推新模板(templatesChanged 触发)", () => {
+		// 回归:dynamicConfig() 读 templates.dynamic/dynamicVideo,触发条件必须含
+		// templatesChanged,否则只改全局动态文本模板时引擎不热更、无 per-UP 覆盖的
+		// 订阅一直用旧模板。
+		const c = setup();
+		active = c;
+		patchGlobals(c, (g) => {
+			g.defaults.templates.dynamic = "🔔 {name} {url}";
+			g.defaults.templates.dynamicVideo = "🎬 {name} {url}";
+		});
+		c.bus.emit("config-changed", "globals");
+		expect(H.dynamic[0].updateConfig).toHaveBeenCalledTimes(1);
+		const cfg = H.dynamic[0].updateConfig.mock.calls.at(-1)?.[0];
+		expect(cfg.dynamicTemplate).toBe("🔔 {name} {url}");
+		expect(cfg.videoTemplate).toBe("🎬 {name} {url}");
+	});
+
 	it("item 4 — 改 defaults.ai 不扇出重设 UA / level / healthCheck", () => {
 		const c = setup({ globals: aiGlobals() });
 		active = c;

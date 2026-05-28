@@ -45,6 +45,7 @@ import type {
 } from "../../types/globals";
 import { colorFromUid, displayName } from "../up/helpers";
 import {
+	DynamicMsgVariableHints,
 	GuardVariableHints,
 	LiveMsgVariableHints,
 	type SectionId,
@@ -227,6 +228,13 @@ export function PerUpEditor({ sub, defaults, section }: PerUpEditorProps) {
 			) : null}
 			{section === "msg" ? (
 				<MsgOverrideBox
+					value={draft.overrides.templates}
+					onChange={(v) => setSlice("templates", v)}
+					baseline={defaults.templates}
+				/>
+			) : null}
+			{section === "dynamicMsg" ? (
+				<DynamicMsgOverrideBox
 					value={draft.overrides.templates}
 					onChange={(v) => setSlice("templates", v)}
 					baseline={defaults.templates}
@@ -596,6 +604,71 @@ function MsgOverrideBox({
 				</>
 			) : (
 				<InheritHint>该 UP 将继承全局直播消息模板</InheritHint>
+			)}
+		</GlassBox>
+	);
+}
+
+/* -------- Dynamic msg (overrides.templates.dynamic / dynamicVideo) -------- */
+
+function DynamicMsgOverrideBox({
+	value,
+	onChange,
+	baseline,
+}: {
+	value: TemplateOverride | undefined;
+	onChange: (next: TemplateOverride | undefined) => void;
+	baseline: GlobalDefaults["templates"];
+}) {
+	// 无 enable flag —— 动态推送总会发;有 dynamic / dynamicVideo 任一覆盖即「覆盖中」。
+	const enabled = value?.dynamic !== undefined || value?.dynamicVideo !== undefined;
+	const cur = value ?? {};
+	function set<K extends "dynamic" | "dynamicVideo">(k: K, v: string): void {
+		onChange({ ...cur, [k]: v });
+	}
+	function toggle(on: boolean): void {
+		if (on) {
+			onChange({
+				...cur,
+				dynamic: cur.dynamic ?? baseline.dynamic,
+				dynamicVideo: cur.dynamicVideo ?? baseline.dynamicVideo,
+			});
+		} else {
+			const { dynamic: _a, dynamicVideo: _b, ...rest } = cur;
+			onChange(Object.keys(rest).length > 0 ? rest : undefined);
+		}
+	}
+	return (
+		<GlassBox
+			title="动态消息覆盖"
+			subtitle="开 = 该 UP 使用自定义动态 / 视频投稿文案;关 = 继承全局"
+			accent="#9b6dff"
+			icon={<Icon.chat size={14} />}
+			badge={enabled ? "覆盖中" : "继承"}
+			right={<Toggle value={enabled} onChange={toggle} />}
+		>
+			{enabled ? (
+				<>
+					<DynamicMsgVariableHints />
+					<Field code="templates.dynamic" full>
+						<TArea
+							value={cur.dynamic ?? baseline.dynamic}
+							onChange={(v) => set("dynamic", v)}
+							rows={2}
+							mono
+						/>
+					</Field>
+					<Field code="templates.dynamicVideo" full>
+						<TArea
+							value={cur.dynamicVideo ?? baseline.dynamicVideo}
+							onChange={(v) => set("dynamicVideo", v)}
+							rows={2}
+							mono
+						/>
+					</Field>
+				</>
+			) : (
+				<InheritHint>该 UP 将继承全局动态消息模板</InheritHint>
 			)}
 		</GlassBox>
 	);

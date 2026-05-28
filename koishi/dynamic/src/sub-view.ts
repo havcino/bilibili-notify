@@ -6,8 +6,9 @@
  *   - storeToSubscriptionsView(store, defaults) → storeToDynamicView(store)
  *   - applyOps 翻译 add/update 时手写 resolve()+视图 → subToDynamicView
  *
- * 与 live 端 sub-view.ts 同模式:dynamic 仅需 features.dynamic 一字段 +
- * cardStyle 是否启用 per-UP 覆盖,不消费 filters / schedule / templates / ai。
+ * 与 live 端 sub-view.ts 同模式:dynamic 消费 features.dynamic + cardStyle +
+ * imageGroup + templates.dynamic/dynamicVideo 的 per-UP 覆盖,不消费 filters /
+ * schedule / ai。
  */
 
 import type { SubscriptionsView } from "@bilibili-notify/dynamic";
@@ -35,6 +36,10 @@ export function subToDynamicView(sub: Subscription): SubscriptionsView[string] {
 		// 兜底到 BilibiliNotifyDynamicConfig.imageGroup.{enable,forward}。
 		imageGroupEnable: sub.overrides.imageGroup?.enable,
 		imageGroupForward: sub.overrides.imageGroup?.forward,
+		// per-UP 动态/视频文本模板覆盖;engine 内 `?? config.dynamicTemplate/videoTemplate`
+		// 兜底。advanced-subscription 折叠 customDynamicMsg 后写进 overrides.templates。
+		customDynamicTemplate: sub.overrides.templates?.dynamic,
+		customVideoTemplate: sub.overrides.templates?.dynamicVideo,
 	};
 }
 

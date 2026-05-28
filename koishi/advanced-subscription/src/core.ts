@@ -99,7 +99,7 @@ export const BilibiliNotifyAdvancedSubConfig: Schema<BilibiliNotifyAdvancedSubCo
 								])
 								.role("table")
 								.description(
-									"直播总结模板，支持变量：-dmc（弹幕发言人数）、-mdn（勋章名）、-dca（弹幕总数）、-un1~5（弹幕排行用户）、-dc1~5（弹幕排行数量）",
+									"直播总结模板，支持变量：{dmc}（弹幕发言人数）、{mdn}（勋章名）、{dca}（弹幕总数）、{un1}~{un5}（弹幕排行用户）、{dc1}~{dc5}（弹幕排行数量）",
 								),
 						}),
 						Schema.object({}),
@@ -114,13 +114,31 @@ export const BilibiliNotifyAdvancedSubConfig: Schema<BilibiliNotifyAdvancedSubCo
 						Schema.object({
 							enable: Schema.const(true).required(),
 							customLiveStart: Schema.string().description(
-								"开播消息模板，支持变量：-name（UP主名字）、-follower（粉丝数）、-link（直播间链接）",
+								"开播消息模板，支持变量：{name}（UP主名字）、{follower}（粉丝数）、{link}（直播间链接）",
 							),
 							customLive: Schema.string().description(
-								"直播中消息模板，支持变量：-name（UP主名字）、-time（开播时长）、-watched（观看人数）、-link（直播间链接）",
+								"直播中消息模板，支持变量：{name}（UP主名字）、{time}（开播时长）、{watched}（观看人数）、{link}（直播间链接）",
 							),
 							customLiveEnd: Schema.string().description(
-								"下播消息模板，支持变量：-name（UP主名字）、-follower_change（粉丝变化）、-time（开播时长）",
+								"下播消息模板，支持变量：{name}（UP主名字）、{follower_change}（粉丝变化）、{time}（开播时长）",
+							),
+						}),
+						Schema.object({}),
+					]),
+				]),
+
+				customDynamicMsg: Schema.intersect([
+					Schema.object({
+						enable: Schema.boolean().default(false).description("是否启用自定义动态推送文案"),
+					}),
+					Schema.union([
+						Schema.object({
+							enable: Schema.const(true).required(),
+							dynamicText: Schema.string().description(
+								"动态(非视频)推送文案模板，支持变量：{name}（UP主名字）、{url}（动态链接，未启用 URL 时为空）",
+							),
+							videoText: Schema.string().description(
+								"视频投稿推送文案模板，支持变量：{name}（UP主名字）、{url}（视频链接 / BV）",
 							),
 						}),
 						Schema.object({}),
@@ -153,9 +171,9 @@ export const BilibiliNotifyAdvancedSubConfig: Schema<BilibiliNotifyAdvancedSubCo
 						Schema.object({
 							enable: Schema.const(true).required(),
 							guardBuyMsg: Schema.string()
-								.default("【-mname的直播间】-uname加入了大航海（-guard）")
+								.default("【{mname}的直播间】{uname}加入了大航海（{guard}）")
 								.description(
-									"上舰消息模板，支持变量：-uname（用户昵称）、-mname（主播名字）、-guard（舰长类别）",
+									"上舰消息模板，支持变量：{uname}（用户昵称）、{mname}（主播名字）、{guard}（舰长类别）",
 								),
 							captainImgUrl: Schema.string()
 								.default(

@@ -8,6 +8,7 @@ import type { Subscription } from "../types/domain";
 import type { GlobalConfig, GlobalConfigPatch } from "../types/globals";
 import { PerUpEditor, type PerUpOverrideKey, perUpOverrideKeys } from "./rules/PerUpEditor";
 import {
+	DynamicMsgSection,
 	FilterSection,
 	GLOBAL_SECTIONS,
 	GuardSection,
@@ -49,6 +50,11 @@ function isSectionCustomized(sub: Subscription, sectionId: SectionId): boolean {
 			return Boolean(sub.overrides.templates?.liveSummary);
 		case "msg":
 			return sub.overrides.templates?.liveMsgEnabled === true;
+		case "dynamicMsg":
+			return (
+				sub.overrides.templates?.dynamic !== undefined ||
+				sub.overrides.templates?.dynamicVideo !== undefined
+			);
 		case "guard":
 			return sub.overrides.templates?.guardBuy?.enable === true;
 		case "specialDanmaku":
@@ -557,6 +563,8 @@ export default function Rules() {
 						<SummarySection templates={draft.defaults.templates} onPatch={patchDraft} />
 					) : section === "msg" ? (
 						<LiveMsgSection templates={draft.defaults.templates} onPatch={patchDraft} />
+					) : section === "dynamicMsg" ? (
+						<DynamicMsgSection templates={draft.defaults.templates} onPatch={patchDraft} />
 					) : section === "guard" ? (
 						<GuardSection templates={draft.defaults.templates} onPatch={patchDraft} />
 					) : null}

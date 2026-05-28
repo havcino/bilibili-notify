@@ -78,6 +78,11 @@ export type SubItemRawConfig = MasterFlagMap & {
 		customLive?: string;
 		customLiveEnd?: string;
 	};
+	customDynamicMsg?: {
+		enable: boolean;
+		dynamicText?: string;
+		videoText?: string;
+	};
 	customCardStyle: {
 		enable: boolean;
 		cardColorStart?: string;
@@ -329,6 +334,15 @@ export function rawConfigToSubscription(_name: string, raw: SubItemRawConfig): C
 		};
 	}
 
+	const dynamicMsg = raw.customDynamicMsg;
+	if (dynamicMsg?.enable) {
+		sub.overrides.templates = {
+			...(sub.overrides.templates ?? {}),
+			...(dynamicMsg.dynamicText !== undefined ? { dynamic: dynamicMsg.dynamicText } : {}),
+			...(dynamicMsg.videoText !== undefined ? { dynamicVideo: dynamicMsg.videoText } : {}),
+		};
+	}
+
 	const guardBuy = raw.customGuardBuy;
 	if (guardBuy?.enable) {
 		const defaultUrl = (label: string) =>
@@ -339,15 +353,15 @@ export function rawConfigToSubscription(_name: string, raw: SubItemRawConfig): C
 				enable: true,
 				captain: {
 					imageUrl: guardBuy.captainImgUrl ?? defaultUrl("captain-Bjw5Byb5.png"),
-					template: guardBuy.guardBuyMsg ?? "{user} 成为了 {mastername} 的舰长！",
+					template: guardBuy.guardBuyMsg ?? "{uname} 成为了 {mname} 的舰长！",
 				},
 				commander: {
 					imageUrl: guardBuy.supervisorImgUrl ?? defaultUrl("supervisor-u43ElIjU.png"),
-					template: guardBuy.guardBuyMsg ?? "{user} 成为了 {mastername} 的提督！",
+					template: guardBuy.guardBuyMsg ?? "{uname} 成为了 {mname} 的提督！",
 				},
 				governor: {
 					imageUrl: guardBuy.governorImgUrl ?? defaultUrl("governor-DpDXKEdA.png"),
-					template: guardBuy.guardBuyMsg ?? "{user} 成为了 {mastername} 的总督！",
+					template: guardBuy.guardBuyMsg ?? "{uname} 成为了 {mname} 的总督！",
 				},
 			},
 		};

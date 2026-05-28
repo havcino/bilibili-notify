@@ -115,6 +115,15 @@ export const TemplateBundleSchema = z.object({
 	 */
 	liveMsgEnabled: z.boolean().default(false),
 	liveSummary: z.string(),
+	/**
+	 * 动态推送文本模板(非视频动态)。变量:`{name}` UP 名、`{url}` 动态链接。
+	 * `.default(...)` 让缺 dynamic 字段的老 globals.json(本字段加入前写入的)
+	 * 仍能通过 schema 校验 —— 与下方 imageGroup 同源的老配置兜底策略。默认值须与
+	 * `DEFAULT_TEMPLATES.dynamic` 保持一致。
+	 */
+	dynamic: z.string().default("{name}发布了一条动态：{url}"),
+	/** 视频投稿推送文本模板。变量:`{name}` UP 名、`{url}` 视频链接 / BV。默认值须与 `DEFAULT_TEMPLATES.dynamicVideo` 一致。 */
+	dynamicVideo: z.string().default("{name}发布了新视频：{url}"),
 	specialDanmaku: z.string(),
 	specialUserEnter: z.string(),
 	guardBuy: GuardBundleSchema,

@@ -356,6 +356,8 @@ export function createEngines(opts: CreateEnginesOptions): EnginesRuntime {
 			imageGroup: globals().defaults.imageGroup,
 			imageEnabled: globals().defaults.cardStyle.enabled,
 			aiEnabled: globals().defaults.ai.enabled,
+			dynamicTemplate: globals().defaults.templates.dynamic,
+			videoTemplate: globals().defaults.templates.dynamicVideo,
 			filter: {
 				enable: blockHasRules,
 				notify: false,
@@ -593,8 +595,10 @@ export function createEngines(opts: CreateEnginesOptions): EnginesRuntime {
 						hideFollower: cs.hideFollower,
 					});
 				}
-				// dynamicConfig() 读 app.dynamicCron + defaults.{filters,cardStyle.enabled,ai.enabled}。
-				if (appChanged || filtersChanged || cardStyleChanged || aiChanged) {
+				// dynamicConfig() 读 app.dynamicCron + defaults.{filters,cardStyle.enabled,
+				// ai.enabled,templates.dynamic/dynamicVideo}。改全局动态文本模板也要热更,
+				// 否则无 per-UP 覆盖的订阅会一直用旧模板直到下次别的 section 变更/重启。
+				if (appChanged || filtersChanged || cardStyleChanged || aiChanged || templatesChanged) {
 					dynamic.updateConfig(dynamicConfig());
 				}
 				// liveConfig() 读 defaults.{schedule,filters,templates,cardStyle.enabled,ai.enabled}。
@@ -971,6 +975,10 @@ export function buildDynamicSubsView(
 			// 内部用 `?? engine.config.imageGroup` 与全局 default 兜底。
 			imageGroupEnable: sub.overrides.imageGroup?.enable,
 			imageGroupForward: sub.overrides.imageGroup?.forward,
+			// per-UP 动态/视频文本模板覆盖直接透传;engine 内
+			// `?? config.dynamicTemplate/videoTemplate` 兜底到全局(hot-reload)。
+			customDynamicTemplate: sub.overrides.templates?.dynamic,
+			customVideoTemplate: sub.overrides.templates?.dynamicVideo,
 		};
 	}
 	return view;

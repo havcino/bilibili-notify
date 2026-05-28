@@ -10,17 +10,17 @@ import type { MasterInfo } from "./types";
  * - `customSpecialDanmakuUsers.msgTemplate`
  * - `customSpecialUsersEnterTheRoom.msgTemplate`
  *
- * The variable syntax follows the existing `-name` / `-time` / `-watched` style
- * (NOT the `{key}` syntax used by `@bilibili-notify/internal`'s `interpolate`),
- * because that's what users have in their existing Koishi configs and we keep
- * 1:1 backward compatibility.
+ * 占位符统一 `{name}` / `{time}` / `{watched}` 语法(与 `@bilibili-notify/internal`
+ * 的 `interpolate` 同源)。`applyTemplate` 同时接受 koishi 旧存档里的 legacy
+ * `-name` / `-time` 写法 —— 老用户已保存的 `-key` 模板继续生效,新默认与文档
+ * 一律走 `{key}`,二者不冲突(单遍正则,longest-first)。
  */
 
 /** Defaults applied when neither sub-level nor global config provides a template. */
 export const DEFAULT_LIVE_TEMPLATES = {
-	liveStart: "-name 开播啦，当前粉丝数：-follower\n-link",
-	liveOngoing: "-name 正在直播，已播 -time，累计观看：-watched\n-link",
-	liveEnd: "-name 下播啦，本次直播了 -time，粉丝变化 -follower_change",
+	liveStart: "{name} 开播啦，当前粉丝数：{follower}\n{link}",
+	liveOngoing: "{name} 正在直播，已播 {time}，累计观看：{watched}\n{link}",
+	liveEnd: "{name} 下播啦，本次直播了 {time}，粉丝变化 {follower_change}",
 	liveSummaryFallback: "弹幕总结",
 } as const;
 
@@ -29,21 +29,30 @@ function escapeRegExp(s: string): string {
 }
 
 /**
- * 单遍替换所有变量 token,再把 `\n` 转义展开为真换行。
+ * 单遍替换所有变量 token,再把 `\n` 转义展开为真换行。`vars` 以**裸键**(`name`/
+ * `follower_change`)给出,每个键同时匹配 `{name}`(主)与 legacy `-name`(兼容)。
  *
  * P2:此前 `for…replaceAll` 顺序替换有两个缺陷 ——
- *  1. **token 注入**:用户可控值(uname / 弹幕内容)含 `-link`/`-time` 时
+ *  1. **token 注入**:用户可控值(uname / 弹幕内容)含 `{link}`/`-link` 时
  *     会被后续轮次再次替换;
- *  2. **前缀吞噬**:`-follower` 先于 `-follower_change` 替换,把后者的
+ *  2. **前缀吞噬**:legacy `-follower` 先于 `-follower_change` 替换,把后者的
  *     `-follower` 段吃掉只剩 `_change`。
- * 改为基于原始模板的**单遍正则**:token 按长度降序进 alternation(最长优先
- * 匹配),每个 token 恰好替换一次且替换值不再被回扫 → 杜绝注入与吞噬。
+ * 改为基于原始模板的**单遍正则**:键按长度降序进 alternation(最长优先匹配),
+ * 每个 token 恰好替换一次且替换值不再被回扫 → 杜绝注入与吞噬。
  */
 export function applyTemplate(template: string, vars: Record<string, string>): string {
 	const keys = Object.keys(vars).sort((a, b) => b.length - a.length);
 	if (keys.length === 0) return template.replaceAll("\\n", "\n");
-	const re = new RegExp(keys.map(escapeRegExp).join("|"), "g");
-	return template.replace(re, (m) => vars[m] ?? m).replaceAll("\\n", "\n");
+	// 每个裸键生成两种写法:`{key}`(主)与 `-key`(legacy)。longest-first 由 keys
+	// 的降序保证 —— `-follower_change` 的 alt 先于 `-follower` 出现,不被吞噬。
+	const alts = keys.flatMap((k) => [`\\{${escapeRegExp(k)}\\}`, `-${escapeRegExp(k)}`]);
+	const re = new RegExp(alts.join("|"), "g");
+	return template
+		.replace(re, (m) => {
+			const key = m.charCodeAt(0) === 123 /* '{' */ ? m.slice(1, -1) : m.slice(1);
+			return vars[key] ?? m;
+		})
+		.replaceAll("\\n", "\n");
 }
 
 /**
@@ -96,10 +105,10 @@ export class LiveTemplateRenderer {
 			DEFAULT_LIVE_TEMPLATES.liveStart,
 		);
 		return applyTemplate(tmpl, {
-			"-name": params.master.username,
-			"-time": params.diffTime,
-			"-follower": params.followerNum,
-			"-link": params.roomLink,
+			name: params.master.username,
+			time: params.diffTime,
+			follower: params.followerNum,
+			link: params.roomLink,
 		});
 	}
 
@@ -119,10 +128,10 @@ export class LiveTemplateRenderer {
 			DEFAULT_LIVE_TEMPLATES.liveOngoing,
 		);
 		return applyTemplate(tmpl, {
-			"-name": params.master.username,
-			"-time": params.diffTime,
-			"-watched": params.watched,
-			"-link": params.roomLink,
+			name: params.master.username,
+			time: params.diffTime,
+			watched: params.watched,
+			link: params.roomLink,
 		});
 	}
 
@@ -141,9 +150,9 @@ export class LiveTemplateRenderer {
 			DEFAULT_LIVE_TEMPLATES.liveEnd,
 		);
 		return applyTemplate(tmpl, {
-			"-name": params.master.username,
-			"-time": params.diffTime,
-			"-follower_change": formatFollowerChange(params.followerChange),
+			name: params.master.username,
+			time: params.diffTime,
+			follower_change: formatFollowerChange(params.followerChange),
 		});
 	}
 
@@ -158,9 +167,9 @@ export class LiveTemplateRenderer {
 		giftName: string;
 	}): string {
 		return applyTemplate(params.guardBuyConfig.guardBuyMsg ?? "", {
-			"-uname": params.uname,
-			"-mname": params.master?.username ?? "",
-			"-guard": params.giftName,
+			uname: params.uname,
+			mname: params.master?.username ?? "",
+			guard: params.giftName,
 		});
 	}
 
@@ -172,9 +181,9 @@ export class LiveTemplateRenderer {
 		content: string;
 	}): string {
 		return applyTemplate(params.template, {
-			"-mastername": params.master?.username ?? "",
-			"-uname": params.uname,
-			"-msg": params.content,
+			mastername: params.master?.username ?? "",
+			uname: params.uname,
+			msg: params.content,
 		});
 	}
 
@@ -185,8 +194,8 @@ export class LiveTemplateRenderer {
 		master: MasterInfo | undefined;
 	}): string {
 		return applyTemplate(params.template, {
-			"-mastername": params.master?.username ?? "",
-			"-uname": params.uname,
+			mastername: params.master?.username ?? "",
+			uname: params.uname,
 		});
 	}
 
@@ -209,19 +218,19 @@ export class LiveTemplateRenderer {
 		// 为空名 / 0 条。
 		const at = (i: number): [string, number] => top[i] ?? ["", 0];
 		return applyTemplate(params.template, {
-			"-dmc": `${params.senderCount}`,
-			"-mdn": params.master?.medalName ?? "",
-			"-dca": `${params.danmakuCount}`,
-			"-un1": at(0)[0],
-			"-dc1": `${at(0)[1]}`,
-			"-un2": at(1)[0],
-			"-dc2": `${at(1)[1]}`,
-			"-un3": at(2)[0],
-			"-dc3": `${at(2)[1]}`,
-			"-un4": at(3)[0],
-			"-dc4": `${at(3)[1]}`,
-			"-un5": at(4)[0],
-			"-dc5": `${at(4)[1]}`,
+			dmc: `${params.senderCount}`,
+			mdn: params.master?.medalName ?? "",
+			dca: `${params.danmakuCount}`,
+			un1: at(0)[0],
+			dc1: `${at(0)[1]}`,
+			un2: at(1)[0],
+			dc2: `${at(1)[1]}`,
+			un3: at(2)[0],
+			dc3: `${at(2)[1]}`,
+			un4: at(3)[0],
+			dc4: `${at(3)[1]}`,
+			un5: at(4)[0],
+			dc5: `${at(4)[1]}`,
 		});
 	}
 }
