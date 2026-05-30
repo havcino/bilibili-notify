@@ -47,6 +47,7 @@ export class RoomContext extends RoomContextBase {
 			this.logger.warn(`[conn] 直播间 [${roomId}] 连接已存在，跳过创建`);
 			return true;
 		}
+		this.consumeIntentionalClose(roomId);
 
 		const cookiesStr = this.api.getCookiesHeader();
 		let mySelfInfo: MySelfInfoData;

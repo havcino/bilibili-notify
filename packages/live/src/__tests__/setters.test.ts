@@ -120,6 +120,22 @@ describe("LiveEngine — setImageRenderer 与 setCommentary 后置注入", () =>
 		expect(ctxAny.imageRenderer).toBeNull();
 	});
 
+	it("teardown 走 disposeAll,确保 auth-lost 主动关闭会先 cancel sessions", () => {
+		const engine = buildEngine(null);
+		// biome-ignore lint/suspicious/noExplicitAny: 测试白盒
+		const listener = (engine as any).listener as {
+			disposeAll: () => void;
+			clearListeners: () => void;
+		};
+		const disposeAll = vi.spyOn(listener, "disposeAll").mockImplementation(() => {});
+		const clearListeners = vi.spyOn(listener, "clearListeners").mockImplementation(() => {});
+
+		engine.teardown();
+
+		expect(disposeAll).toHaveBeenCalledTimes(1);
+		expect(clearListeners).not.toHaveBeenCalled();
+	});
+
 	it("setCommentary 后,内部 LiveSummaryRequester 实际收到新 commentary 引用", () => {
 		const engine = buildEngine(null);
 		// biome-ignore lint/suspicious/noExplicitAny: 测试白盒

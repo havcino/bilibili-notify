@@ -160,10 +160,7 @@ export class LiveEngine {
 	/** Tear down all listeners + per-room state, leaving the engine instance reusable. */
 	teardown(): void {
 		this.logger.info("[live] 关闭所有直播间监听");
-		this.listener.clearPushTimers();
-		this.listener.clearListeners();
-		// keep danmakuCollector data drained so a fresh start has no stale buffers.
-		this.danmakuCollector.clearAll();
+		this.listener.disposeAll();
 	}
 
 	/** Full rebootstrap. Used after auth-restored. */

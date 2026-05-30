@@ -106,6 +106,7 @@ export abstract class RoomSessionBase {
 			await this.ctx.push.sendPrivateMsg(
 				`直播间 [${this.sub.roomId}] 弹幕连接建立失败，已停止该房间监测`,
 			);
+			this.onMonitoringStopped();
 			this.ctx.closeListener(this.sub.roomId);
 			return;
 		}
@@ -117,10 +118,12 @@ export abstract class RoomSessionBase {
 			!this.masterInfo
 		) {
 			await this.ctx.push.sendPrivateMsg("获取直播间信息失败，启动直播间弹幕检测失败");
+			this.onMonitoringStopped();
 			this.ctx.closeListener(this.sub.roomId);
 			return;
 		}
 
+		this.onListenerStarted();
 		this.ctx.logger.debug(`[stat] 当前粉丝数：${this.masterInfo.liveOpenFollowerNum}`);
 
 		if (this.liveRoomInfo.live_status === 1) {
@@ -159,6 +162,12 @@ export abstract class RoomSessionBase {
 
 	/** Build the platform-specific {@link MsgHandler}; provided by the subclass. */
 	protected abstract buildHandler(): MsgHandler;
+
+	/** Hook for subclass-owned connection-health bookkeeping after listener bootstrap succeeds. */
+	protected onListenerStarted(): void {}
+
+	/** Hook for subclass-owned cleanup before this session intentionally stops monitoring. */
+	protected onMonitoringStopped(): void {}
 
 	// ── State transitions ─────────────────────────────────────────────────────
 
@@ -223,6 +232,7 @@ export abstract class RoomSessionBase {
 	/** Periodic "正在直播" tick (callback for `setInterval`). */
 	protected async tickPushAtTime(): Promise<void> {
 		if (!(await this.useLiveRoomInfo(LiveType.LiveBroadcast)) || !this.liveRoomInfo) {
+			this.onMonitoringStopped();
 			this.ctx.stopMonitoring("获取直播间信息失败，推送直播卡片失败", this.sub.roomId);
 			return;
 		}
@@ -289,6 +299,7 @@ export abstract class RoomSessionBase {
 			this.setLiveStatus(false);
 			this.ctx.danmakuCollector.clear(this.sub.roomId);
 			if (this.ctx.isDisposed()) return;
+			this.onMonitoringStopped();
 			this.ctx.stopMonitoring("获取直播间信息失败，推送直播下播卡片失败", this.sub.roomId);
 			return;
 		}

@@ -141,6 +141,8 @@ export class RoomContextBase {
 	readonly livePushTimerManager: Map<string, () => void> = new Map();
 
 	private disposed = false;
+	/** stopMonitoring 主动关闭 listener 时置位;RoomSession.onClose 消费后不做自愈重连。 */
+	private readonly intentionalCloseRooms = new Set<string>();
 	/** Cached protobuf type for INTERACT_WORD_V2 decoding (lazy-loaded). */
 	protected interactWord?: protobuf.Type;
 	/**
@@ -180,6 +182,12 @@ export class RoomContextBase {
 	 */
 	emitViewers(uid: string, viewers: string): void {
 		this._emitViewers?.(uid, viewers);
+	}
+
+	consumeIntentionalClose(roomId: string): boolean {
+		const hit = this.intentionalCloseRooms.has(roomId);
+		this.intentionalCloseRooms.delete(roomId);
+		return hit;
 	}
 
 	/** 受 `config.imageEnabled` 门控的渲染器视图;关闭时返回 null。 */
@@ -231,10 +239,12 @@ export class RoomContextBase {
 	closeListener(roomId: string): void {
 		const listener = this.listenerRecord[roomId];
 		if (!listener) {
+			this.intentionalCloseRooms.delete(roomId);
 			this.logger.debug(`[conn] 直播间 [${roomId}] 连接不存在，跳过关闭`);
 			return;
 		}
 		if (listener.closed) {
+			this.intentionalCloseRooms.delete(roomId);
 			this.logger.debug(`[conn] 直播间 [${roomId}] 连接已被远端断开`);
 			delete this.listenerRecord[roomId];
 			return;
@@ -265,6 +275,7 @@ export class RoomContextBase {
 	stopMonitoring(reason: string, roomId?: string): void {
 		if (roomId) {
 			this.logger.error(`[conn] [${roomId}] ${reason}，已停止该房间的监测`);
+			this.intentionalCloseRooms.add(roomId);
 			this.closeListener(roomId);
 			const timer = this.livePushTimerManager.get(roomId);
 			if (timer) {
