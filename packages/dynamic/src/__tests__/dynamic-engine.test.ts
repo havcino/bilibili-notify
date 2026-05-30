@@ -389,6 +389,71 @@ describe("DynamicEngine.detectDynamics — 时间线 / 订阅过滤", () => {
 		expect(b.push.broadcastDynamic).not.toHaveBeenCalled();
 	});
 
+	it("未订阅 uid 的无效 pub_ts → 静默跳过,不刷 warn", async () => {
+		const b = makeEngine();
+		const bad = makeItem({ uid: 999 });
+		(bad.modules.module_author as { pub_ts: unknown }).pub_ts = "oops";
+		b.getAllDynamic.mockResolvedValue(resp([bad]));
+		seed(b.engine, "1", 0);
+		await detect(b.engine);
+		expect(b.push.broadcastDynamic).not.toHaveBeenCalled();
+		expect(b.logs.some((l) => l.level === "warn" && l.msg.includes("无法解析发布时间"))).toBe(
+			false,
+		);
+	});
+
+	it("pub_ts 为数字字符串 → 正常推送并推进 timeline", async () => {
+		const b = makeEngine();
+		const item = makeItem({ uid: 1 });
+		(item.modules.module_author as { pub_ts: unknown }).pub_ts = "1234";
+		b.getAllDynamic.mockResolvedValue(resp([item]));
+		seed(b.engine, "1", 0);
+		await detect(b.engine);
+		expect(b.push.broadcastDynamic).toHaveBeenCalledTimes(1);
+		expect(priv(b.engine).dynamicTimelineManager.get("1")).toBe(1234);
+	});
+
+	it("pub_ts 为毫秒时间戳字符串 → 归一化为秒后推送", async () => {
+		const b = makeEngine();
+		const item = makeItem({ uid: 1 });
+		(item.modules.module_author as { pub_ts: unknown }).pub_ts = "1717067523000";
+		b.getAllDynamic.mockResolvedValue(resp([item]));
+		seed(b.engine, "1", 0);
+		await detect(b.engine);
+		expect(b.push.broadcastDynamic).toHaveBeenCalledTimes(1);
+		expect(priv(b.engine).dynamicTimelineManager.get("1")).toBe(1717067523);
+	});
+
+	it("pub_ts 缺失但 pub_time 可解析 → 兜底推送", async () => {
+		const b = makeEngine();
+		const item = makeItem({ uid: 1 });
+		(item.modules.module_author as { pub_ts?: unknown }).pub_ts = undefined;
+		(item.modules.module_author as { pub_time: string }).pub_time = "2026-05-30 12:12:00";
+		b.getAllDynamic.mockResolvedValue(resp([item]));
+		seed(b.engine, "1", 0);
+		await detect(b.engine);
+		expect(b.push.broadcastDynamic).toHaveBeenCalledTimes(1);
+		expect(priv(b.engine).dynamicTimelineManager.get("1")).toBeGreaterThan(0);
+	});
+
+	it("pub_ts 缺失但 pub_time 为相对时间/昨天 → 兜底解析", async () => {
+		vi.useFakeTimers();
+		try {
+			vi.setSystemTime(new Date("2026-05-30T12:00:00+08:00"));
+			const b = makeEngine();
+			const item = makeItem({ uid: 1 });
+			(item.modules.module_author as { pub_ts?: unknown }).pub_ts = undefined;
+			(item.modules.module_author as { pub_time: string }).pub_time = "昨天 11:30";
+			b.getAllDynamic.mockResolvedValue(resp([item]));
+			seed(b.engine, "1", 0);
+			await detect(b.engine);
+			expect(b.push.broadcastDynamic).toHaveBeenCalledTimes(1);
+			expect(priv(b.engine).dynamicTimelineManager.get("1")).toBeGreaterThan(0);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
 	it("新动态推送后 timeline 推进到 pub_ts", async () => {
 		const b = makeEngine();
 		b.getAllDynamic.mockResolvedValue(resp([makeItem({ uid: 1, pubTs: 1234 })]));

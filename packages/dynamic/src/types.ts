@@ -28,7 +28,7 @@ export type Dynamic = {
 			name: string;
 			pub_action: string;
 			pub_time: string;
-			pub_ts: number;
+			pub_ts?: number | string;
 			type: string;
 			// biome-ignore lint/suspicious/noExplicitAny: API response
 			[key: string]: any;

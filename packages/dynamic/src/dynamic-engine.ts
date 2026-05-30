@@ -46,6 +46,71 @@ function renderDynamicText(template: string, name: string, url: string): string 
 	return interpolate(tmpl, { name, url }).replaceAll("\\n", "\n");
 }
 
+function parseUid(raw: unknown): string | undefined {
+	if (typeof raw === "number" && Number.isFinite(raw)) return String(Math.trunc(raw));
+	if (typeof raw !== "string") return undefined;
+	const trimmed = raw.trim();
+	return /^\d+$/.test(trimmed) ? trimmed : undefined;
+}
+
+function normalizeUnixSeconds(raw: unknown): number | undefined {
+	if (typeof raw !== "number" && typeof raw !== "string") return undefined;
+	if (typeof raw === "string" && !/^\d+(?:\.\d+)?$/.test(raw.trim())) return undefined;
+	const n = Number(raw);
+	if (!Number.isFinite(n) || n <= 0) return undefined;
+	if (n > 10_000_000_000) {
+		const seconds = Math.floor(n / 1000);
+		return seconds <= 10_000_000_000 ? seconds : undefined;
+	}
+	return Math.floor(n);
+}
+
+function parsePubTimeFallback(raw: unknown, now = DateTime.now()): number | undefined {
+	if (typeof raw !== "string") return undefined;
+	const text = raw.trim();
+	if (!text) return undefined;
+	if (text === "刚刚") return Math.floor(now.toSeconds());
+
+	const relative = text.match(/^(\d+)(秒|分钟|小时)前$/);
+	if (relative) {
+		const amount = Number(relative[1]);
+		if (!Number.isFinite(amount)) return undefined;
+		const unit = relative[2] === "秒" ? "seconds" : relative[2] === "分钟" ? "minutes" : "hours";
+		return Math.floor(now.minus({ [unit]: amount }).toSeconds());
+	}
+
+	const normalized = text
+		.replace(/[年月]/g, "-")
+		.replace(/日/g, "")
+		.replace(/\//g, "-")
+		.replace(/\s+/g, " ");
+	const formats = ["yyyy-M-d H:mm:ss", "yyyy-M-d H:mm", "yyyy-M-d", "M-d H:mm:ss", "M-d H:mm"];
+	for (const fmt of formats) {
+		let dt = DateTime.fromFormat(normalized, fmt);
+		if (!dt.isValid) continue;
+		if (!fmt.startsWith("yyyy")) {
+			dt = dt.set({ year: now.year });
+			if (dt > now.plus({ days: 1 })) dt = dt.minus({ years: 1 });
+		}
+		return Math.floor(dt.toSeconds());
+	}
+
+	const yesterday = normalized.match(/^昨天\s*(\d{1,2}):(\d{2})(?::(\d{2}))?$/);
+	if (yesterday) {
+		const hour = Number(yesterday[1]);
+		const minute = Number(yesterday[2]);
+		const second = Number(yesterday[3] ?? 0);
+		const dt = now.minus({ days: 1 }).set({ hour, minute, second, millisecond: 0 });
+		return dt.isValid ? Math.floor(dt.toSeconds()) : undefined;
+	}
+
+	return undefined;
+}
+
+function getDynamicPostTime(author: Dynamic["modules"]["module_author"]): number | undefined {
+	return normalizeUnixSeconds(author.pub_ts) ?? parsePubTimeFallback(author.pub_time);
+}
+
 /**
  * Runtime configuration for {@link DynamicEngine}. Mirrors the platform-neutral
  * subset of `BilibiliNotifyDynamicConfig`; the koishi shell maps its schema
@@ -508,19 +573,26 @@ export class DynamicEngine {
 		for (const item of content.data.items) {
 			if (!item) continue;
 
-			const postTime = item.modules.module_author.pub_ts;
-			if (typeof postTime !== "number" || !Number.isFinite(postTime)) {
+			const author = item.modules?.module_author;
+			const uid = parseUid(author?.mid);
+			if (!uid) {
+				this.logger.debug(`[detector] 跳过无作者 UID 的动态，ID=${item.id_str ?? "unknown"}`);
+				continue;
+			}
+
+			const timeline = this.dynamicTimelineManager.get(uid);
+			if (timeline === undefined) continue; // not subscribed
+
+			const postTime = getDynamicPostTime(author);
+			if (postTime === undefined) {
+				const rawPubTs = (author as { pub_ts?: unknown }).pub_ts;
 				this.logger.warn(
-					`[detector] 跳过无效动态：pub_ts 缺失或非数字，ID=${item.id_str ?? "unknown"}`,
+					`[detector] 跳过无效动态：无法解析发布时间，UID=${uid} ID=${item.id_str ?? "unknown"} type=${item.type ?? "unknown"} pub_ts_type=${typeof rawPubTs} pub_ts=${JSON.stringify(rawPubTs)} pub_time=${JSON.stringify(author.pub_time)}`,
 				);
 				continue;
 			}
 
-			const uid = item.modules.module_author.mid.toString();
-			const name = item.modules.module_author.name;
-
-			const timeline = this.dynamicTimelineManager.get(uid);
-			if (timeline === undefined) continue; // not subscribed
+			const name = author.name;
 
 			this.logger.debug(
 				`[detector] 检查动态 UP=${name} UID=${uid} 发布时间=${DateTime.fromSeconds(postTime).toFormat("yyyy-MM-dd HH:mm:ss")}`,
