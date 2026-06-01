@@ -1,6 +1,6 @@
 name: bilibili-notify — build + publish
 
-# Required repo secret: DOCKERHUB_TOKEN
+# Uses GITHUB_TOKEN for GitHub Container Registry (GHCR) authentication; no extra secret required
 
 on:
   # 只有改动 apps/server/package.json 才构建 —— 手动 bump version 即「发版」。
@@ -31,9 +31,10 @@ permissions:
   # GITHUB_TOKEN 保持最小权限:本 workflow 只读取代码并推 Docker manifest;
   # v<VERSION> tag 与 GitHub Release 由 desktop-release workflow 创建。
   contents: read
+  packages: write
 
 env:
-  IMAGE: docker.io/akokk0/bilibili-notify
+  IMAGE: ghcr.io/havcino/bilibili-notify
   # 统一 dry-run gate —— 两种触发方式归一化:
   #   - push 事件:commit message 含 `[dry-run]`(运维偶尔验 build + smoke 用)
   #   - workflow_dispatch:勾 dry_run 输入(手动 dispatch 验证用)
@@ -74,13 +75,13 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
 
-      - name: Log in to Docker Hub
+      - name: Log in to GitHub Container Registry
         if: env.DRY_RUN == 'false'
         uses: docker/login-action@v4
         with:
-          registry: docker.io
-          username: akokk0
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       # build push-by-digest:只把当前 platform 的镜像 push 到 registry,不附带
       # 任何 tag —— 拿到的 digest 由 merge job 收集后拼 manifest list 时带 tag。
@@ -100,7 +101,7 @@ jobs:
           # arch 卡死本步 —— 高度怀疑 GHA Cache API 导入/导出节流 hang(moby/buildkit
           # #2804 一类)。先完全去掉 cache-from/cache-to 验证。无 cache → builder 阶段
           # (pnpm install / build)每次全量重跑,arm64 +4-5min / amd64 +3-4min,发版
-          # 频率低可接受。若确认缓存是元凶,再按 arch scope 谨慎恢复(或换 type=registry)。
+          # 频率低可接受。若确认缓存是元凶,再按 arch scope 谨慎恢复(或换 type=registry).
 
       # Smoke 只在 amd64 跑 —— GHA arm64 runner 也能跑自家镜像但意义不大:
       # smoke 验的是"镜像启动 + /api/health + dashboard 静态资源",amd64 验过
@@ -136,11 +137,11 @@ jobs:
           if-no-files-found: error
 
   # ---------------------------------------------------------------------------
-  # Merge:拼 manifest list 并推 Docker Hub
+  # Merge:拼 manifest list 并推到 GHCR
   #
   # build matrix 两个 arch 都成功后才跑;从 artifact 拿 digests,docker buildx
   # imagetools create 把它们组合成 manifest list(amd64 + arm64),带上完整 tag
-  # 集合(:v*, :alpha 或 :latest, :<sha>)推 Docker Hub。git tag + GitHub Release
+  # 集合(:v*, :alpha 或 :latest, :<sha>)推 GHCR。git tag + GitHub Release
   # 已迁移到 desktop-release workflow。
   # ---------------------------------------------------------------------------
   merge:
@@ -178,12 +179,12 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
 
-      - name: Log in to Docker Hub
+      - name: Log in to GitHub Container Registry
         uses: docker/login-action@v4
         with:
-          registry: docker.io
-          username: akokk0
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       # 独立端版本号 = apps/server/package.json#version(手动维护,唯一事实源)。
       # 含 prerelease 标识(有 `-`,如 0.1.0-alpha.0)→ alpha 渠道,否则正式。
